@@ -1,8 +1,8 @@
 # 接口设计文档
 
-| 版本 | 日期 | 范围 | 状态 |
-| :----: | :--------: | :------------------------: | :--: |
-| v1.0.0 | 2026-11-03 | 用户、瞬间及必要依赖 | 设计稿 |
+| 版本 | 日期 | 范围 |
+| :----: | :--------: | :------------------------: |
+| v1.0.0 | 2026-11-03 | 用户、瞬间及必要依赖 |
 
 ## 接口规范
 
@@ -18,7 +18,7 @@ API Prefix: /
 
 约定不同业务模块前缀：
 
-- 用户：`admin`
+- 用户：`user`
 - 瞬间：`moment`
 - 时光：`album`
 - 同行：`gathering`
@@ -32,9 +32,9 @@ API Prefix: /
 
 | 操作 | HTTP Method | URL 示例 |
 | --- | --- | --- |
-| 创建用户 | POST | `/admin/users` |
-| 创建登录会话 | POST | `/admin/sessions` |
-| 查询当前用户 | GET | `/admin/users/me` |
+| 创建用户 | POST | `/user/users` |
+| 创建登录会话 | POST | `/user/sessions` |
+| 查询当前用户 | GET | `/user/users/me` |
 | 部分更新瞬间 | PATCH | `/moment/moments/{momentId}` |
 | 替换可见范围 | PUT | `/moment/moments/{momentId}/visibility` |
 | 删除瞬间 | DELETE | `/moment/moments/{momentId}` |
@@ -64,12 +64,12 @@ API Prefix: /
 使用 JWT Bearer Token，示例：
 
 ```
-GET /admin/users/me
+GET /user/users/me
 Authorization: Bearer eyJhbGciOi...
 ```
 
 - 注册、登录公开；其他接口需要 JWT。
-- 令牌固定有效期 900 秒，无刷新接口，到期重新登录。
+- 令牌固定有效期 7 天（604800 秒），无刷新接口，到期重新登录。
 - 验证签名、有效期、签发者和受众；服务端仅接受固定配置的签名算法。
 
 ## 用户模块
@@ -78,17 +78,17 @@ Authorization: Bearer eyJhbGciOi...
 
 | 接口名称 | 方法 | 路径 |
 | --- | --- | --- |
-| 用户注册 | POST | `/admin/users` |
-| 用户登录 | POST | `/admin/sessions` |
-| 退出登录 | DELETE | `/admin/sessions/current` |
-| 获取当前用户资料 | GET | `/admin/users/me` |
-| 更新当前用户资料 | PATCH | `/admin/users/me` |
-| 上传头像图片 | POST | `/admin/avatar-files` |
-| 读取头像图片 | GET | `/admin/avatar-files/{fileId}/content` |
+| 用户注册 | POST | `/user/users` |
+| 用户登录 | POST | `/user/sessions` |
+| 退出登录 | DELETE | `/user/sessions/current` |
+| 获取当前用户资料 | GET | `/user/users/me` |
+| 更新当前用户资料 | PATCH | `/user/users/me` |
+| 上传头像图片 | POST | `/user/avatar-files` |
+| 读取头像图片 | GET | `/user/avatar-files/{fileId}/content` |
 
 ### 用户注册
 
-POST `/admin/users` 公开接口
+POST `/user/users` 公开接口
 
 创建用户名密码账号，注册成功后由客户端进入登录。
 
@@ -98,7 +98,7 @@ POST `/admin/users` 公开接口
 | --- | --- |
 | 接口名称 | 用户注册 |
 | 请求方式 | POST |
-| 请求路径 | `/admin/users` |
+| 请求路径 | `/user/users` |
 | 认证要求 | 不需要 |
 | 成功状态码 | 201 |
 
@@ -168,9 +168,9 @@ POST `/admin/users` 公开接口
 
 ### 用户登录
 
-POST `/admin/sessions` 公开接口
+POST `/user/sessions` 公开接口
 
-校验用户名与密码并签发短期访问令牌。
+校验用户名与密码并签发有效期为 7 天的访问令牌。
 
 #### 基本信息
 
@@ -178,7 +178,7 @@ POST `/admin/sessions` 公开接口
 | --- | --- |
 | 接口名称 | 用户登录 |
 | 请求方式 | POST |
-| 请求路径 | `/admin/sessions` |
+| 请求路径 | `/user/sessions` |
 | 认证要求 | 不需要 |
 | 成功状态码 | 200 |
 
@@ -206,7 +206,7 @@ POST `/admin/sessions` 公开接口
 | --- | --- | --- |
 | accessToken | string | JWT 访问令牌 |
 | tokenType | string | 固定 Bearer |
-| expiresIn | integer | 固定 900，单位秒 |
+| expiresIn | integer | 固定 604800，单位秒（7 天） |
 | user | object | 本人资料，结构同获取当前用户资料 |
 
 #### 响应示例
@@ -218,7 +218,7 @@ POST `/admin/sessions` 公开接口
   "data": {
     "accessToken": "eyJhbGciOi...",
     "tokenType": "Bearer",
-    "expiresIn": 900,
+    "expiresIn": 604800,
     "user": {
       "id": "019a48d0-0000-7000-8000-000000000001",
       "username": "calmer",
@@ -247,7 +247,7 @@ POST `/admin/sessions` 公开接口
 
 ### 退出登录
 
-DELETE `/admin/sessions/current` 受保护接口
+DELETE `/user/sessions/current` 受保护接口
 
 提供退出动作确认，客户端销毁本机当前凭证。
 
@@ -257,7 +257,7 @@ DELETE `/admin/sessions/current` 受保护接口
 | --- | --- |
 | 接口名称 | 退出登录 |
 | 请求方式 | DELETE |
-| 请求路径 | `/admin/sessions/current` |
+| 请求路径 | `/user/sessions/current` |
 | 认证要求 | JWT Bearer Token |
 | 成功状态码 | 200 |
 
@@ -268,7 +268,7 @@ DELETE `/admin/sessions/current` 受保护接口
 #### 请求示例
 
 ```http
-DELETE /admin/sessions/current
+DELETE /user/sessions/current
 Authorization: Bearer <accessToken>
 ```
 
@@ -306,7 +306,7 @@ Authorization: Bearer <accessToken>
 
 ### 获取当前用户资料
 
-GET `/admin/users/me` 受保护接口
+GET `/user/users/me` 受保护接口
 
 获取本人的账号及个人资料。
 
@@ -316,7 +316,7 @@ GET `/admin/users/me` 受保护接口
 | --- | --- |
 | 接口名称 | 获取当前用户资料 |
 | 请求方式 | GET |
-| 请求路径 | `/admin/users/me` |
+| 请求路径 | `/user/users/me` |
 | 认证要求 | JWT Bearer Token |
 | 成功状态码 | 200 |
 
@@ -327,7 +327,7 @@ GET `/admin/users/me` 受保护接口
 #### 请求示例
 
 ```http
-GET /admin/users/me
+GET /user/users/me
 ```
 
 #### 响应数据
@@ -375,7 +375,7 @@ GET /admin/users/me
 
 ### 更新当前用户资料
 
-PATCH `/admin/users/me` 受保护接口
+PATCH `/user/users/me` 受保护接口
 
 部分更新本人昵称和头像。
 
@@ -385,7 +385,7 @@ PATCH `/admin/users/me` 受保护接口
 | --- | --- |
 | 接口名称 | 更新当前用户资料 |
 | 请求方式 | PATCH |
-| 请求路径 | `/admin/users/me` |
+| 请求路径 | `/user/users/me` |
 | 认证要求 | JWT Bearer Token |
 | 成功状态码 | 200 |
 
@@ -457,7 +457,7 @@ PATCH `/admin/users/me` 受保护接口
 
 ### 上传头像图片
 
-POST `/admin/avatar-files` 受保护接口
+POST `/user/avatar-files` 受保护接口
 
 接收图片，完成校验及对象存储写入后建立 media_file 记录。
 
@@ -467,7 +467,7 @@ POST `/admin/avatar-files` 受保护接口
 | --- | --- |
 | 接口名称 | 上传头像图片 |
 | 请求方式 | POST |
-| 请求路径 | `/admin/avatar-files` |
+| 请求路径 | `/user/avatar-files` |
 | 认证要求 | JWT Bearer Token |
 | 成功状态码 | 201 |
 
@@ -480,7 +480,7 @@ POST `/admin/avatar-files` 受保护接口
 #### 请求示例
 
 ```http
-POST /admin/avatar-files
+POST /user/avatar-files
 Content-Type: multipart/form-data; boundary=<boundary>
 
 --<boundary>
@@ -512,7 +512,7 @@ Content-Type: image/jpeg
     "id": "019a48d0-0000-7000-8000-000000000003",
     "mimeType": "image/jpeg",
     "byteSize": 204800,
-    "contentPath": "/admin/avatar-files/019a48d0-0000-7000-8000-000000000003/content"
+    "contentPath": "/user/avatar-files/019a48d0-0000-7000-8000-000000000003/content"
   }
 }
 ```
@@ -535,7 +535,7 @@ Content-Type: image/jpeg
 
 ### 读取头像图片
 
-GET `/admin/avatar-files/{fileId}/content` 受保护接口
+GET `/user/avatar-files/{fileId}/content` 受保护接口
 
 校验当前读取资格后代理输出图片二进制。
 
@@ -545,7 +545,7 @@ GET `/admin/avatar-files/{fileId}/content` 受保护接口
 | --- | --- |
 | 接口名称 | 读取头像图片 |
 | 请求方式 | GET |
-| 请求路径 | `/admin/avatar-files/{fileId}/content` |
+| 请求路径 | `/user/avatar-files/{fileId}/content` |
 | 认证要求 | JWT Bearer Token |
 | 成功状态码 | 200 |
 
@@ -558,7 +558,7 @@ GET `/admin/avatar-files/{fileId}/content` 受保护接口
 #### 请求示例
 
 ```http
-GET /admin/avatar-files/019a48d0-0000-7000-8000-000000000003/content
+GET /user/avatar-files/019a48d0-0000-7000-8000-000000000003/content
 Authorization: Bearer <accessToken>
 ```
 
