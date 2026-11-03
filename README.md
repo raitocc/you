@@ -30,14 +30,8 @@
 在 YOU 根目录执行：
 
 ```powershell
-docker compose up -d mysql rustfs
+docker compose up -d
 mvn -f you-backend/pom.xml -DskipTests clean package
-```
-
-审阅初始建表 SQL 后，在 IDEA 运行 `YouBackendApplication`，或执行：
-
-```powershell
-java -jar you-backend/target/you-backend-0.0.1-SNAPSHOT.jar
 ```
 
 应用启动时，Flyway 自动执行待执行的迁移并记录历史。MySQL 数据库、账号和密码均为 `you`，端口为 `3306`。RustFS Access Key 和 Secret Key 均为 `you`，S3 接口为 `http://localhost:9000`，控制台为 `http://localhost:9001`。
@@ -51,3 +45,22 @@ java -jar you-backend/target/you-backend-0.0.1-SNAPSHOT.jar
 业务代码放在 `src/main/java/com/you/youbackend` 下，按业务建立包；测试放在 `src/test/java`。先落实 UUIDv7 生成及二进制转换、审计时间填充和逻辑删除映射，再跑通“注册登录 → 上传图片 → 发布瞬间 → 浏览、编辑、删除”的基础流程。
 
 后续改表在 `src/main/resources/db/migration` 新增 `V1.1__描述.sql`、`V1.2__描述.sql` 等迁移；已执行的历史文件保持原样。多人同时改表时协调版本号，接口说明随 Controller 一起维护到 Scalar。
+
+```
+com.you
+├── YouApplication.java
+├── config                      # MVC、认证、MyBatis、存储、AI 等配置
+├── common
+│   ├── exception               # 异常及统一异常处理
+│   ├── response                # 统一响应、公共错误码、分页结果等
+│   ├── mybatis                 # UUID 等公共类型转换
+│   └── util                    # 实际需要的通用工具
+├── user                        # 注册、登录、退出、当前用户、个人资料
+├── moment                      # 瞬间、组图、标签、浏览、搜索、关联调整
+├── album                       # 时光及其中的瞬间
+├── gathering                   # 一次共同经历、成员、邀请码与阶段管理
+├── circle                      # 圈子、成员、内容分享
+├── media                       # 图片上传、文件元数据、访问地址、RustFS 接入
+├── message                     # 用户信箱、站内通知及各自的已读管理
+└── ai                          # 辅助填写、语义检索、整理与生成能力
+```
