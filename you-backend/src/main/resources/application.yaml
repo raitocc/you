@@ -2,11 +2,25 @@ spring:
   application:
     name: you-backend
   datasource:
-    url: jdbc:mysql://localhost:3306/you
-    username: you
-    password: you
+    url: ${DB_URL:jdbc:mysql://localhost:3306/you?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
+    username: ${DB_USERNAME:you}
+    password: ${DB_PASSWORD:you}
 
 storage:
-  endpoint: http://localhost:9000
-  access-key: you
-  secret-key: you
+  endpoint: ${STORAGE_ENDPOINT:http://localhost:9000}
+  access-key: ${STORAGE_ACCESS_KEY:you}
+  secret-key: ${STORAGE_SECRET_KEY:you}
+  bucket: ${STORAGE_BUCKET:you-files}
+  public-endpoint: ${STORAGE_PUBLIC_ENDPOINT:http://localhost:9000}
+auth:
+  jwt:
+    secret: ${JWT_SECRET}
+    issuer: you
+    audience: you-client
+  login:
+    account-per-minute: 10
+    ip-per-minute: 30
+mybatis-plus:
+  type-handlers-package: com.you.common.mybatis
+  configuration:
+    map-underscore-to-camel-case: true
