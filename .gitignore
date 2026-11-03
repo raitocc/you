@@ -1,0 +1,44 @@
+# IntelliJ IDEA / Eclipse / VS Code
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.springBeans
+.sts4-cache
+
+# Maven build output; keep pom.xml and Maven Wrapper scripts/configuration
+**/target/
+*.class
+.flattened-pom.xml
+
+# Logs, heap dumps and JVM crash files
+logs/
+*.log
+*.hprof
+hs_err_pid*
+replay_pid*
+
+# Local environment and configuration; keep example environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+application-local.yml
+application-local.yaml
+
+# Local container data
+/data/
+/volumes/
+/deploy/data/
+/deploy/volumes/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+Desktop.ini

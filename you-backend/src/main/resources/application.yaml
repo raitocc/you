@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: you-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/you
+    username: you
+    password: you
+
+storage:
+  endpoint: http://localhost:9000
+  access-key: you
+  secret-key: you
