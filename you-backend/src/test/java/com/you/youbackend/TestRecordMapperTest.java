@@ -17,7 +17,6 @@ import java.sql.SQLException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named = "RUN_LEGACY_EXAMPLES", matches = "true")
 @SpringBootTest
 class TestRecordMapperTest {
 
