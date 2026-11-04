@@ -1,6 +1,10 @@
 spring:
   application:
     name: you-backend
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   datasource:
     url: jdbc:mysql://localhost:3306/you
     username: you
@@ -10,3 +14,4 @@ storage:
   endpoint: http://localhost:9000
   access-key: you
   secret-key: you
+  bucket: you-files

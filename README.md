@@ -15,13 +15,14 @@
 
 | 文档 | 内容 |
 |---|---|
-| [数据库设计](doc/数据库设计.md) | 14 张表的字段、关系与业务规则 |
-| [Spring MVC](doc/SpringMVC快速上手.md) | 编写接口、接收参数和返回结果 |
-| [MyBatis-Plus](doc/MyBatis-Plus快速上手.md) | 实体、Mapper、增删改查与条件查询 |
-| [Scalar](doc/Scalar快速上手.md) | 接口说明注解与在线调试 |
-| [Flyway](doc/Flyway快速上手.md) | 建表、数据库升级与迁移版本管理 |
-| [RustFS](doc/RustFS快速上手.md) | 部署、上传、下载与临时访问地址 |
-| [数据库连接与实操](doc/数据库连接与实操.md) | 用 test 表练习数据库连接和 CRUD |
+| [后端开发约定](doc/YOU-后端开发约定.md) | 分层、命名、校验、接口文档、统一响应和异常处理 |
+| [数据库设计](doc/YOU-数据库设计.md) | 14 张表的字段、关系与业务规则 |
+| [Spring MVC](doc/help/SpringMVC快速上手.md) | 编写接口、接收参数和返回结果 |
+| [MyBatis-Plus](doc/help/MyBatis-Plus快速上手.md) | 实体、Mapper、增删改查与条件查询 |
+| [Scalar](doc/help/Scalar快速上手.md) | 接口说明注解与在线调试 |
+| [Flyway](doc/help/Flyway快速上手.md) | 建表、数据库升级与迁移版本管理 |
+| [RustFS](doc/help/RustFS快速上手.md) | 部署、上传、下载与临时访问地址 |
+| [数据库连接与实操](doc/help/数据库连接与实操.md) | 用 test 表练习数据库连接和 CRUD |
 
 ## 启动使用
 
@@ -39,6 +40,16 @@ mvn -f you-backend/pom.xml -DskipTests clean package
 接口文档：<http://localhost:8080/scalar>；OpenAPI JSON：<http://localhost:8080/v3/api-docs>。连接配置在 `you-backend/src/main/resources/application.yaml`。
 
 现有练习中的 CRUD 使用已删除的 `test` 表，文件测试使用 `demo-files` 桶；运行相应练习时按教程准备表或桶。上面的打包命令只编译测试源码，跳过测试执行。
+
+## 测试签名上传
+
+正常启动应用后，在现有媒体接口中使用 `POST /media/uploads/test`，表单文件上限为 10 MiB。
+
+1. 调用 `POST /media/uploads`，按实际文件填写 `byteSize` 和 `mimeType`，取得 `data.url`。
+2. 在 Scalar 打开“测试预签名上传”，`url` 粘贴完整签名地址，`file` 选择同一文件后发送。文件部分的 `Content-Type` 与申请时保持一致，例如 `image/png`。
+3. 成功响应的 `data.statusCode` 为 RustFS 返回的状态码，`data.etag` 为对象实体标签；在 RustFS 控制台查看 `you-files/images/` 下的文件。此接口用于验证文件上传，文件业务登记由后续上传确认流程完成。
+
+测试接口只向当前 `storage.endpoint`、`storage.bucket` 对应的地址发送 PUT。
 
 ## 继续开发
 
