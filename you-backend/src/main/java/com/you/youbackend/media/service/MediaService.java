@@ -1,13 +1,16 @@
 package com.you.youbackend.media.service;
 
+import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.request.CreateUploadRequest;
 import com.you.youbackend.media.request.TestUploadRequest;
 import com.you.youbackend.media.response.CreateUploadResponse;
 import com.you.youbackend.media.response.TestUploadResponse;
+
 import java.net.URI;
 import java.time.Duration;
 import java.util.UUID;
+
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -55,7 +58,8 @@ public class MediaService {
      * 为客户端声明的图片生成临时上传地址。
      */
     public CreateUploadResponse createUpload(CreateUploadRequest request) {
-        String storageKey = STORAGE_KEY_PREFIX + UUID.randomUUID();
+        UUID uuid = UuidCreator.getTimeOrderedEpoch();
+        String storageKey = STORAGE_KEY_PREFIX + uuid;
         PutObjectRequest putRequest = PutObjectRequest.builder()
                 .bucket(bucket)
                 .key(storageKey)
@@ -65,6 +69,8 @@ public class MediaService {
                 builder -> builder
                         .signatureDuration(UPLOAD_URL_VALIDITY)
                         .putObjectRequest(putRequest));
+        log.info("上传地址已生成，storageKey={}，mimeType={}，declaredByteSize={}",
+                storageKey, request.getMimeType(), request.getByteSize());
         return new CreateUploadResponse(signedRequest.url().toString());
     }
 
@@ -76,10 +82,12 @@ public class MediaService {
      */
     public TestUploadResponse testUpload(TestUploadRequest request) {
         if (!request.getUrl().startsWith(uploadUrlPrefix)) {
+            log.debug("测试上传被拒绝，reason=目标地址不属于当前存储桶");
             throw new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", "请使用当前 RustFS 桶的上传地址");
         }
         MultipartFile file = request.getFile();
         if (file.isEmpty() || !StringUtils.hasText(file.getContentType())) {
+            log.debug("测试上传被拒绝，reason=文件为空或缺少Content-Type，byteSize={}", file.getSize());
             throw new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", "请选择有内容且携带 Content-Type 的文件");
         }
 
@@ -91,13 +99,21 @@ public class MediaService {
                     .retrieve()
                     .toBodilessEntity();
             if (!response.getStatusCode().is2xxSuccessful()) {
+                log.error("测试上传失败，statusCode={}，byteSize={}",
+                        response.getStatusCode().value(), file.getSize());
                 throw new BusinessException(HttpStatus.BAD_GATEWAY, "UPLOAD_FAILED", "RustFS 上传失败：" + response.getStatusCode());
             }
+            log.info("测试上传成功，statusCode={}，byteSize={}",
+                    response.getStatusCode().value(), file.getSize());
             return new TestUploadResponse(response.getStatusCode().value(), response.getHeaders().getETag());
         } catch (RestClientException exception) {
             String detail = exception instanceof RestClientResponseException responseError
                     ? responseError.getResponseBodyAsString() : "文件读取或连接失败";
-            log.error("测试上传失败", exception);
+            // HTTP 客户端异常消息可能包含完整签名地址，日志仅记录诊断字段。
+            log.error("测试上传失败，statusCode={}，byteSize={}，exceptionType={}",
+                    exception instanceof RestClientResponseException responseError
+                            ? responseError.getStatusCode().value() : null,
+                    file.getSize(), exception.getClass().getSimpleName());
             throw new BusinessException(HttpStatus.BAD_GATEWAY, "UPLOAD_FAILED", "RustFS 上传失败：" + detail, exception);
         }
     }

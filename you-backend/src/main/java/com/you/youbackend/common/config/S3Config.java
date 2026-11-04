@@ -1,4 +1,4 @@
-package com.you.youbackend;
+package com.you.youbackend.common.config;
 
 import java.net.URI;
 import org.springframework.beans.factory.annotation.Value;

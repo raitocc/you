@@ -153,10 +153,9 @@ if (file.isEmpty()) {
 
 构造器的三个参数分别是 HTTP 状态 `status`、供客户端判断的业务错误码 `code`、供用户阅读的提示 `message`。例如上述异常返回 HTTP 400，响应体为 `{"code":"INVALID_ARGUMENT","message":"请选择有内容的文件","data":null}`。同一种失败保持稳定的错误码，提示文字可以调整。
 
-外部组件调用失败时，在对应的捕获处记录日志，再用带 `cause` 的构造器保留原始异常：
+外部组件调用失败时，用带 `cause` 的构造器保留原始异常；日志按第 7 节的约定记录：
 
 ```java
-log.error("测试上传失败", exception);
 throw new BusinessException(
         HttpStatus.BAD_GATEWAY,
         "UPLOAD_FAILED",
@@ -164,7 +163,7 @@ throw new BusinessException(
         exception);
 ```
 
-这里返回 HTTP 502 和 `UPLOAD_FAILED`；原始异常保留在服务器日志和异常链中。现有 `MediaService` 还会在提示里附带 RustFS 的错误详情，方便联调。业务条件校验失败使用三个参数的构造器即可。
+这里返回 HTTP 502 和 `UPLOAD_FAILED`；原始异常保留在异常链中。现有 `MediaService` 还会在提示里附带 RustFS 的错误详情，方便联调。业务条件校验失败使用三个参数的构造器即可。
 
 ### 全局处理器生成失败响应
 
@@ -188,7 +187,48 @@ public ResponseEntity<Result<Void>> handleBusiness(BusinessException exception) 
 
 媒体上传中，`byteSize` 校验的是申请时声明的大小，当前签名绑定了 `Content-Type`，实际直传文件的大小核验仍待实现。测试上传接口另受 `spring.servlet.multipart` 的大小配置限制。上传确认和媒体文件入库也属于后续业务实现。
 
-## 7. 常量、配置和交付检查
+## 7. 记录关键业务日志
+
+使用现有 Log4j2，在需要记录日志的类上添加 `@Log4j2`，通过 `log.info(...)` 等方法调用。日志沿用 Spring Boot / Log4j2 的默认格式和 INFO 级别，时间、级别、线程和类名由框架输出。排查问题时，通过 `logging.level.包名: DEBUG` 临时开启对应包的详细日志。
+
+### 选择级别和记录位置
+
+| 级别 | 使用场景 | 示例 |
+| --- | --- | --- |
+| `INFO` | 关键业务结果、正常业务拒绝 | 注册成功、用户名已存在、上传地址已生成、测试上传成功 |
+| `WARN` | 值得关注的异常情况 | 登录失败、权限拒绝、外部调用进入重试 |
+| `ERROR` | 操作失败且需要定位的故障 | 存储服务上传失败、数据库连接失败、未预期异常 |
+| `DEBUG` | 调试过程和普通参数拒绝原因 | 测试上传地址不属于当前桶、文件为空 |
+
+Service 在关键步骤完成后记录结果；Controller 保持接收参数、调用 Service 和返回响应的流程。Mapper 的 SQL 调试使用框架日志。高频的普通查询按排查需要记录 DEBUG，日常保留能说明重要业务结果的信息。
+
+成功日志对应实际完成的操作：生成签名地址记录“上传地址已生成”，完成 PUT 后记录“测试上传成功”。当前注册只有一次插入，在插入成功后记录；涉及事务时，提交成功再记录最终成功，事务内的日志仅表示当时的执行进度。
+
+### 写清事件和关键字段
+
+消息使用“事件 + 关键字段”，通过 `{}` 传参。对象统一使用 `userId`、`storageKey` 等明确的标识，文件大小区分申请时声明的大小与实际接收大小。例如：
+
+```java
+log.info("注册成功，userId={}", userId);
+
+log.info("注册被拒绝，reason=用户名已存在，username={}", username);
+
+log.info("上传地址已生成，storageKey={}，mimeType={}，declaredByteSize={}",
+        storageKey, request.getMimeType(), request.getByteSize());
+
+log.info("测试上传成功，statusCode={}，byteSize={}",
+        response.getStatusCode().value(), file.getSize());
+```
+
+同一次故障选择一个位置记录：Service 已记录的外部调用失败，由全局业务异常处理器负责转换响应。普通业务拒绝保留简短原因；需要定位的系统故障，在合适的异常处理处将异常对象作为最后一个参数传入，保留堆栈，例如 `log.error("数据库操作失败，userId={}", userId, exception)`。未预期异常的全局兜底目前仍待实现。
+
+### 选择可记录的数据
+
+日志只提取必要字段，密码、密码哈希、JWT、Cookie、完整预签名 URL 和私人正文统一排除。Request 和 Entity 按字段选择信息，注册请求整体输出会包含密码。
+
+HTTP 客户端异常消息也可能带有完整签名地址。现有测试上传失败日志仅记录 `statusCode`、实际 `byteSize` 和 `exceptionType`，原始异常继续通过 `BusinessException` 的 `cause` 保留。后续补充堆栈记录时，先确认异常消息及原因链中的凭据已脱敏。
+
+## 8. 常量、配置和交付检查
 
 固定业务限制使用语义明确的 `static final` 常量，例如上传大小上限、地址有效期；同一模块多处使用时集中维护。数据库地址、对象存储地址及账号等环境信息放在 `application.yaml`，本地开发直接使用清楚的本地配置，部署时覆盖对应项。默认值集中在配置或代码中的一处维护。
 

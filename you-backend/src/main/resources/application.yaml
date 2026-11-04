@@ -15,3 +15,9 @@ storage:
   access-key: you
   secret-key: you
   bucket: you-files
+
+mybatis-plus:
+  type-handlers-package: com.you.youbackend.common.mybatis
+
+jwt:
+  secret: "YouKeepTheMoments_WeKeepTheMagic_2026!"
