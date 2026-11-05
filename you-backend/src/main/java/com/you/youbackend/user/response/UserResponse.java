@@ -24,7 +24,7 @@ public record UserResponse(
         UUID avatarFileId,
 
         @Schema(description = "受保护的头像读取路径 url")
-        String avatarurl,
+        String avatarUrl,
 
         @Schema(description = "注册时间，UTC")
         Instant createdAt,

@@ -1,5 +1,6 @@
 package com.you.youbackend.media.service;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.entity.MediaFile;
@@ -20,6 +21,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Set;
 import java.util.UUID;
 
+import com.you.youbackend.media.response.UploadStatusResponse;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
@@ -33,6 +35,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -88,8 +91,8 @@ public class MediaService {
      * 为客户端声明的图片生成临时上传地址。
      */
     public CreateUploadResponse createUpload(CreateUploadRequest request, UUID userId) {
-        UUID keyUuid = UuidCreator.getTimeOrderedEpoch();
-        String storageKey = STORAGE_KEY_PREFIX + userId + "/" + keyUuid;
+        UUID fileUuid = UuidCreator.getTimeOrderedEpoch();
+        String storageKey = STORAGE_KEY_PREFIX + userId + "/" + fileUuid;
         PutObjectRequest putRequest = PutObjectRequest.builder()
                 .bucket(bucket)
                 .key(storageKey)
@@ -99,9 +102,9 @@ public class MediaService {
                 builder -> builder
                         .signatureDuration(UPLOAD_URL_VALIDITY)
                         .putObjectRequest(putRequest));
-        log.info("上传地址已生成，storageKey={}，mimeType={}，declaredByteSize={}",
-                storageKey, request.getMimeType(), request.getByteSize());
-        return new CreateUploadResponse(signedRequest.url().toString());
+        log.info("上传地址已生成，userId={}，fileId={}，storageKey={}，mimeType={}，declaredByteSize={}",
+                userId, fileUuid, storageKey, request.getMimeType(), request.getByteSize());
+        return new CreateUploadResponse(fileUuid, signedRequest.url().toString());
     }
 
     /**
@@ -173,7 +176,11 @@ public class MediaService {
      */
     public String getReadUrl(UUID fileId) {
         MediaFile file = mediaFileMapper.selectById(fileId);
-        return file == null ? null : createReadUrl(file.getStorageKey());
+        if (file == null) {
+            log.debug("文件读取地址未生成，fileId={}，reason=文件未登记或已删除", fileId);
+            return null;
+        }
+        return createReadUrl(file.getStorageKey());
     }
 
     /**
@@ -185,12 +192,14 @@ public class MediaService {
             MediaCallbackRequest request) {
 
         if (!("Bearer " + callbackToken).equals(authorization)) {
+            log.warn("上传回调被拒绝，reason=回调凭据无效");
             throw new BusinessException(
                     HttpStatus.UNAUTHORIZED,
                     "UNAUTHORIZED",
                     "存储回调凭据无效");
         }
 
+        log.debug("收到上传回调，recordCount={}", request.records().size());
         for (MediaCallbackRequest.EventRecord event : request.records()) {
             boolean isUpload = "s3:ObjectCreated:Put".equals(event.eventName())
                     || "ObjectCreated:Put".equals(event.eventName());
@@ -201,6 +210,9 @@ public class MediaService {
                         StandardCharsets.UTF_8);
 
                 registerFile(storageKey);
+            } else {
+                log.debug("忽略无关存储事件，eventName={}，bucket={}",
+                        event.eventName(), event.s3().bucket().name());
             }
         }
     }
@@ -223,12 +235,20 @@ public class MediaService {
         // 重复投递时复用已有记录。
         // todo 重复投递按道理应该更新
         if (mediaFileMapper.selectById(fileId) != null) {
+            log.debug("文件记录已存在，忽略重复登记，fileId={}", fileId);
             return;
         }
 
-        HeadObjectResponse metadata = s3Client.headObject(request -> request
-                .bucket(bucket)
-                .key(storageKey));
+        HeadObjectResponse metadata;
+        try {
+            metadata = s3Client.headObject(request -> request
+                    .bucket(bucket)
+                    .key(storageKey));
+        } catch (SdkException exception) {
+            log.error("查询上传文件元数据失败，userId={}，fileId={}，exceptionType={}",
+                    userId, fileId, exception.getClass().getSimpleName());
+            throw exception;
+        }
 
         long byteSize = metadata.contentLength();
         String mimeType = metadata.contentType();
@@ -255,9 +275,57 @@ public class MediaService {
 
         try {
             mediaFileMapper.insert(file);
+            // 此处记录事务内的写入步骤，最终提交由 handleCallback 的事务完成。
+            log.info("写入文件元数据，userId={}，fileId={}，byteSize={}，mimeType={}",
+                    userId, fileId, byteSize, mimeType);
         } catch (DuplicateKeyException exception) {
             // 并发重复通知由数据库唯一约束兜底，保留已有记录。
             log.debug("文件记录已存在，忽略重复登记，fileId={}", fileId);
         }
+    }
+
+    /**
+     * 验证文件是当前用户上传的有效图片。
+     *
+     * @param fileId 文件 ID
+     * @param userId 当前用户 ID
+     */
+    public void validateOwnedImage(UUID fileId, UUID userId) {
+        MediaFile file = mediaFileMapper.selectById(fileId);
+
+        if (file == null
+                || !userId.equals(file.getOwnerUserId())
+                || !ALLOWED_IMAGE_TYPES.contains(file.getMimeType())) {
+
+            String reason = "图片类型不支持";
+            if (file == null) {
+                reason = "文件未登记或已删除";
+            } else if (!userId.equals(file.getOwnerUserId())) {
+                reason = "文件不属于当前用户";
+            }
+            log.warn("头像文件校验失败，userId={}，fileId={}，reason={}", userId, fileId, reason);
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST,
+                    "FILE_NOT_USABLE",
+                    "请选择已上传完成的本人图片");
+        }
+    }
+
+    /**
+     * 查询当前用户的图片是否已经登记完成。
+     *
+     * @param fileId 文件 ID
+     * @param userId 当前登录用户 ID
+     * @return 文件上传就绪状态
+     */
+    public UploadStatusResponse getUploadStatus(UUID fileId, UUID userId) {
+        Long count = mediaFileMapper.selectCount(
+                Wrappers.<MediaFile>lambdaQuery()
+                        .eq(MediaFile::getId, fileId)
+                        .eq(MediaFile::getOwnerUserId, userId));
+
+        boolean ready = count > 0;
+        log.debug("查询上传就绪状态，userId={}，fileId={}，ready={}", userId, fileId, ready);
+        return new UploadStatusResponse(fileId, ready);
     }
 }

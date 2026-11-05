@@ -48,7 +48,7 @@ public class AuthController {
      */
     @Operation(
             summary = "用户登录",
-            description = "验证账号密码，返回有效期为2小时的访问令牌和本人资料")
+            description = "验证账号密码，返回有效期为7天的访问令牌和本人资料")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "登录成功"),
             @ApiResponse(responseCode = "400", description = "登录参数无效"),

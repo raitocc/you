@@ -6,6 +6,7 @@ import com.you.youbackend.media.request.MediaCallbackRequest;
 import com.you.youbackend.media.request.TestUploadRequest;
 import com.you.youbackend.media.response.CreateUploadResponse;
 import com.you.youbackend.media.response.TestUploadResponse;
+import com.you.youbackend.media.response.UploadStatusResponse;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -94,5 +95,23 @@ public class MediaController {
 
         mediaService.handleCallback(authorization, request);
         return Result.ok(null);
+    }
+
+    /**
+     * 查询图片是否已经完成回调入库，可供当前用户关联使用。
+     */
+    @Operation(
+            summary = "查询图片上传就绪状态",
+            description = "根据文件 ID 查询当前用户的有效文件记录，已登记时 ready 为 true")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "查询成功"),
+            @ApiResponse(responseCode = "401", description = "登录凭证无效或已过期")
+    })
+    @GetMapping("/{fileId}")
+    public Result<UploadStatusResponse> getUploadStatus(
+            @PathVariable("fileId") UUID fileId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+
+        return Result.ok(mediaService.getUploadStatus(fileId, userId));
     }
 }

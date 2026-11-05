@@ -8,6 +8,7 @@ import com.you.youbackend.user.mapper.UserMapper;
 import com.you.youbackend.user.model.AppUser;
 import com.you.youbackend.user.request.LoginRequest;
 import com.you.youbackend.user.request.RegisterRequest;
+import com.you.youbackend.user.request.UpdateProfileRequest;
 import com.you.youbackend.user.response.LoginResponse;
 import com.you.youbackend.user.response.UserResponse;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -161,6 +163,45 @@ public class UserService {
                                 AppUser::getUpdatedAt)
                         .eq(AppUser::getId, userId)
         );
+    }
+
+    /**
+     * 更新本人昵称和头像，返回最新资料。
+     *
+     * @param userId 当前登录用户 ID
+     * @param request 全量可编辑资料
+     * @return 更新后的本人资料
+     */
+    @Transactional
+    public UserResponse updateProfile(UUID userId, UpdateProfileRequest request) {
+        UUID avatarFileId = request.avatarFileId();
+
+        if (avatarFileId != null) {
+            mediaService.validateOwnedImage(avatarFileId, userId);
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC)
+                .truncatedTo(ChronoUnit.MILLIS);
+
+        int affectedRows = userMapper.update(
+                null,
+                Wrappers.<AppUser>lambdaUpdate()
+                        .eq(AppUser::getId, userId)
+                        .set(AppUser::getNickname, request.nickname())
+                        .set(AppUser::getAvatarFileId, avatarFileId)
+                        .set(AppUser::getUpdatedAt, now));
+
+        if (affectedRows == 0) {
+            log.warn("更新本人资料被拒绝，userId={}，reason=账号不存在或已删除", userId);
+            throw new BusinessException(
+                    HttpStatus.UNAUTHORIZED,
+                    "UNAUTHORIZED",
+                    "账号不存在或已注销，请重新登录");
+        }
+
+        log.info("更新本人资料，userId={}，avatarFileId={}", userId, avatarFileId);
+
+        return getCurrentUser(userId);
     }
 
     /**
