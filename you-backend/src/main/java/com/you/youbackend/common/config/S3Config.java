@@ -63,7 +63,7 @@ public class S3Config {
                 .notificationConfiguration(configuration -> configuration
                         .queueConfigurations(queue -> queue
                                 .id("media-upload")
-                                .queueArn("arn:rustfs:sqs:us-east-1:primary:webhook")
+                                .queueArn("arn:rustfs:sqs:us-east-1:primary:amqp")
                                 .events(Event.S3_OBJECT_CREATED_PUT))));
     }
 }

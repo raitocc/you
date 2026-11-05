@@ -16,13 +16,14 @@ services:
     environment:
       RUSTFS_ACCESS_KEY: you
       RUSTFS_SECRET_KEY: you
-      RUSTFS_CONSOLE_ENABLE: "true"
       RUSTFS_NOTIFY_ENABLE: "true"
-      RUSTFS_NOTIFY_WEBHOOK_ENABLE_PRIMARY: "on"
-      RUSTFS_NOTIFY_WEBHOOK_ENDPOINT_PRIMARY: "http://host.docker.internal:8080/media/uploads/callback"
-      RUSTFS_NOTIFY_WEBHOOK_AUTH_TOKEN_PRIMARY: "YouAndYourMemories_RustFS_Callback_2026"
-      RUSTFS_NOTIFY_WEBHOOK_QUEUE_DIR_PRIMARY: "/data/notify-primary"
-      RUSTFS_OUTBOUND_ALLOW_ORIGINS: "http://host.docker.internal:8080"
+      RUSTFS_NOTIFY_AMQP_ENABLE_PRIMARY: "on"
+      RUSTFS_NOTIFY_AMQP_URL_PRIMARY: "amqp://you:you@rabbitmq:5672/%2f"
+      RUSTFS_NOTIFY_AMQP_EXCHANGE_PRIMARY: "you.storage.events"
+      RUSTFS_NOTIFY_AMQP_ROUTING_KEY_PRIMARY: "media.uploaded"
+      RUSTFS_NOTIFY_AMQP_PERSISTENT_PRIMARY: "on"
+      RUSTFS_NOTIFY_AMQP_MANDATORY_PRIMARY: "on"
+      RUSTFS_NOTIFY_AMQP_QUEUE_DIR_PRIMARY: "/data/notify-amqp-primary"
     command: ["/data"]
     ports:
       - "127.0.0.1:9000:9000"
@@ -30,6 +31,27 @@ services:
     volumes:
       - rustfs_data:/data
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: you
+      RABBITMQ_DEFAULT_PASS: you
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "you", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+
 volumes:
   mysql_data:
   rustfs_data:
+  rabbitmq_data:
+  redis_data:

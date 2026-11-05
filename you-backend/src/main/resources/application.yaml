@@ -9,13 +9,22 @@ spring:
     url: jdbc:mysql://localhost:3306/you
     username: you
     password: you
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: you
+    password: you
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: you
 
 storage:
   endpoint: http://localhost:9000
   access-key: you
   secret-key: you
   bucket: you-files
-  callback-token: "YouAndYourMemories_RustFS_Callback_2026"
 
 mybatis-plus:
   type-handlers-package: com.you.youbackend.common.mybatis

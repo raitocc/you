@@ -1,7 +1,9 @@
 package com.you.youbackend.user.filter;
 
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.user.model.AccessTokenClaims;
 import com.you.youbackend.user.service.JwtService;
+import com.you.youbackend.user.service.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,13 +33,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final HandlerExceptionResolver exceptionResolver;
 
+    private final TokenBlacklistService tokenBlacklistService;
+
+    public static final String CURRENT_ACCESS_TOKEN = "currentAccessToken";
+
     public JwtAuthFilter(
             JwtService jwtService,
             @Qualifier("handlerExceptionResolver")
-            HandlerExceptionResolver exceptionResolver) {
+            HandlerExceptionResolver exceptionResolver,
+            TokenBlacklistService tokenBlacklistService) {
 
         this.jwtService = jwtService;
         this.exceptionResolver = exceptionResolver;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     /**
@@ -48,8 +56,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String path = request.getServletPath();
 
         return "OPTIONS".equals(request.getMethod())
-                || ("HEAD".equals(request.getMethod()) && path.equals("/"))
-                || ("POST".equals(request.getMethod()) && path.equals("/media/uploads/callback"))
                 || path.equals("/auth/register")
                 || path.equals("/auth/login")
                 || path.equals("/scalar")
@@ -82,8 +88,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
 
             String token = authorization.substring(BEARER_PREFIX.length()).trim();
-            UUID userId = jwtService.parseUserId(token);
-            request.setAttribute(CURRENT_USER_ID, userId);
+            AccessTokenClaims claims = jwtService.parseToken(token);
+            if (tokenBlacklistService.isRevoked(claims.jti())) {
+                throw new BusinessException(
+                        HttpStatus.UNAUTHORIZED,
+                        "UNAUTHORIZED",
+                        "登录状态已失效，请重新登录"
+                );
+            }
+            // todo 有些重复了啊？
+            request.setAttribute(CURRENT_USER_ID, claims.userId());
+            request.setAttribute(CURRENT_ACCESS_TOKEN, claims);
+
+//            UUID userId = jwtService.parseUserId(token);
+//            request.setAttribute(CURRENT_USER_ID, userId);
+
         } catch (BusinessException exception) {
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
             exceptionResolver.resolveException(

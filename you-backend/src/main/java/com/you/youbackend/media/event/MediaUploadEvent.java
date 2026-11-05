@@ -1,9 +1,7 @@
-package com.you.youbackend.media.request;
+package com.you.youbackend.media.event;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
 
@@ -11,35 +9,34 @@ import java.util.List;
  * RustFS 对象事件通知，只接收文件登记所需字段。
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record MediaCallbackRequest(
-        @NotNull @Valid
+public record MediaUploadEvent(
         @JsonProperty("Records")
         List<EventRecord> records
 ) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EventRecord(
-            @NotNull String eventName,
-            @NotNull @Valid S3Info s3
+            String eventName,
+            S3Info s3
     ) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record S3Info(
-            @NotNull @Valid BucketInfo bucket,
-            @NotNull @Valid ObjectInfo object
+            BucketInfo bucket,
+            ObjectInfo object
     ) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BucketInfo(
-            @NotNull String name
+            String name
     ) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ObjectInfo(
-            @NotNull String key
+            String key
     ) {
     }
 }

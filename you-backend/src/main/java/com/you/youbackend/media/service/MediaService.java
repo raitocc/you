@@ -6,7 +6,7 @@ import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.entity.MediaFile;
 import com.you.youbackend.media.mapper.MediaFileMapper;
 import com.you.youbackend.media.request.CreateUploadRequest;
-import com.you.youbackend.media.request.MediaCallbackRequest;
+import com.you.youbackend.media.event.MediaUploadEvent;
 import com.you.youbackend.media.request.TestUploadRequest;
 import com.you.youbackend.media.response.CreateUploadResponse;
 import com.you.youbackend.media.response.TestUploadResponse;
@@ -66,15 +66,13 @@ public class MediaService {
     private final RestClient httpClient;
     private final MediaFileMapper mediaFileMapper;
     private final S3Client s3Client;
-    private final String callbackToken;
 
     public MediaService(
             S3Presigner presigner,
             @Value("${storage.bucket}") String bucket,
             @Value("${storage.endpoint}") String endpoint,
             MediaFileMapper mediaFileMapper,
-            S3Client s3Client,
-            @Value("${storage.callback-token}") String callbackToken) {
+            S3Client s3Client) {
         this.presigner = presigner;
         this.bucket = bucket;
         this.mediaFileMapper = mediaFileMapper;
@@ -84,7 +82,6 @@ public class MediaService {
         factory.setReadTimeout(Duration.ofSeconds(30));
         this.httpClient = RestClient.builder().requestFactory(factory).build();
         this.s3Client = s3Client;
-        this.callbackToken = callbackToken;
     }
 
     /**
@@ -184,23 +181,12 @@ public class MediaService {
     }
 
     /**
-     * 验证存储回调来源，处理文件创建事件。
+     * 处理 RustFS 上传事件，检查并登记文件元数据。
      */
     @Transactional
-    public void handleCallback(
-            String authorization,
-            MediaCallbackRequest request) {
-
-        if (!("Bearer " + callbackToken).equals(authorization)) {
-            log.warn("上传回调被拒绝，reason=回调凭据无效");
-            throw new BusinessException(
-                    HttpStatus.UNAUTHORIZED,
-                    "UNAUTHORIZED",
-                    "存储回调凭据无效");
-        }
-
-        log.debug("收到上传回调，recordCount={}", request.records().size());
-        for (MediaCallbackRequest.EventRecord event : request.records()) {
+    public void handleUploadEvent(MediaUploadEvent request) {
+        log.info("收到文件上传事件，recordCount={}", request.records().size());
+        for (MediaUploadEvent.EventRecord event : request.records()) {
             boolean isUpload = "s3:ObjectCreated:Put".equals(event.eventName())
                     || "ObjectCreated:Put".equals(event.eventName());
 
@@ -211,7 +197,7 @@ public class MediaService {
 
                 registerFile(storageKey);
             } else {
-                log.debug("忽略无关存储事件，eventName={}，bucket={}",
+                log.info("忽略无关存储事件，eventName={}，bucket={}",
                         event.eventName(), event.s3().bucket().name());
             }
         }
@@ -225,7 +211,7 @@ public class MediaService {
         String[] parts = storageKey.split("/", -1);
 
         if (parts.length != 3 || !"images".equals(parts[0])) {
-            log.warn("忽略非业务文件回调，storageKey={}", storageKey);
+            log.warn("忽略非业务文件事件，storageKey={}", storageKey);
             return;
         }
 
@@ -275,7 +261,7 @@ public class MediaService {
 
         try {
             mediaFileMapper.insert(file);
-            // 此处记录事务内的写入步骤，最终提交由 handleCallback 的事务完成。
+            // 此处记录事务内的写入步骤，最终提交由 handleUploadEvent 的事务完成。
             log.info("写入文件元数据，userId={}，fileId={}，byteSize={}，mimeType={}",
                     userId, fileId, byteSize, mimeType);
         } catch (DuplicateKeyException exception) {

@@ -1,21 +1,22 @@
 package com.you.youbackend.user.controller;
 
 import com.you.youbackend.common.response.Result;
+import com.you.youbackend.user.filter.JwtAuthFilter;
+import com.you.youbackend.user.model.AccessTokenClaims;
 import com.you.youbackend.user.request.LoginRequest;
 import com.you.youbackend.user.request.RegisterRequest;
 import com.you.youbackend.user.response.LoginResponse;
 import com.you.youbackend.user.response.UserResponse;
+import com.you.youbackend.user.service.TokenBlacklistService;
 import com.you.youbackend.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 账号认证接口。
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final UserService userService;
+    private final TokenBlacklistService tokenBlacklistService;
 
     /**
      * 注册账号。
@@ -58,5 +60,26 @@ public class AuthController {
     public Result<LoginResponse> login(
             @Valid @RequestBody LoginRequest request) {
         return Result.ok(userService.login(request));
+    }
+
+    /**
+     * 撤销当前访问令牌，结束本次登录。
+     */
+    @Operation(
+            summary = "退出登录",
+            description = "撤销当前访问令牌，成功后客户端清除本地登录凭据"
+    )
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "退出成功"),
+            @ApiResponse(responseCode = "401", description = "登录凭证无效或已失效")
+    })
+    @PostMapping("/logout")
+    public Result<Void> logout(
+            @RequestAttribute(JwtAuthFilter.CURRENT_ACCESS_TOKEN)
+            AccessTokenClaims token) {
+
+        tokenBlacklistService.revoke(token);
+        return Result.ok(null);
     }
 }

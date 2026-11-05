@@ -2,7 +2,6 @@ package com.you.youbackend.media.controller;
 
 import com.you.youbackend.common.response.Result;
 import com.you.youbackend.media.request.CreateUploadRequest;
-import com.you.youbackend.media.request.MediaCallbackRequest;
 import com.you.youbackend.media.request.TestUploadRequest;
 import com.you.youbackend.media.response.CreateUploadResponse;
 import com.you.youbackend.media.response.TestUploadResponse;
@@ -82,23 +81,7 @@ public class MediaController {
     }
 
     /**
-     * 接收 RustFS 文件上传事件并登记文件元数据。
-     */
-    @Operation(
-            summary = "接收文件上传回调",
-            description = "由 RustFS 调用，Authorization 使用存储回调专用令牌。")
-    @PostMapping("/callback")
-    public Result<Void> callback(
-            @RequestHeader(value = "Authorization", required = false)
-            String authorization,
-            @Valid @RequestBody MediaCallbackRequest request) {
-
-        mediaService.handleCallback(authorization, request);
-        return Result.ok(null);
-    }
-
-    /**
-     * 查询图片是否已经完成回调入库，可供当前用户关联使用。
+     * 查询图片是否已经登记入库，可供当前用户关联使用。
      */
     @Operation(
             summary = "查询图片上传就绪状态",
