@@ -1,35 +1,10 @@
-# RustFS 快速上手：从启动服务到操作文件
+# RustFS：客户端、文件操作、预签名与上传事件
 
-本文使用 Docker 启动 RustFS，再通过 Spring Boot 和 Java SDK 完成一次文件上传与读取。跑通后，可以继续查阅上传文件、查询列表、下载、生成临时访问地址和删除等操作。
+RustFS 提供兼容 S3 的对象存储接口，Java 可以使用 AWS S3 SDK 操作它。本文介绍服务启动、客户端与签名器、文件常用操作，以及上传事件如何发送到 RabbitMQ。示例使用 Java 17、Spring Boot 4，省略常规 import。
 
-示例使用 Java 17、Spring Boot 3 或 4，包名统一为 `com.example.demo`。准备好 Docker Desktop 和一个可以运行测试的 Spring Boot 项目即可开始。
+## 1. RustFS 启动与对象存储概念
 
-## 1. 认识 RustFS 和文件的存放方式
-
-RustFS 是兼容 S3 协议的对象存储服务，适合保存图片、视频和文档。Java 程序使用 AWS SDK for Java v2 访问 RustFS。[RustFS Java 接入说明](https://docs.rustfs.com/en/developer/sdk/java)
-
-先记住三个术语，后面的代码会一直使用它们：
-
-| 术语 | 含义 | 本文示例 |
-|---|---|---|
-| 存储桶（Bucket） | 一组对象的容器 | `demo-files` |
-| 对象（Object） | 文件内容及其元数据 | 内容为 `Hello, RustFS` 的文本文件 |
-| 对象键（Key） | 对象在桶内的唯一名称 | `notes/hello.txt` |
-
-`demo-files` 加上 `notes/hello.txt` 就能定位这个文件。键中的 `/` 用于组织前缀，控制台可以据此呈现类似文件夹的层级。
-
-程序通过服务地址（Endpoint）连接 RustFS。本文使用两个地址：
-
-| 地址 | 用途 |
-|---|---|
-| `http://localhost:9000` | S3 接口，供 Java SDK 访问 |
-| `http://localhost:9001` | 管理控制台，供浏览器访问 |
-
-## 2. 启动 RustFS，创建第一个存储桶
-
-### 2.1 用 Compose 启动服务
-
-在一个空目录创建 `compose.yaml`：
+在 `compose.yaml` 中添加：
 
 ```yaml
 services:
@@ -45,61 +20,30 @@ services:
       - "127.0.0.1:9001:9001"
     volumes:
       - rustfs_data:/data
-
 volumes:
   rustfs_data:
 ```
 
-在该目录执行：
+执行 `docker compose up -d rustfs`。打开 `http://localhost:9001`，使用上面的 Access Key 和 Secret Key 登录，创建私有桶 `demo-files`。`9001` 提供管理页面，`9000` 提供程序调用的 S3 接口。
 
-```powershell
-docker compose up -d rustfs
-```
+对象存储通过“桶名 + 对象键”定位文件：
 
-这里的访问密钥用于本机练习。两个端口映射到本机，命名数据卷 `rustfs_data` 保存上传的文件；容器重建后仍可使用原来的数据。[RustFS Docker 安装说明](https://docs.rustfs.com/en/installation/container/docker)
+| 概念 | 含义 | 示例 |
+| --- | --- | --- |
+| 桶（Bucket） | 存放对象的容器 | `demo-files` |
+| 对象（Object） | 文件内容及其元数据 | 一张图片及其 MIME 类型等信息 |
+| 对象键（Key） | 对象在桶内的名称 | `images/photo.png` |
+| Endpoint | S3 接口地址 | `http://localhost:9000` |
 
-### 2.2 登录控制台并创建桶
+对象键中的 `/` 用于组织前缀，控制台可以按目录形式展示。上传到同一个键会替换当前对象；为每个文件生成新键，可以保留各自的内容。
 
-打开 <http://localhost:9001>，使用以下凭据登录：
+## 2. S3Client 与 S3Presigner 配置
 
-- Access Key：`demo-rustfs`
-- Secret Key：`demo-rustfs-secret`
+`S3Client` 是执行器：调用上传、下载、查询元数据等方法时，它会向 RustFS 发出 HTTP 请求。例如，服务端接收文件后再上传，实际文件字节就经过服务端。
 
-进入存储桶列表，点击创建存储桶（Create Bucket），名称填写 `demo-files`，其余选项保持默认。
+`S3Presigner` 是签名器：它根据凭据、目标对象、HTTP 方法、有效期等计算临时授权 URL。生成 URL 的过程在本地完成；客户端随后持 URL 直接请求 RustFS，文件字节可以直接在客户端与 RustFS 之间传输。[RustFS Java 接入](https://docs.rustfs.com/en/developer/sdk/java)
 
-创建成功后，控制台中会出现一个空的 `demo-files` 桶。接下来让 Java 向它写入文件。
-
-## 3. 连接 Java SDK，上传并读回一个文件
-
-### 3.1 添加依赖
-
-在 `pom.xml` 的 `<dependencies>` 中添加：
-
-```xml
-<dependency>
-    <groupId>software.amazon.awssdk</groupId>
-    <artifactId>s3</artifactId>
-    <version>2.57.8</version>
-</dependency>
-```
-
-本文固定使用 AWS SDK for Java v2 的 `2.57.8` 版本，方便复现。[版本发布记录](https://github.com/aws/aws-sdk-java-v2/releases/tag/2.57.8)
-
-后面的验证示例使用 JUnit 5 和 `@SpringBootTest`。IDE 创建项目时通常已经包含测试依赖；空项目可添加：
-
-```xml
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-test</artifactId>
-    <scope>test</scope>
-</dependency>
-```
-
-重新加载 Maven，等待依赖下载完成。
-
-### 3.2 配置服务地址和凭据
-
-在 `src/main/resources/application.yaml` 中添加：
+在 `pom.xml` 添加 `software.amazon.awssdk:s3:2.57.8`。在 `application.yaml` 配置：
 
 ```yaml
 storage:
@@ -108,28 +52,15 @@ storage:
   secret-key: demo-rustfs-secret
 ```
 
-创建 `src/main/java/com/example/demo/config/S3Config.java`。配置类应位于 Spring Boot 启动类的扫描范围内：
+创建 `S3Config`，分别注册客户端和签名器：
 
 ```java
-package com.example.demo.config;
-
-import java.net.URI;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
-
 @Configuration
 public class S3Config {
-
     @Bean
-    public S3Client s3Client(
-            @Value("${storage.endpoint}") String endpoint,
-            @Value("${storage.access-key}") String accessKey,
-            @Value("${storage.secret-key}") String secretKey) {
+    public S3Client s3Client(@Value("${storage.endpoint}") String endpoint,
+                             @Value("${storage.access-key}") String accessKey,
+                             @Value("${storage.secret-key}") String secretKey) {
         return S3Client.builder()
                 .endpointOverride(URI.create(endpoint))
                 .region(Region.US_EAST_1)
@@ -138,393 +69,208 @@ public class S3Config {
                 .forcePathStyle(true)
                 .build();
     }
-}
-```
 
-配置中的几个方法分别解决以下问题：
-
-| 配置 | 作用 |
-|---|---|
-| `endpointOverride(...)` | 将请求发送到本机 RustFS |
-| `region(Region.US_EAST_1)` | 使用 `us-east-1` 参与请求签名，与本文 RustFS 配置对应 |
-| `credentialsProvider(...)` | 使用前面设置的访问密钥进行身份验证 |
-| `forcePathStyle(true)` | 使用 `主机/桶名/对象键` 的地址格式，适合本机接入 |
-
-Spring 管理一个 `S3Client`，后续通过依赖注入复用它。[客户端配置参考](https://docs.rustfs.com/en/developer/sdk/java)
-
-### 3.3 运行完整的上传与读取测试
-
-创建 `src/test/java/com/example/demo/StorageTest.java`：
-
-```java
-package com.example.demo;
-
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-@SpringBootTest
-class StorageTest {
-
-    private static final String BUCKET = "demo-files";
-    private static final String KEY = "notes/hello.txt";
-
-    @Autowired
-    private S3Client s3Client;
-
-    @Test
-    void uploadAndRead() {
-        var upload = PutObjectRequest.builder()
-                .bucket(BUCKET)
-                .key(KEY)
-                .contentType("text/plain; charset=utf-8")
+    @Bean
+    public S3Presigner s3Presigner(@Value("${storage.endpoint}") String endpoint,
+                                   @Value("${storage.access-key}") String accessKey,
+                                   @Value("${storage.secret-key}") String secretKey) {
+        return S3Presigner.builder()
+                .endpointOverride(URI.create(endpoint))
+                .region(Region.US_EAST_1)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey)))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .checksumValidationEnabled(false)
+                        .build())
                 .build();
-
-        s3Client.putObject(upload, RequestBody.fromString("Hello, RustFS"));
-
-        var download = GetObjectRequest.builder()
-                .bucket(BUCKET)
-                .key(KEY)
-                .build();
-
-        String text = s3Client.getObjectAsBytes(download).asUtf8String();
-
-        assertEquals("Hello, RustFS", text);
-        System.out.println(BUCKET + "/" + KEY);
-        System.out.println(text);
     }
 }
 ```
 
-在 IDE 中运行 `uploadAndRead()`。测试通过后，输出包含：
+`S3Client`、`S3Configuration` 位于 `software.amazon.awssdk.services.s3`，`S3Presigner` 位于其 `presigner` 子包。凭据类型位于 `software.amazon.awssdk.auth.credentials`。
 
-```text
-demo-files/notes/hello.txt
-Hello, RustFS
-```
+Endpoint 决定请求发往哪里，凭据用于请求签名，Region 参与签名计算。路径式访问生成 `主机/桶/对象键` 的地址，适合这里的本机部署。签名器示例关闭校验和验证，便于生成客户端直接使用的 URL；签名请求要求的头仍需随请求发送。
 
-回到 RustFS 控制台，进入 `demo-files`，即可看到 `notes/hello.txt`。
+## 3. 文件上传、读取、查询与删除
 
-这一步完成了整个调用链：Spring 注入客户端 → SDK 发送上传请求 → RustFS 保存对象 → SDK 读取对象 → 测试核对内容。
+在 Service 中通过构造器注入 `S3Client`，变量名为 `s3Client`。下面沿用同一个桶和对象键；请求类型来自 `software.amazon.awssdk.services.s3.model`，`RequestBody` 来自 `software.amazon.awssdk.core.sync`。
 
-### 3.4 理解一次上传的组成
+### 3.1 上传文件
 
-上传代码中，`PutObjectRequest` 描述目标桶、对象键和内容类型，`RequestBody` 提供真正的文件内容。两者一起传给 `putObject()`。
-
-`contentType` 表示文件内容的 MIME 类型，例如文本为 `text/plain`，PNG 图片为 `image/png`。浏览器收到文件时会根据它决定展示方式。
-
-在本文默认的桶配置中，再次上传相同对象键会覆盖原内容。保存多个文件时，可以给每个文件生成一个新键，例如 `images/随机标识.png`。
-
-## 4. 常见文件操作
-
-本节片段沿用第 3 节的 `s3Client`、`BUCKET` 和 `KEY`。每次练习保留第 3 节的完整测试，再将当前片段追加到 `uploadAndRead()` 末尾，运行并查看结果。每个片段上方列出需要补充的导入。
-
-### 4.1 上传本地文件
-
-添加导入：
+上传由两部分组成：`PutObjectRequest` 描述放到哪里、保存什么元数据，`RequestBody` 提供实际内容。
 
 ```java
-import java.nio.file.Path;
-```
+String bucket = "demo-files";
+String key = "notes/hello.txt";
 
-准备一个本地文件，例如 `C:/temp/photo.png`，然后上传：
-
-```java
-Path source = Path.of("C:/temp/photo.png");
-
-var fileUpload = PutObjectRequest.builder()
-        .bucket(BUCKET)
-        .key("images/photo.png")
-        .contentType("image/png")
+PutObjectRequest request = PutObjectRequest.builder()
+        .bucket(bucket)
+        .key(key)
+        .contentType("text/plain")
         .build();
-
-s3Client.putObject(fileUpload, RequestBody.fromFile(source));
+s3Client.putObject(request, RequestBody.fromString("Hello, RustFS"));
 ```
 
-完成后，桶中出现 `images/photo.png`。与前面的文本上传相比，这里通过 `fromFile()` 读取本地文件内容。
+执行后，控制台应出现 `notes/hello.txt`。上传本地文件时，将正文换成 `RequestBody.fromFile(Path.of("C:/temp/hello.txt"))`；已有字节数组可以使用 `RequestBody.fromBytes(bytes)`。
 
-### 4.2 查询文件大小和内容类型
+`contentType` 是调用者提供并保存的 MIME 元数据，RustFS 据此在读取时返回 `Content-Type`。业务需要识别真实图片格式时，可以读取文件内容并解码检查。
 
-添加导入：
+### 3.2 读取文件
+
+`GetObjectRequest` 指定要读取的对象，返回方法决定内容以什么形式进入程序：
 
 ```java
-import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+var content = s3Client.getObjectAsBytes(GetObjectRequest.builder()
+        .bucket(bucket).key(key).build());
+String text = content.asUtf8String();
 ```
 
-```java
-var metadata = s3Client.headObject(HeadObjectRequest.builder()
-        .bucket(BUCKET)
-        .key(KEY)
-        .build());
+这里的 `text` 为 `Hello, RustFS`。二进制文件可以用 `content.asByteArray()` 获取字节；较大的文件适合用 `getObject` 的流或文件输出方式处理。
 
-System.out.println("字节数：" + metadata.contentLength());
-System.out.println("内容类型：" + metadata.contentType());
+### 3.3 查询元数据
+
+HEAD 请求只返回对象元数据，适合确认对象是否存在、查询大小和类型：
+
+```java
+var metadata = s3Client.headObject(request -> request.bucket(bucket).key(key));
+long byteSize = metadata.contentLength();
+String mimeType = metadata.contentType();
+String etag = metadata.eTag();
 ```
 
-`headObject()` 获取元数据。对于前面的文本文件，字节数为 `13`，内容类型为上传时设置的 `text/plain; charset=utf-8`。
+`byteSize` 是存储对象的实际字节数，`mimeType` 是上传时保存的类型。ETag 是对象实体标签，其取值与存储实现和上传方式有关，业务可以把它当作对象版本比较信息使用。[S3 ETag 说明](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html)
 
-### 4.3 按前缀列出文件
+### 3.4 按前缀列出对象与删除对象
 
-添加导入：
-
-```java
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-```
+列举使用前缀筛选，分页器会按需获取后续页。下面查看 `notes/` 下的对象键：
 
 ```java
-var query = ListObjectsV2Request.builder()
-        .bucket(BUCKET)
-        .prefix("notes/")
-        .build();
-
-for (var page : s3Client.listObjectsV2Paginator(query)) {
+var pages = s3Client.listObjectsV2Paginator(request -> request
+        .bucket(bucket).prefix("notes/"));
+for (var page : pages) {
     for (var object : page.contents()) {
-        System.out.println(object.key() + "，" + object.size() + " 字节");
+        System.out.println(object.key());
     }
 }
 ```
 
-本例会列出 `notes/` 下的对象，包括 `notes/hello.txt`。去掉 `prefix(...)` 可遍历整个桶；分页器会在遍历过程中继续请求后续页。
-
-### 4.4 下载文件到本地
-
-添加导入：
+删除使用桶名和对象键：
 
 ```java
-import java.nio.file.Files;
-import java.nio.file.Path;
-import software.amazon.awssdk.core.sync.ResponseTransformer;
+s3Client.deleteObject(request -> request.bucket(bucket).key(key));
 ```
+
+业务数据库中的文件记录与对象存储各自维护。调用以上方法完成存储操作后，由应用决定何时登记文件、关联业务对象或清理记录。
+
+## 4. GET 与 PUT 预签名 URL
+
+预签名 URL 把一次受限操作的授权放进地址：使用者在有效期内按约定的方法、请求头访问指定对象。应用先判断用户的业务权限，再决定签发哪一个对象的 URL。持有 URL 的客户端可以直接执行这项操作。
+
+在 Service 中注入 `S3Presigner`，变量名为 `presigner`。以下使用 `java.time.Duration`，继续使用前面的 `bucket`。
+
+### 4.1 GET 预签名：直接读取私有对象
 
 ```java
-Path target = Files.createTempDirectory("rustfs-download-")
-        .resolve("hello.txt");
-
-s3Client.getObject(
-        GetObjectRequest.builder().bucket(BUCKET).key(KEY).build(),
-        ResponseTransformer.toFile(target));
-
-System.out.println("下载位置：" + target);
+String readUrl = presigner.presignGetObject(builder -> builder
+        .signatureDuration(Duration.ofMinutes(10))
+        .getObjectRequest(request -> request
+                .bucket(bucket).key("notes/hello.txt")))
+        .url().toString();
 ```
 
-这段代码会在系统临时目录创建一个新目录，将文件保存到其中。打开输出的路径，内容为 `Hello, RustFS`。所在测试方法增加 `throws Exception` 即可处理示例中的文件系统异常。
+把生成的地址放入浏览器即可读取文件。头像、图片展示等场景，可以由后端检查权限后将地址返回前端，前端直接用它加载资源。URL 到期后重新向后端申请。
 
-`getObjectAsBytes()` 适合读取小文件并在内存中处理；`ResponseTransformer.toFile()` 适合将对象直接保存到磁盘。[AWS S3 操作示例](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/java_s3_code_examples.html)
+### 4.2 PUT 预签名：客户端直接上传
 
-### 4.5 删除指定文件
-
-添加导入：
+签名器先确定对象键及本次上传使用的 MIME 类型，再生成上传凭据：
 
 ```java
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+String uploadKey = "images/" + UUID.randomUUID();
+var upload = presigner.presignPutObject(builder -> builder
+        .signatureDuration(Duration.ofMinutes(10))
+        .putObjectRequest(request -> request
+                .bucket(bucket).key(uploadKey).contentType("image/png")));
+String uploadUrl = upload.url().toString();
 ```
 
-完成读取和下载练习后，执行：
+生成地址只代表允许向这个对象键上传。客户端执行 PUT 并成功后，文件才会出现在 RustFS。`upload.signedHeaders()` 可以查看本次签名要求发送的请求头。
 
-```java
-s3Client.deleteObject(DeleteObjectRequest.builder()
-        .bucket(BUCKET)
-        .key(KEY)
-        .build());
+准备一张 PNG，在 PowerShell 将完整地址赋给 `$uploadUrl` 后执行：
+
+```powershell
+curl.exe -i -X PUT -H "Content-Type: image/png" --data-binary "@C:/temp/photo.png" $uploadUrl
 ```
 
-在本文默认的桶配置中，该对象随后从桶内移除。再次运行第 3 节测试，可以重新生成它。
+`--data-binary` 将文件字节直接作为请求体。收到成功状态后，可以在控制台查看对应的 `images/…` 对象。
 
-## 5. 让浏览器通过临时地址读取文件
+本例把 `Content-Type: image/png` 纳入签名，因此实际 PUT 使用相同值；上传 JPEG 时，申请与上传都改为 `image/jpeg`。主机、路径及签名参数也参与校验，客户端使用返回的完整 URL。上传申请里声明的大小只是业务输入；本例的签名没有绑定大小，上传后的实际字节数通过 HEAD 获取。[AWS 预签名示例](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/examples-s3-presign.html)
 
-临时访问地址，也称预签名 URL，由后端生成，携带指定对象的访问授权和有效期。浏览器拿到地址后即可读取该文件，访问密钥保存在后端。[AWS 预签名 URL 说明](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/examples-s3-presign.html)
+签名器的 Endpoint 要让使用 URL 的客户端能够访问：本机可用 `localhost`，手机可用局域网地址。应用运行在容器中时，S3Client 可以使用内部地址 `http://rustfs:9000`，S3Presigner 则配置为客户端可达的地址。
 
-### 5.1 配置签名器
+## 5. RustFS 上传事件发送到 RabbitMQ
 
-在第 3 节的 `S3Config` 中添加以下导入：
+上传事件用于告知其他系统“某个对象已经保存”。启用后，RustFS 负责发布事件，RabbitMQ 保存和路由消息，应用消费者负责处理业务，例如查询文件元数据并登记数据库。
 
-```java
-import software.amazon.awssdk.services.s3.S3Configuration;
-import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+配置分为两层：服务通知目标定义“发到哪个 MQ”，桶通知订阅定义“这个桶的哪些动作触发发送”。下面以 RustFS 1.0.4 的 AMQP 配置为例。[RustFS 事件通知](https://docs.rustfs.com/en/operations/event-notifications)
+
+### 5.1 AMQP 发送目标
+
+先按 [RabbitMQ 教程](RabbitMQ快速上手.md) 启动 RabbitMQ，并运行其中的资源声明与事件消费者。它会建立 `demo.events` 交换机、`demo.messages` 队列，以及 `message.created` 绑定键。
+
+将两个服务放在同一个 Compose 文件中，在 RustFS 的 `environment` 追加：
+
+```yaml
+      RUSTFS_NOTIFY_ENABLE: "true"
+      RUSTFS_NOTIFY_AMQP_ENABLE_DEMO: "on"
+      RUSTFS_NOTIFY_AMQP_URL_DEMO: "amqp://demo:demo@rabbitmq:5672/%2f"
+      RUSTFS_NOTIFY_AMQP_EXCHANGE_DEMO: "demo.events"
+      RUSTFS_NOTIFY_AMQP_ROUTING_KEY_DEMO: "message.created"
+      RUSTFS_NOTIFY_AMQP_PERSISTENT_DEMO: "on"
 ```
 
-在同一个类中增加 Bean：
+这里的 `rabbitmq` 是 Compose 服务名，两个容器通过内部网络连接。URL 中的 `%2f` 表示 RabbitMQ 默认虚拟主机 `/`。交换机和路由键与前面声明的绑定相配，持久化选项用于发送持久化消息。
+
+后缀 `_DEMO` 定义一个名为 `demo` 的 AMQP 目标，下一步桶订阅通过 ARN 引用它。执行 `docker compose up -d rustfs` 更新容器，新的环境变量随容器重建生效；单纯 `restart` 会沿用原环境。[Compose restart 行为](https://docs.docker.com/reference/cli/docker/compose/restart/)
+
+### 5.2 桶通知订阅
+
+在第 2 节配置类增加下面的 Bean，为已创建的 `demo-files` 桶设置 PUT 上传事件：
 
 ```java
 @Bean
-public S3Presigner s3Presigner(
-        @Value("${storage.endpoint}") String endpoint,
-        @Value("${storage.access-key}") String accessKey,
-        @Value("${storage.secret-key}") String secretKey) {
-    return S3Presigner.builder()
-            .endpointOverride(URI.create(endpoint))
-            .region(Region.US_EAST_1)
-            .credentialsProvider(StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(accessKey, secretKey)))
-            .serviceConfiguration(S3Configuration.builder()
-                    .pathStyleAccessEnabled(true)
-                    .checksumValidationEnabled(false)
-                    .build())
-            .build();
+public ApplicationRunner configureNotifications(S3Client s3Client) {
+    return args -> s3Client.putBucketNotificationConfiguration(request -> request
+            .bucket("demo-files")
+            .notificationConfiguration(configuration -> configuration
+                    .queueConfigurations(queue -> queue
+                            .id("demo-upload")
+                            .queueArn("arn:rustfs:sqs:us-east-1:demo:amqp")
+                            .events(Event.S3_OBJECT_CREATED_PUT))));
 }
 ```
 
-这里的配置同时采用路径式地址，并生成适合浏览器直接执行的 GET 签名。`checksumValidationEnabled(false)` 作用于这个签名器；前面 `S3Client` 的文件上传和读取配置保持原样。[签名器的浏览器兼容配置](https://docs.aws.amazon.com/java/api/latest/software/amazon/awssdk/services/s3/presigner/S3Presigner.html)
+`ApplicationRunner` 来自 `org.springframework.boot`，使配置在应用启动时执行；`Event` 来自 S3 SDK 的 `model` 包。ARN 中的 `demo:amqp` 指向上一步定义的目标，`S3_OBJECT_CREATED_PUT` 选择 PUT 创建事件。
 
-### 5.2 生成十分钟有效的访问地址
+SDK 沿用 S3 的通知配置结构，`queueConfigurations` 在这里引用 RustFS 的通知目标；RabbitMQ 队列由前面的 Spring 配置类声明。此 API 会替换整个桶的通知配置，多个订阅可以放在同一次配置中。
 
-在 `StorageTest` 中补充导入和字段：
+### 5.3 事件消费与文件登记
 
-```java
-import java.time.Duration;
-import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
-```
+再次上传一个对象，应用会收到包含 `Records` 数组的 JSON。每条记录描述事件名、桶及对象键；完整消息模型和消费者代码见 [RabbitMQ 教程的 RustFS 示例](RabbitMQ快速上手.md#6-rustfs-上传事件的消息格式)。
 
-```java
-@Autowired
-private S3Presigner s3Presigner;
-```
+业务处理顺序可以是：解析事件并解码对象键，调用 HEAD 获取实际元数据，按对象键找到归属及文件标识，再保存文件记录。消费者业务处理成功并返回后，Spring 向 RabbitMQ 确认消息。
 
-以第 3 节的完整测试为起点，将下面的代码追加到 `uploadAndRead()` 末尾，运行测试：
+PUT 成功表示对象已经保存，文件记录就绪还要等待事件消费。前端可以通过应用提供的文件状态接口查询后续结果。两者发生在不同阶段，因此状态接口也能帮助页面显示上传后的处理进度。
 
-```java
-var request = GetObjectPresignRequest.builder()
-        .signatureDuration(Duration.ofMinutes(10))
-        .getObjectRequest(GetObjectRequest.builder()
-                .bucket(BUCKET)
-                .key(KEY)
-                .build())
-        .build();
+## 6. 连接、签名与事件问题定位
 
-String url = s3Presigner.presignGetObject(request).url().toString();
-System.out.println(url);
-```
+| 现象 | 检查与处理 |
+| --- | --- |
+| 连接被拒绝 | 查看容器状态，确认 Endpoint 使用 S3 端口 `9000` |
+| NoSuchBucket | 在控制台创建代码使用的桶 |
+| SignatureDoesNotMatch | 核对 Content-Type、完整签名 URL、凭据及系统时间 |
+| 浏览器报告 CORS 错误 | 为前端来源和 PUT 请求配置跨域规则 |
+| 上传成功却没有事件 | 检查实际容器环境、桶订阅 ARN 和 RustFS 日志 |
+| MQ 队列数量为零 | 查看发布、投递及确认统计，消息可能已经处理完成 |
 
-复制输出的完整地址到浏览器，页面会显示 `Hello, RustFS`。将对象键换成已经上传的图片键，浏览器即可按图片的内容类型展示。
-
-实际接口可以先判断当前用户对文件的查看权限，再生成临时地址。数据库保存桶名、对象键及业务所需的文件信息；每次访问时生成新的临时地址。
-
-## 6. 接收前端上传的文件
-
-前面的示例演示了 SDK 本身的用法。本节将它接到 Spring MVC，形成一个可调用的上传接口。
-
-在包含 Spring MVC 依赖的项目中创建 `src/main/java/com/example/demo/FileController.java`：
-
-```java
-package com.example.demo;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.UUID;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-
-@RestController
-@RequestMapping("/api/files")
-public class FileController {
-
-    private final S3Client s3Client;
-
-    public FileController(S3Client s3Client) {
-        this.s3Client = s3Client;
-    }
-
-    @PostMapping
-    public UploadResult upload(@RequestParam("file") MultipartFile file)
-            throws IOException {
-        String key = "uploads/" + UUID.randomUUID();
-        String contentType = file.getContentType();
-        if (contentType == null) {
-            contentType = "application/octet-stream";
-        }
-
-        var request = PutObjectRequest.builder()
-                .bucket("demo-files")
-                .key(key)
-                .contentType(contentType)
-                .build();
-
-        try (InputStream input = file.getInputStream()) {
-            s3Client.putObject(request,
-                    RequestBody.fromInputStream(input, file.getSize()));
-        }
-
-        return new UploadResult(key);
-    }
-
-    public record UploadResult(String key) {}
-}
-```
-
-这个练习将上传操作集中放在一个控制器里，便于看清调用过程。接入业务后，可将文件存储操作提取到 Service，供多个接口复用。
-
-启动 Spring Boot，在终端执行：
-
-```powershell
-curl.exe -X POST http://localhost:8080/api/files -F "file=@C:/temp/photo.png"
-```
-
-返回内容类似：
-
-```json
-{"key":"uploads/8f566d3a-1dbe-4764-8dce-e3bff32b9961"}
-```
-
-控制台中会出现对应对象。这里的对象键使用随机标识，原文件名可以作为业务信息另行保存。
-
-上传较大文件时，在 `application.yaml` 中设置接口接收上限：
-
-```yaml
-spring:
-  servlet:
-    multipart:
-      max-file-size: 20MB
-      max-request-size: 25MB
-```
-
-第一项限制单个文件，第二项限制整次请求。浏览器表单或前端请求的文件字段名使用 `file`，与 `@RequestParam("file")` 对应。
-
-## 7. 调整访问地址与管理服务
-
-### 7.1 从其他设备访问
-
-本文的端口绑定到 `127.0.0.1`，用于本机练习。开放局域网访问时，将端口映射改为 `9000:9000` 和 `9001:9001`，并在 Windows 防火墙中为所需设备开放相应端口。
-
-假设电脑的局域网 IP 是 `192.168.2.15`，手机使用的文件地址应包含 `192.168.2.15:9000`。生成给手机使用的临时地址时，将签名器的 Endpoint 设置为这个可达地址，然后重新签名；地址中的主机和端口也参与签名计算。
-
-当 Spring Boot 同样运行在 Compose 网络中时，SDK 可以通过服务名 `http://rustfs:9000` 访问存储；对外生成的临时地址使用浏览器可达的 Endpoint。两者可分别配置。
-
-### 7.2 查看日志与停止服务
-
-```powershell
-docker compose ps rustfs
-docker compose logs --tail 100 rustfs
-docker compose stop rustfs
-docker compose start rustfs
-```
-
-`stop` 和 `start` 用于停止、启动现有容器，命名数据卷继续保留。本文镜像采用官方示例中的 `latest` 标签；团队需要复现同一环境时，可以固定为确认过的镜像版本。
-
-## 8. 按报错定位问题
-
-| 现象 | 优先检查 | 处理方式 |
-|---|---|---|
-| 连接被拒绝 | 容器状态、端口映射、Endpoint | 用 `docker compose ps rustfs` 确认服务，再核对 `9000` 端口 |
-| SDK 返回页面内容或解析响应失败 | Endpoint 是否填成控制台地址 | SDK 使用 `http://localhost:9000`，管理控制台使用 `9001` |
-| `NoSuchBucket` | 桶名及创建结果 | 在控制台确认 `demo-files` 已创建，核对大小写 |
-| `NoSuchKey` | 桶名、完整对象键 | 使用上传时返回的键，例如 `notes/hello.txt` |
-| `AccessDenied` 或 `InvalidAccessKeyId` | SDK 凭据、对象访问权限 | 对齐容器环境变量与 `storage` 配置；浏览器使用有效临时地址 |
-| `SignatureDoesNotMatch` | 密钥、系统时间、签名地址 | 核对凭据并同步系统时间，使用按最终访问地址生成的完整 URL |
-| 请求解析到 `demo-files.localhost` 等主机 | 客户端的地址模式 | 核对 `forcePathStyle(true)` 或签名器的路径式配置 |
-| 上传接口报文件大小超限 | Spring MVC 的上传限制 | 调整 `spring.servlet.multipart` 的两个大小配置 |
-| 浏览器脚本请求报 CORS，后端调用正常 | 浏览器跨域规则 | 为桶配置前端来源、请求方法和请求头，参考 [RustFS CORS 配置](https://docs.rustfs.com/en/administration/cors) |
-
-第 3 节的上传与读取测试可用来单独验证 SDK 到 RustFS 的连接。该测试通过后，再检查 Spring MVC 接口、浏览器请求和业务逻辑，可以逐步缩小问题范围。
+跨域配置参考 [RustFS CORS 文档](https://docs.rustfs.com/en/administration/cors)。项目中的文件 ID、访问校验和入库流程见 [后端开发约定](../YOU-后端开发约定.md)。

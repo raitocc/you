@@ -1,54 +1,46 @@
 # YOU 后端开发约定
 
-队友新增接口时，以现有媒体上传接口为例，沿着“定义请求 → 编写业务 → 接入 Controller → 返回结果 → 验证接口”完成开发。本文约定代码组织与接口表达，业务字段和权限规则由具体需求确定。
+新增接口沿着“定义请求 → 编写业务 → 接入 Controller → 验证结果”完成。本文说明项目实际接法；组件的独立示例见文末教程。
 
-## 1. 当前可复用的代码
+## 1. 按业务组织代码
 
-| 内容 | 现有实现 |
-| --- | --- |
-| 请求模型与校验 | [CreateUploadRequest](../you-backend/src/main/java/com/you/youbackend/media/request/CreateUploadRequest.java) |
-| 接口与 OpenAPI 注解 | [MediaController](../you-backend/src/main/java/com/you/youbackend/media/controller/MediaController.java) |
-| 业务处理与构造器注入 | [MediaService](../you-backend/src/main/java/com/you/youbackend/media/service/MediaService.java) |
-| 响应模型 | [CreateUploadResponse](../you-backend/src/main/java/com/you/youbackend/media/response/CreateUploadResponse.java) |
-| 统一响应 | [Result](../you-backend/src/main/java/com/you/youbackend/common/response/Result.java) |
-| 业务异常 | [BusinessException](../you-backend/src/main/java/com/you/youbackend/common/exception/BusinessException.java) |
-| 全局异常处理 | [GlobalExceptionHandler](../you-backend/src/main/java/com/you/youbackend/common/exception/GlobalExceptionHandler.java) |
-
-当前媒体模块已实现申请预签名 PUT 地址，以及接收文件并转发至 RustFS 的测试接口。`MediaFile`、`MediaFileMapper` 目前是占位类，上传确认及文件入库后续实现。异常处理的覆盖范围见第 6 节。
-
-## 2. 按业务组织目录
-
-当前应用根包为 `com.you.youbackend`，业务包放在这个包下面，供启动类自动扫描。
+应用根包为 `com.you.youbackend`，当前主要代码如下：
 
 ```text
 com.you.youbackend
-├── YouBackendApplication.java
-├── S3Config.java
 ├── common
-│   ├── response/Result.java
-│   └── exception
-│       ├── BusinessException.java
-│       └── GlobalExceptionHandler.java
+│   ├── config          # S3、RabbitMQ、OpenAPI、密码散列配置
+│   ├── exception       # BusinessException、GlobalExceptionHandler
+│   ├── response        # Result
+│   └── mybatis         # UUID 与 BINARY(16) 的类型映射
+├── user
+│   ├── controller      # AuthController、UserController
+│   ├── filter          # JwtAuthFilter
+│   ├── model           # AppUser、AccessTokenClaims
+│   ├── mapper
+│   ├── request
+│   ├── response
+│   └── service         # 用户业务、JWT、令牌黑名单
 └── media
-    ├── controller/MediaController.java
-    ├── service/MediaService.java
+    ├── controller
+    ├── consumer        # MediaUploadConsumer
+    ├── event           # MediaUploadEvent
+    ├── entity
+    ├── mapper
     ├── request
-    │   ├── CreateUploadRequest.java
-    │   └── TestUploadRequest.java
     ├── response
-    │   ├── CreateUploadResponse.java
-    │   └── TestUploadResponse.java
-    ├── entity/MediaFile.java
-    └── mapper/MediaFileMapper.java
+    └── service
 ```
 
-其他业务包使用相同结构，随功能创建实际需要的文件。Service 先使用具体的 `@Service` 类；多个实现确有共同契约时再提取接口。MyBatis-Plus 的 `IService` 用于通用数据库操作，是否使用由业务决定。
+新模块沿用实际需要的目录。Service 使用具体的 `@Service` 类；依赖通过构造器注入，字段使用 `final`。普通 Bean 可以通过 `@RequiredArgsConstructor` 注入，包含 `@Value` 时参考 `MediaService` 的显式构造器。
 
-## 3. 定义 Request 和 Response
+Controller 负责接收、校验、委托和返回；Service 负责业务判断、流程和事务；Mapper 负责数据库读写；Consumer 负责接收消息并委托业务处理。
 
-接口入参使用 `动作 + 对象 + Request`，响应数据使用对应的 `Response`，例如 `CreateUploadRequest`、`CreateUploadResponse`。请求、响应的固定字段通过明确的 Java 类型表达；Map 用于键名本身由业务动态决定的数据，例如请求头集合。
+## 2. 定义请求与响应
 
-Request 和 Response 的类、字段添加 `@Schema`，写清含义、单位、示例和特殊值语义。例如“文件大小”应说明单位为字节；更新资料时，可空字段应说明传 `null` 的含义。字段声明为 `private`，可通过 Lombok 生成访问方法；简单的数据载体也可以使用 `record`。
+入参使用 `动作 + 对象 + Request`，输出使用对应 `Response`。固定字段使用明确类型，例如 `CreateUploadRequest`、`CreateUploadResponse`；动态键值数据可以使用 Map。
+
+请求、响应模型的类与字段添加 `@Schema`，说明含义、单位、示例和特殊值。可空字段写清语义，例如更新资料时 `avatarFileId = null` 表示清除头像。
 
 基础格式校验放在 Request 中：
 
@@ -60,184 +52,186 @@ Request 和 Response 的类、字段添加 `@Schema`，写清含义、单位、�
 private Long byteSize;
 ```
 
-必填数字使用 `Long`、`Integer` 等包装类型配合 `@NotNull`，分别表达字段缺失和数值无效。字符串通过 `@NotBlank`、`@Size` 等注解校验。枚举直接声明为枚举类型；JSON 使用不同于枚举名称的字符串时，参考现有 `MimeType` 的 `@JsonValue` 写法。
+必填数字使用包装类型与 `@NotNull`，字符串使用 `@NotBlank`、`@Size`，固定取值使用枚举。JSON 使用 `@Valid @RequestBody`，文件表单使用 `@Valid @ModelAttribute` 并声明 `multipart/form-data`。
 
-JSON 请求使用 `@Valid @RequestBody`；包含文件的表单使用 `@Valid @ModelAttribute`，并在映射上声明 `consumes = MediaType.MULTIPART_FORM_DATA_VALUE`。测试上传接口的 `TestUploadRequest` 演示了字符串和 `MultipartFile` 一起接收的写法。
-
-## 4. 编写 Service 和 Mapper
-
-Service 负责业务规则、流程组织和外部组件调用，例如文件归属检查、生成对象键、调用签名器。依赖通过构造器注入，字段使用 `final`；全部依赖均为普通 Bean 时，可以使用 `@RequiredArgsConstructor`。参数包含 `@Value` 配置注入时，参考现有 `MediaService` 的显式构造器。
-
-Service 接收 Request 或明确的业务参数，返回 Response 或业务结果；由 Controller 包装 `Result`。方法内按业务步骤组织，独立步骤提取为有意义的方法。变量使用 `request`、`storageKey`、`mediaFile` 等能表达含义的名称，条件分支使用大括号。
-
-Entity 对应数据库记录，接口输出由 Response 表达。发生数据库读写时再接入 Mapper；MyBatis-Plus 的基础形式是 `@Mapper` 接口继承 `BaseMapper<MediaFile>`。SQL 与持久化操作归 Mapper，业务决策归 Service。复杂 SQL 使用便于阅读和维护的排版或 Mapper XML。
-
-一个业务操作包含多次需要共同提交的数据修改时，事务边界放在 Service。表结构、UUIDv7 的 `BINARY(16)` 映射、UTC 审计时间和 `deleted_at` 逻辑删除，按[数据库设计](YOU-数据库设计.md)实现；改表通过新增 Flyway 迁移交付。
-
-## 5. 接入 Controller 和接口文档
-
-Controller 接收请求、触发校验、委托 Service，并将结果转换为接口响应。普通 JSON 接口沿用现有写法：
+普通 JSON 接口由 Controller 返回 `Result<T>`：
 
 ```java
-@Operation(
-        summary = "申请图片上传地址",
-        description = "返回有效期为 10 分钟的 PUT 地址；上传时 Content-Type 与申请值一致。")
-@ApiResponses({
-        @ApiResponse(responseCode = "200", description = "上传地址生成成功"),
-        @ApiResponse(responseCode = "400", description = "请求参数或图片类型无效")
-})
+@Operation(summary = "申请图片上传地址")
 @PostMapping
 public Result<CreateUploadResponse> createUpload(
-        @Valid @RequestBody CreateUploadRequest request) {
-    return Result.ok(mediaService.createUpload(request));
+        @Valid @RequestBody CreateUploadRequest request,
+        @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    return Result.ok(mediaService.createUpload(request, userId));
 }
 ```
 
-Controller 类添加 `@RestController`、`@RequestMapping` 和 `@Tag`。接口路径、HTTP 方法及字段含义与接口设计保持一致，变更时同步接口文档和前端约定。
+Controller 类使用 `@Tag`，方法使用 `@Operation`、`@ApiResponses` 描述实际行为。JavaDoc 说明代码职责和方法输入输出，行内注释解释业务原因。接口字段变更时同步响应模型、注解和前端调用。
 
-| 注解 | 放置位置 | 内容 |
-| --- | --- | --- |
-| `@Tag` | Controller 类 | 模块名称与用途 |
-| `@Operation` | 接口方法 | 接口名称、调用条件和必要的使用说明 |
-| `@ApiResponse` / `@ApiResponses` | 接口方法 | 实际 HTTP 状态码及业务含义 |
-| `@Schema` | Request、Response 及字段 | 模型含义、字段说明、示例 |
-| `@Valid` | 请求对象参数 | 触发对象字段校验 |
+## 3. 接入当前用户与退出登录
 
-JavaDoc 面向维护代码的人，说明类的职责、公开业务方法的输入和结果；行内注释解释业务原因、约定和特殊处理。OpenAPI 注解面向接口调用者，说明如何提交和使用响应。Service、Mapper 和配置类通过 JavaDoc 说明职责，接口文档注解集中在 Controller 与请求、响应模型。
+当前使用 JWT Bearer 认证。注册和登录公开；Scalar、OpenAPI、WebJars、错误入口与 OPTIONS 请求由过滤器放行，其余请求进入 `JwtAuthFilter`。
 
-## 6. 统一返回 Result，集中处理异常
+```text
+Authorization 请求头
+    → JwtService.parseToken：验证签名、签发者、有效期和必要字段
+    → TokenBlacklistService：检查 jti 是否撤销
+    → 将身份写入 request
+    → Controller → Service
+```
 
-普通 JSON 成功响应统一返回 `Result<T>`：
+登录令牌由 HS256 签发，有效期 7 天。`sub` 是用户 ID，`jti` 是每枚令牌的唯一编号，`exp` 是过期时间；`AccessTokenClaims` 保存验证后的结果。
 
-```json
-{
-  "code": "SUCCESS",
-  "message": "操作成功",
-  "data": { "url": "上传地址" }
+业务接口通过请求属性取得身份：
+
+```java
+@GetMapping("/me")
+public Result<UserResponse> getCurrentUser(
+        @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    return Result.ok(userService.getCurrentUser(userId));
 }
 ```
 
-失败响应使用同样的字段，`data` 为 `null`。字段名统一使用 `message`：
+需要令牌编号和过期时间的接口使用 `JwtAuthFilter.CURRENT_ACCESS_TOKEN`，类型为 `AccessTokenClaims`。这两个属性来自同一次解析；已有接口继续使用 UUID，退出接口使用完整令牌信息。对象是否属于本人、是否允许操作等业务权限在 Service 中判断。
+
+受保护接口在类或方法上添加 `@SecurityRequirement(name = "bearerAuth")`，Scalar 据此附带认证头。公开与受保护方法并存的 Controller 在受保护方法上标注。
+
+`POST /auth/logout` 将当前 `jti` 写入 Redis：
+
+| 项目 | 当前约定 |
+| --- | --- |
+| Key | `you:auth:revoked:{jti}`，前缀由 `TokenBlacklistService.KEY_PREFIX` 维护 |
+| Value | `1`，通过 Key 是否存在判断撤销状态 |
+| TTL | 当前令牌剩余有效时间 |
+| 成功响应 | HTTP 200，`Result.ok(null)` |
+| 退出效果 | 后续携带同一令牌的请求返回 401，其他令牌继续有效 |
+
+客户端退出后清除本地令牌。每个受保护请求都会查询 Redis，开发时一起启动该服务。令牌新增 `jti` 后，旧令牌通过重新登录替换。
+
+过滤器中的 `BusinessException` 交给 MVC 的 `HandlerExceptionResolver` 转换为统一响应，同时设置 `WWW-Authenticate: Bearer`。这样认证失败与业务接口使用相同的错误结构。
+
+## 4. 使用数据库与事务
+
+Entity 对应数据库记录，Response 表达接口输出。Mapper 使用 `@Mapper` 并继承相应的 `BaseMapper`，查询列和条件优先使用 Lambda 表达式。
+
+| 内容 | 当前接法 |
+| --- | --- |
+| 主键 | 应用生成 UUIDv7，Java 字段使用 UUID |
+| 二进制映射 | 全局 `UuidTypeHandler` 在 UUID 与 `BINARY(16)` 间转换 |
+| 审计时间 | Service 按 UTC 填写 `created_at`、`updated_at`，毫秒精度 |
+| 软删除 | Java 字段 `deletedAt`，数据库 `deleted_at`；空值有效，删除时填写 UTC 时间 |
+| 对象关联 | 应用维护关系与业务约束 |
+| 结构变更 | 新增 Flyway 迁移，已执行文件保持原样 |
+
+逻辑删除已在 `application.yaml` 配置，MyBatis-Plus 标准 CRUD 自动处理；自定义 SQL 中显式维护对应条件。更新可空字段时，参考更新头像的 `lambdaUpdate().set(...)` 写法，使清空操作能写入数据库。
+
+多次数据修改需要共同提交时，在 Service 的公开业务方法上使用 `@Transactional`。Consumer 调用受 Spring 管理的 Service，使事务完成后再返回消费结果。
+
+## 5. 理解图片直传和事件入库
+
+当前媒体接口为：
+
+| 接口 | 用途 |
+| --- | --- |
+| `POST /media/uploads` | 生成 `fileId` 和有效期 10 分钟的 PUT 地址 |
+| `POST /media/uploads/test` | 接收 `url`、`file`，帮助执行 PUT，方便联调 |
+| `GET /media/uploads/{fileId}` | 查询当前用户的文件是否已经登记就绪 |
+
+申请签名时生成 UUIDv7；它既是返回的 `fileId`，也是后续 `media_file.id`。对象键格式为 `images/{userId}/{fileId}`，用户 ID 来自已验证的请求身份。
+
+```text
+客户端申请地址 → 客户端 PUT 到 RustFS → 对象保存成功
+                                        ↓
+                         s3:ObjectCreated:Put 事件
+                                        ↓
+                     Exchange → Queue → MediaUploadConsumer
+                                        ↓
+                        MediaService.handleUploadEvent
+                                        ↓
+                      解析对象键 → HEAD 查询 → 检查 → 入库
+```
+
+签名绑定 `Content-Type`；PUT 使用原始二进制，类型与申请值一致。`byteSize` 是申请时声明值，当前按上传后 HEAD 得到的实际大小检查 10 MiB 上限，允许的 MIME 元数据为 PNG、JPEG、WebP。图片实际内容的解码识别属于独立校验。
+
+`registerFile` 解析对象键取得上传者和文件 ID，并处理重复登记。事件可能重复投递，已存在记录会跳过插入；唯一约束处理并发重复登记。当前文件生命周期沿用已登记文件 ID，上传地址生成成功时尚未建立媒体记录。
+
+`ready = true` 表示存在有效且属于当前用户的文件记录。尚未登记、已删除或属于其他用户的文件均返回 `false`。客户端在就绪后提交资料更新；头像关联时由 `validateOwnedImage` 再次检查归属和类型。
+
+读取资料时返回 `avatarUrl`，由媒体服务生成 10 分钟的 GET 签名。数据库保存文件 ID 和对象键，临时地址在响应时生成。拿到有效地址的客户端可以直接读取对象。
+
+### 配置如何对应
+
+| 位置 | 当前值或职责 |
+| --- | --- |
+| Compose 的 RustFS 环境变量 | 定义 AMQP 目标 `primary`、交换机和路由键 |
+| `S3Config.configureMediaNotifications` | 为 `storage.bucket` 设置 PUT 事件订阅 |
+| 目标 ARN | `arn:rustfs:sqs:us-east-1:primary:amqp` |
+| `RabbitMqConfig` | 声明交换机 `you.storage.events`、队列 `you.media.uploaded`、路由键 `media.uploaded` |
+| `MediaUploadConsumer` | 用 Jackson 3 将消息正文解析为 `MediaUploadEvent` |
+| `MediaService` | 检查事件和文件，事务内登记元数据 |
+
+Spring Boot 在宿主机运行，通过 `localhost:5672` 连接 MQ；RustFS 在 Compose 网络中，通过 `rabbitmq:5672` 连接。同一个桶的通知设置通过 S3 API 整体写入，新增订阅时一起维护现有配置。
+
+当前监听容器在方法成功返回后确认消息。业务异常继续向外抛出，默认会重新入队；MQ 消费异常由监听容器处理，HTTP 全局异常处理器负责 Web 请求。处理完成但确认前连接中断也可能引发重复投递，因此重复事件沿用同一文件记录。
+
+### 上传成功后如何排查
+
+1. 用 `docker compose ps` 确认基础服务运行。
+2. 检查 RustFS 容器的实际环境变量和桶通知 ARN；改 Compose 后执行 `docker compose up -d rustfs`。
+3. 在 RabbitMQ 管理页面看交换机发布、队列投递、确认统计和消费者数。队列为零时，消息可能已经消费完成。
+4. 查看后端的上传事件、HEAD 查询和入库日志，再检查 `media_file` 与就绪接口。
+
+RustFS 镜像日志还保存在容器的 `/logs/rustfs.log`；容器标准输出信息不足时，从这里查看通知目标和事件发送错误。
+
+## 6. 统一响应与异常
+
+普通成功响应使用 `Result.ok(data)`，失败使用相同结构：
 
 ```json
 {
   "code": "INVALID_ARGUMENT",
-  "message": "文件大小必须大于 0",
+  "message": "请提供文件大小",
   "data": null
 }
 ```
 
-HTTP 状态码和业务 `code` 分别表达协议结果与具体原因。目前约定如下：
-
-| 情况 | HTTP 状态码 | 业务 code | 生成位置 |
-| --- | --- | --- | --- |
-| 普通成功 | 200 | `SUCCESS` | Controller 的 `Result.ok(...)` |
-| 字段校验失败 | 400 | `INVALID_ARGUMENT` | 全局异常处理器 |
-| JSON、字段类型或枚举解析失败 | 400 | `INVALID_REQUEST_BODY` | 全局异常处理器 |
-| 业务异常（BusinessException） | 异常携带的状态 | 异常携带的 code，例如 `UPLOAD_FAILED` | 全局异常处理器 |
-
-`Result.fail(...)` 只创建响应体，HTTP 状态由 `@ResponseStatus` 或 `ResponseEntity` 设置。普通 200 响应直接返回 `Result<T>`；需要设置状态或响应头时，使用 `ResponseEntity<Result<T>>`。文件二进制、重定向等响应按其 HTTP 用途返回。
-
-### 在 Service 中抛出业务异常
-
-字段格式由 Request 校验；依赖业务判断的失败由 Service 抛出 `BusinessException`。例如，测试上传拿到文件后检查其内容：
-
-```java
-if (file.isEmpty()) {
-    throw new BusinessException(
-            HttpStatus.BAD_REQUEST,
-            "INVALID_ARGUMENT",
-            "请选择有内容的文件");
-}
-```
-
-构造器的三个参数分别是 HTTP 状态 `status`、供客户端判断的业务错误码 `code`、供用户阅读的提示 `message`。例如上述异常返回 HTTP 400，响应体为 `{"code":"INVALID_ARGUMENT","message":"请选择有内容的文件","data":null}`。同一种失败保持稳定的错误码，提示文字可以调整。
-
-外部组件调用失败时，用带 `cause` 的构造器保留原始异常；日志按第 7 节的约定记录：
-
-```java
-throw new BusinessException(
-        HttpStatus.BAD_GATEWAY,
-        "UPLOAD_FAILED",
-        "RustFS 上传失败",
-        exception);
-```
-
-这里返回 HTTP 502 和 `UPLOAD_FAILED`；原始异常保留在异常链中。现有 `MediaService` 还会在提示里附带 RustFS 的错误详情，方便联调。业务条件校验失败使用三个参数的构造器即可。
-
-### 全局处理器生成失败响应
-
-`GlobalExceptionHandler` 的 `@RestControllerAdvice` 统一处理 Controller 调用过程中向外抛出的异常。业务异常对应以下处理方法：
-
-```java
-@ExceptionHandler(BusinessException.class)
-public ResponseEntity<Result<Void>> handleBusiness(BusinessException exception) {
-    return ResponseEntity.status(exception.getStatus())
-            .body(Result.fail(exception.getCode(), exception.getMessage()));
-}
-```
-
-调用链为：Service 抛出异常 → 全局处理器设置 HTTP 状态并创建 `Result` → Spring MVC 输出 JSON。Controller 继续使用第 5 节的正常返回写法。Request 校验和 JSON 解析由 Spring 抛出对应异常，分别进入现有的另外两个处理方法。
-
-新增业务失败时，通常在 Service 中选择状态、确定错误码并抛出 `BusinessException` 即可；Controller 的 `@ApiResponse` 同步描述该 HTTP 状态及含义。OpenAPI 注解负责文档展示，实际 HTTP 状态由处理器设置。
-
-### 当前实现范围
-
-当前已统一字段校验失败、请求体解析失败和显式抛出的业务异常。文件超过 multipart 大小上限等其他框架异常，以及未知系统异常，目前仍走 Spring Boot 默认错误响应；出现对应需求时补充全局处理方法。
-
-媒体上传中，`byteSize` 校验的是申请时声明的大小，当前签名绑定了 `Content-Type`，实际直传文件的大小核验仍待实现。测试上传接口另受 `spring.servlet.multipart` 的大小配置限制。上传确认和媒体文件入库也属于后续业务实现。
-
-## 7. 记录关键业务日志
-
-使用现有 Log4j2，在需要记录日志的类上添加 `@Log4j2`，通过 `log.info(...)` 等方法调用。日志沿用 Spring Boot / Log4j2 的默认格式和 INFO 级别，时间、级别、线程和类名由框架输出。排查问题时，通过 `logging.level.包名: DEBUG` 临时开启对应包的详细日志。
-
-### 选择级别和记录位置
-
-| 级别 | 使用场景 | 示例 |
+| 情况 | HTTP 状态 | code |
 | --- | --- | --- |
-| `INFO` | 关键业务结果、正常业务拒绝 | 注册成功、用户名已存在、上传地址已生成、测试上传成功 |
-| `WARN` | 值得关注的异常情况 | 登录失败、权限拒绝、外部调用进入重试 |
-| `ERROR` | 操作失败且需要定位的故障 | 存储服务上传失败、数据库连接失败、未预期异常 |
-| `DEBUG` | 调试过程和普通参数拒绝原因 | 测试上传地址不属于当前桶、文件为空 |
+| 普通成功 | 200 | `SUCCESS` |
+| 字段校验失败 | 400 | `INVALID_ARGUMENT` |
+| JSON、类型或枚举解析失败 | 400 | `INVALID_REQUEST_BODY` |
+| 业务失败 | `BusinessException` 携带的状态 | 对应业务错误码 |
+| 认证失败 | 401 | `UNAUTHORIZED`，账号密码错误使用 `INVALID_CREDENTIALS` |
 
-Service 在关键步骤完成后记录结果；Controller 保持接收参数、调用 Service 和返回响应的流程。Mapper 的 SQL 调试使用框架日志。高频的普通查询按排查需要记录 DEBUG，日常保留能说明重要业务结果的信息。
+Service 对可预期失败抛出 `BusinessException(status, code, message)`。例如当前头像不可用时返回 400、`FILE_NOT_USABLE`；外部上传失败使用带 cause 的构造器保留原始异常。
 
-成功日志对应实际完成的操作：生成签名地址记录“上传地址已生成”，完成 PUT 后记录“测试上传成功”。当前注册只有一次插入，在插入成功后记录；涉及事务时，提交成功再记录最终成功，事务内的日志仅表示当时的执行进度。
+`GlobalExceptionHandler` 将业务异常转换为 `ResponseEntity<Result<Void>>`，Controller 保持正常调用流程。`Result.fail` 创建响应体，HTTP 状态由处理器或 `ResponseEntity` 设置。二进制与重定向响应按对应 HTTP 用途返回。
 
-### 写清事件和关键字段
+当前处理器覆盖字段校验、请求体解析和显式业务异常。multipart 超限、Redis 连接失败等其他框架或系统异常仍使用默认错误处理；接口实际增加对应处理时同步维护这里的覆盖说明。
 
-消息使用“事件 + 关键字段”，通过 `{}` 传参。对象统一使用 `userId`、`storageKey` 等明确的标识，文件大小区分申请时声明的大小与实际接收大小。例如：
+## 7. 写日志、常量和配置
 
-```java
-log.info("注册成功，userId={}", userId);
+使用 `@Log4j2`，沿用默认格式和 INFO 级别，消息采用“事件 + 关键字段”并使用 `{}` 占位符。
 
-log.info("注册被拒绝，reason=用户名已存在，username={}", username);
+| 级别 | 使用位置 |
+| --- | --- |
+| INFO | 注册、登录、退出、资料更新、上传签名和文件登记等关键步骤 |
+| WARN | 凭据无效、权限拒绝、文件检查失败等需要关注的情况 |
+| ERROR | 外部服务或数据库故障，附带足够的定位信息 |
+| DEBUG | 高频查询、重复事件和临时排查信息 |
 
-log.info("上传地址已生成，storageKey={}，mimeType={}，declaredByteSize={}",
-        storageKey, request.getMimeType(), request.getByteSize());
+Service 记录业务事件；Consumer 需要时记录消息处理边界。同一故障选定一个位置记录，事务内日志说明写入步骤，事务提交结果由事务边界决定。
 
-log.info("测试上传成功，statusCode={}，byteSize={}",
-        response.getStatusCode().value(), file.getSize());
-```
+日志选取 `userId`、`fileId`、`jti`、状态码和异常类型等必要字段。密码、密码散列、完整 JWT、Cookie、完整预签名地址和私人正文留在日志之外；HTTP 客户端异常链也应检查是否带有签名地址。
 
-同一次故障选择一个位置记录：Service 已记录的外部调用失败，由全局业务异常处理器负责转换响应。普通业务拒绝保留简短原因；需要定位的系统故障，在合适的异常处理处将异常对象作为最后一个参数传入，保留堆栈，例如 `log.error("数据库操作失败，userId={}", userId, exception)`。未预期异常的全局兜底目前仍待实现。
+固定业务限制、Key 前缀和路由名称使用语义明确的常量，放在所属模块维护。连接地址和凭据放在配置文件，部署时覆盖；令牌黑名单 TTL 从令牌剩余时间计算。
 
-### 选择可记录的数据
+## 8. 交付前检查
 
-日志只提取必要字段，密码、密码哈希、JWT、Cookie、完整预签名 URL 和私人正文统一排除。Request 和 Entity 按字段选择信息，注册请求整体输出会包含密码。
+1. 正常流程能返回明确的 Response，必要的失败返回对应状态与统一结构。
+2. 受保护接口在无令牌、过期或已撤销时返回 401，业务权限检查使用已验证身份。
+3. Scalar 中的字段、可空语义、示例和响应与实际行为一致。
+4. 涉及外部组件时验证实际业务结果，区分签名生成、文件上传、事件入库和业务关联。
+5. 编译、测试与联调结果分别记录；测试数据使用独立资源并在完成后清理。
 
-HTTP 客户端异常消息也可能带有完整签名地址。现有测试上传失败日志仅记录 `statusCode`、实际 `byteSize` 和 `exceptionType`，原始异常继续通过 `BusinessException` 的 `cause` 保留。后续补充堆栈记录时，先确认异常消息及原因链中的凭据已脱敏。
-
-## 8. 常量、配置和交付检查
-
-固定业务限制使用语义明确的 `static final` 常量，例如上传大小上限、地址有效期；同一模块多处使用时集中维护。数据库地址、对象存储地址及账号等环境信息放在 `application.yaml`，本地开发直接使用清楚的本地配置，部署时覆盖对应项。默认值集中在配置或代码中的一处维护。
-
-提交前沿接口流程检查一次：
-
-1. 正常请求能返回明确的 Response 和统一 `Result`。
-2. 必填字段缺失、越界数值、非法枚举能返回对应 HTTP 状态及 `code/message/data`。
-3. Scalar（`/scalar`）中的字段、示例、枚举取值和成功、失败响应与实际接口一致；必要时查看 `/v3/api-docs`。
-4. 涉及数据库或对象存储的流程，验证实际业务效果；当前申请上传地址的成功只代表签名已生成，真实 PUT 上传另行验证。
-5. 完成相关编译和测试；数据库、对象存储集成测试使用独立的测试资源，清理本次创建的数据。
-
-基础用法继续查阅：[Spring MVC](help/SpringMVC快速上手.md)、[Scalar](help/Scalar快速上手.md)、[MyBatis-Plus](help/MyBatis-Plus快速上手.md)、[Flyway](help/Flyway快速上手.md)、[RustFS](help/RustFS快速上手.md)。
+组件用法：[Spring MVC](help/SpringMVC快速上手.md)、[MyBatis-Plus](help/MyBatis-Plus快速上手.md)、[Scalar](help/Scalar快速上手.md)、[Flyway](help/Flyway快速上手.md)、[RustFS](help/RustFS快速上手.md)、[JWT](help/JWT认证与退出登录.md)、[RabbitMQ](help/RabbitMQ快速上手.md)。

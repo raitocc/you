@@ -1,77 +1,97 @@
 # YOU
 
-个人记忆平台，以瞬间记录经历，通过时光、同行和圈子整理与分享。后端位于 `you-backend/`，当前已完成基础工程，接下来开始业务开发。
+个人记忆平台，以瞬间记录经历，通过时光、同行和圈子整理与分享。后端位于 `you-backend/`，使用 Java 17、Spring Boot 4.1.2。
 
-## 已完成
+## 当前进度
 
-- **工程**：IDEA 创建的 Spring Boot 4.1.2 项目，Java 17，启动包 `com.you.youbackend`。整个 YOU 使用一个 Git 仓库，已配置 `.gitignore`。
-- **依赖**：Spring MVC、MyBatis-Plus 3.5.18、MySQL 驱动、Flyway、springdoc + Scalar 3.2.0、Log4j2、Lombok、AWS S3 SDK 2.57.8，以及 Spring Boot MVC 测试依赖。
-- **数据库**：已设计 14 张业务表，写入 [V1.0__init_schema.sql](you-backend/src/main/resources/db/migration/V1.0__init_schema.sql)。UUIDv7 使用 `BINARY(16)`，通过 `deleted_at` 软删除，关联关系由应用维护。迁移目前仅完成文件核对，执行验证待完成。
-- **对象存储**：已配置 `S3Config`，可注入 `S3Client` 访问 RustFS。
-- **测试**：Controller、数据库连接与 CRUD、RustFS 上传读取示例均在 `src/test/java`。已通过清理后的编译打包，正式 JAR 中已排除测试类；完整测试运行验证待完成。
-- **容器**：[compose.yaml](compose.yaml) 编排 MySQL 8.4 和 RustFS，已配置本机端口映射和持久化数据卷。
+已实现注册、登录、退出、本人资料读取与更新，以及图片直传地址申请、上传就绪查询和头像临时访问地址。图片上传事件通过 RabbitMQ 消费，检查后写入媒体文件表；退出登录通过 Redis 撤销当前 JWT。
 
-## 文档与快速教程
+基础工程包括 MyBatis-Plus、MySQL、Flyway、Scalar、Log4j2、AWS S3 SDK、JJWT、RabbitMQ 和 Redis。初始迁移包含 14 张业务表；UUIDv7 使用 `BINARY(16)`，删除时间使用 `deleted_at`，关联关系由应用维护。瞬间、时光、同行和圈子的业务接口继续在这些基础上开发。
 
-| 文档 | 内容 |
-|---|---|
-| [后端开发约定](doc/YOU-后端开发约定.md) | 分层、命名、校验、接口文档、统一响应和异常处理 |
-| [数据库设计](doc/YOU-数据库设计.md) | 14 张表的字段、关系与业务规则 |
-| [Spring MVC](doc/help/SpringMVC快速上手.md) | 编写接口、接收参数和返回结果 |
-| [MyBatis-Plus](doc/help/MyBatis-Plus快速上手.md) | 实体、Mapper、增删改查与条件查询 |
-| [Scalar](doc/help/Scalar快速上手.md) | 接口说明注解与在线调试 |
-| [Flyway](doc/help/Flyway快速上手.md) | 建表、数据库升级与迁移版本管理 |
-| [RustFS](doc/help/RustFS快速上手.md) | 部署、上传、下载与临时访问地址 |
-| [数据库连接与实操](doc/help/数据库连接与实操.md) | 用 test 表练习数据库连接和 CRUD |
-
-## 启动使用
+## 启动项目
 
 准备 JDK 17 或 21、Maven 3、Docker Desktop。IDEA 导入 `you-backend/pom.xml`，语言级别保持 17。
 
-在 YOU 根目录执行：
+在仓库根目录执行：
 
 ```powershell
 docker compose up -d
-mvn -f you-backend/pom.xml -DskipTests clean package
 ```
 
-应用启动时，Flyway 自动执行待执行的迁移并记录历史。MySQL 数据库、账号和密码均为 `you`，端口为 `3306`。RustFS Access Key 和 Secret Key 均为 `you`，S3 接口为 `http://localhost:9000`，控制台为 `http://localhost:9001`。
+打开 RustFS 控制台，使用 `you` / `you` 登录，首次创建私有桶 `you-files`。后端启动时会为这个已有桶设置上传事件订阅。
 
-接口文档：<http://localhost:8080/scalar>；OpenAPI JSON：<http://localhost:8080/v3/api-docs>。连接配置在 `you-backend/src/main/resources/application.yaml`。
+在 IDEA 运行 `YouBackendApplication`，或在根目录执行：
 
-现有练习中的 CRUD 使用已删除的 `test` 表，文件测试使用 `demo-files` 桶；运行相应练习时按教程准备表或桶。上面的打包命令只编译测试源码，跳过测试执行。
-
-## 测试签名上传
-
-正常启动应用后，在现有媒体接口中使用 `POST /media/uploads/test`，表单文件上限为 10 MiB。
-
-1. 调用 `POST /media/uploads`，按实际文件填写 `byteSize` 和 `mimeType`，取得 `data.url`。
-2. 在 Scalar 打开“测试预签名上传”，`url` 粘贴完整签名地址，`file` 选择同一文件后发送。文件部分的 `Content-Type` 与申请时保持一致，例如 `image/png`。
-3. 成功响应的 `data.statusCode` 为 RustFS 返回的状态码，`data.etag` 为对象实体标签；在 RustFS 控制台查看 `you-files/images/` 下的文件。此接口用于验证文件上传，文件业务登记由后续上传确认流程完成。
-
-测试接口只向当前 `storage.endpoint`、`storage.bucket` 对应的地址发送 PUT。
-
-## 继续开发
-
-业务代码放在 `src/main/java/com/you/youbackend` 下，按业务建立包；测试放在 `src/test/java`。先落实 UUIDv7 生成及二进制转换、审计时间填充和逻辑删除映射，再跑通“注册登录 → 上传图片 → 发布瞬间 → 浏览、编辑、删除”的基础流程。
-
-后续改表在 `src/main/resources/db/migration` 新增 `V1.1__描述.sql`、`V1.2__描述.sql` 等迁移；已执行的历史文件保持原样。多人同时改表时协调版本号，接口说明随 Controller 一起维护到 Scalar。
-
+```powershell
+mvn -f you-backend/pom.xml spring-boot:run
 ```
-com.you
-├── YouApplication.java
-├── config                      # MVC、认证、MyBatis、存储、AI 等配置
-├── common
-│   ├── exception               # 异常及统一异常处理
-│   ├── response                # 统一响应、公共错误码、分页结果等
-│   ├── mybatis                 # UUID 等公共类型转换
-│   └── util                    # 实际需要的通用工具
-├── user                        # 注册、登录、退出、当前用户、个人资料
-├── moment                      # 瞬间、组图、标签、浏览、搜索、关联调整
-├── album                       # 时光及其中的瞬间
-├── gathering                   # 一次共同经历、成员、邀请码与阶段管理
-├── circle                      # 圈子、成员、内容分享
-├── media                       # 图片上传、文件元数据、访问地址、RustFS 接入
-├── message                     # 用户信箱、站内通知及各自的已读管理
-└── ai                          # 辅助填写、语义检索、整理与生成能力
+
+应用启动时，Flyway 自动执行待执行迁移；Spring 声明 RabbitMQ 交换机、队列和绑定；`S3Config` 设置桶通知。连接配置集中在 [application.yaml](you-backend/src/main/resources/application.yaml)。
+
+| 服务 | 本机地址 | 开发凭据 |
+| --- | --- | --- |
+| 后端 / Scalar | `http://localhost:8080/scalar` | 业务接口使用登录返回的 Bearer Token |
+| OpenAPI JSON | `http://localhost:8080/v3/api-docs` | 公开访问 |
+| MySQL | `localhost:3306`，数据库 `you` | 用户、密码均为 `you` |
+| RustFS S3 / 控制台 | `http://localhost:9000` / `http://localhost:9001` | Access Key、Secret Key 均为 `you` |
+| RabbitMQ / 管理页面 | `localhost:5672` / `http://localhost:15672` | 用户、密码均为 `you` |
+| Redis | `localhost:6379` | 密码 `you` |
+
+基础服务由 [compose.yaml](compose.yaml) 编排，端口绑定本机，数据保存在命名卷中。修改 Compose 环境变量后执行 `docker compose up -d 服务名`，让 Compose 重新创建对应容器并加载配置。
+
+## 跑通一次登录与图片上传
+
+在 Scalar 中按下列顺序操作：
+
+1. `POST /auth/register`：提交用户名、密码和昵称。
+2. `POST /auth/login`：取得 `data.accessToken`，在 Scalar 认证区域填入令牌。
+3. `POST /media/uploads`：按实际图片填写 `byteSize` 和 `mimeType`，保存返回的 `fileId` 与 `url`。
+4. 向 `url` 发送 PUT，正文为图片二进制，`Content-Type` 与申请值一致。也可以调用 `POST /media/uploads/test`，用表单提交 `url` 和 `file`，由后端帮助执行这次 PUT。
+5. `GET /media/uploads/{fileId}`：查询 `ready`；事件处理完成并登记文件后为 `true`。
+6. `PUT /users/me`：提交完整可编辑资料，例如 `{"nickname":"小满","avatarFileId":"已就绪的文件ID"}`。传 `null` 可清除头像。
+7. `GET /users/me`：查看资料与 `avatarUrl`，头像地址有效期为 10 分钟。
+8. `POST /auth/logout`：撤销当前令牌。再次使用它访问本人资料会返回 401。
+
+上传链路为：
+
+```text
+申请地址 → 客户端 PUT → RustFS → RabbitMQ → 媒体服务检查并入库
+                                                    ↓
+                                              查询 ready 并关联使用
 ```
+
+申请时的 `fileId` 就是后续 `media_file.id`。签名有效期为 10 分钟，当前支持 PNG、JPEG、WebP，上传后按实际字节数检查 10 MiB 上限。MQ 消费是异步过程，上传 PUT 成功和文件业务就绪是两个阶段。
+
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [后端开发约定](doc/YOU-后端开发约定.md) | 分层、接口表达、认证接入、上传链路、异常和日志 |
+| [数据库设计](doc/YOU-数据库设计.md) | 14 张表的字段、关系与业务规则 |
+| [Spring MVC](doc/help/SpringMVC快速上手.md) | 接收参数、编写接口和返回结果 |
+| [MyBatis-Plus](doc/help/MyBatis-Plus快速上手.md) | 实体、Mapper、增删改查与条件查询 |
+| [Scalar](doc/help/Scalar快速上手.md) | 接口说明注解与在线调试 |
+| [Flyway](doc/help/Flyway快速上手.md) | 建表、数据库升级与迁移历史 |
+| [RustFS](doc/help/RustFS快速上手.md) | SDK、GET/PUT 签名、元数据和上传事件通知 |
+| [JWT 认证与退出登录](doc/help/JWT认证与退出登录.md) | 签发验证、请求过滤与 Redis 黑名单 |
+| [RabbitMQ](doc/help/RabbitMQ快速上手.md) | 声明资源、发送消费、JSON 和消息确认 |
+| [数据库连接与实操](doc/help/数据库连接与实操.md) | 用独立的 test 表练习连接和 CRUD |
+| [文档写作规范](doc/文档写作规范.md) | 文档结构、讲解、示例与表达规范 |
+
+通用教程使用独立示例资源；项目接法以开发约定和当前 Scalar 为准。仓库中的接口设计稿保留了早期方案，本次联调使用上面的实际路径。
+
+## 继续开发与验证
+
+业务代码在 `src/main/java/com/you/youbackend` 下按模块组织，测试在 `src/test/java`。新增接口复用 `Result`、`BusinessException`、过滤器中的用户身份和全局 UUID 类型处理器；时间字段由 Service 按 UTC 填写，软删除映射已配置。
+
+改表时在 `db/migration` 新增 `V1.1__描述.sql`、`V1.2__描述.sql` 等迁移，已执行文件保留原样。接口字段、Scalar 注解和前端调用一起维护。
+
+```powershell
+# 编译主代码和测试代码
+mvn -f you-backend/pom.xml test-compile -DskipTests
+
+# 打包，跳过测试执行
+mvn -f you-backend/pom.xml clean package -DskipTests
+```
+
+现有练习测试包含已删除的 `test` 表和独立的 `demo-files` 桶，运行前按对应教程准备资源。MQ 上传到数据库的完整链路已验证；其余功能按具体测试和接口联调结果确认。
