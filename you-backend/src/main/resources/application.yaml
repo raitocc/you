@@ -15,9 +15,15 @@ storage:
   access-key: you
   secret-key: you
   bucket: you-files
+  callback-token: "YouAndYourMemories_RustFS_Callback_2026"
 
 mybatis-plus:
   type-handlers-package: com.you.youbackend.common.mybatis
+  global-config:
+    db-config:
+      logic-delete-field: deletedAt
+      logic-not-delete-value: "null"
+      logic-delete-value: "UTC_TIMESTAMP(3)"
 
 jwt:
   secret: "YouKeepTheMoments_WeKeepTheMagic_2026!"

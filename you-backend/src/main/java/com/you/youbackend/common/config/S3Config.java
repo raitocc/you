@@ -2,6 +2,7 @@ package com.you.youbackend.common.config;
 
 import java.net.URI;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -9,6 +10,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.Event;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 @Configuration
@@ -46,5 +48,22 @@ public class S3Config {
                         .pathStyleAccessEnabled(true)
                         .build())
                 .build();
+    }
+
+    /**
+     * 配置媒体桶的上传事件通知。
+     */
+    @Bean
+    public ApplicationRunner configureMediaNotifications(
+            S3Client s3Client,
+            @Value("${storage.bucket}") String bucket) {
+
+        return args -> s3Client.putBucketNotificationConfiguration(request -> request
+                .bucket(bucket)
+                .notificationConfiguration(configuration -> configuration
+                        .queueConfigurations(queue -> queue
+                                .id("media-upload")
+                                .queueArn("arn:rustfs:sqs:us-east-1:primary:webhook")
+                                .events(Event.S3_OBJECT_CREATED_PUT))));
     }
 }

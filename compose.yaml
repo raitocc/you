@@ -17,6 +17,12 @@ services:
       RUSTFS_ACCESS_KEY: you
       RUSTFS_SECRET_KEY: you
       RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_NOTIFY_ENABLE: "true"
+      RUSTFS_NOTIFY_WEBHOOK_ENABLE_PRIMARY: "on"
+      RUSTFS_NOTIFY_WEBHOOK_ENDPOINT_PRIMARY: "http://host.docker.internal:8080/media/uploads/callback"
+      RUSTFS_NOTIFY_WEBHOOK_AUTH_TOKEN_PRIMARY: "YouAndYourMemories_RustFS_Callback_2026"
+      RUSTFS_NOTIFY_WEBHOOK_QUEUE_DIR_PRIMARY: "/data/notify-primary"
+      RUSTFS_OUTBOUND_ALLOW_ORIGINS: "http://host.docker.internal:8080"
     command: ["/data"]
     ports:
       - "127.0.0.1:9000:9000"

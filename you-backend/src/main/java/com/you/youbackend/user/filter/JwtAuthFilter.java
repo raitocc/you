@@ -48,6 +48,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String path = request.getServletPath();
 
         return "OPTIONS".equals(request.getMethod())
+                || ("HEAD".equals(request.getMethod()) && path.equals("/"))
+                || ("POST".equals(request.getMethod()) && path.equals("/media/uploads/callback"))
                 || path.equals("/auth/register")
                 || path.equals("/auth/login")
                 || path.equals("/scalar")
