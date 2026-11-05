@@ -1,5 +1,9 @@
 # Flutter
 
+Flutter 是 Google 推出的开源、跨平台 UI 应用开发框架，开发者可以使用一套 Dart 代码，构建运行在 Android、iOS、Web、Windows、macOS 和 Linux 等平台上的应用程序。
+
+Flutter 不只负责绘制界面，还提供组件体系、布局系统、动画、手势交互、路由、状态管理基础设施以及平台原生能力接入机制。
+
 > 参考资料：
 > 
 > 官方文档：[https://docs.flutter.dev/learn](https://docs.flutter.dev/learn)
