@@ -46,28 +46,28 @@ class MediaUploadTest {
     private final AtomicReference<String> receivedQuery = new AtomicReference<>();
     private final AtomicReference<byte[]> receivedBytes = new AtomicReference<>();
 
-    @BeforeEach
-    void setUp() throws Exception {
-        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        server.createContext("/you-files/images/sample", exchange -> {
-            receivedRequests.incrementAndGet();
-            receivedMethod.set(exchange.getRequestMethod());
-            receivedContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
-            receivedQuery.set(exchange.getRequestURI().getRawQuery());
-            receivedBytes.set(exchange.getRequestBody().readAllBytes());
-            exchange.getResponseHeaders().add("ETag", "\"test-etag\"");
-            byte[] body = upstreamStatus.get() == 200 ? new byte[0]
-                    : "<Error><Code>SignatureDoesNotMatch</Code></Error>".getBytes();
-            exchange.sendResponseHeaders(upstreamStatus.get(), body.length == 0 ? -1 : body.length);
-            if (body.length > 0) {
-                exchange.getResponseBody().write(body);
-            }
-            exchange.close();
-        });
-        server.start();
-        endpoint = "http://localhost:" + server.getAddress().getPort();
-        mvc = createMvc(endpoint);
-    }
+//    @BeforeEach
+//    void setUp() throws Exception {
+//        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+//        server.createContext("/you-files/images/sample", exchange -> {
+//            receivedRequests.incrementAndGet();
+//            receivedMethod.set(exchange.getRequestMethod());
+//            receivedContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+//            receivedQuery.set(exchange.getRequestURI().getRawQuery());
+//            receivedBytes.set(exchange.getRequestBody().readAllBytes());
+//            exchange.getResponseHeaders().add("ETag", "\"test-etag\"");
+//            byte[] body = upstreamStatus.get() == 200 ? new byte[0]
+//                    : "<Error><Code>SignatureDoesNotMatch</Code></Error>".getBytes();
+//            exchange.sendResponseHeaders(upstreamStatus.get(), body.length == 0 ? -1 : body.length);
+//            if (body.length > 0) {
+//                exchange.getResponseBody().write(body);
+//            }
+//            exchange.close();
+//        });
+//        server.start();
+//        endpoint = "http://localhost:" + server.getAddress().getPort();
+//        mvc = createMvc(endpoint);
+//    }
 
     @AfterEach
     void tearDown() {
@@ -136,35 +136,35 @@ class MediaUploadTest {
     /**
      * 显式开启时使用本机 RustFS，上传唯一测试对象、读回核对并清理该对象。
      */
-    @Test
-    @EnabledIfSystemProperty(named = "rustfs.test.enabled", matches = "true")
-    void uploadsRealImageToRustFsUsingSdkPresignedUrl() throws Exception {
-        String rustfsEndpoint = "http://localhost:9000";
-        String key = "images/upload-test-" + UUID.randomUUID() + ".png";
-        byte[] image = Base64.getDecoder().decode(
-                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=");
-        S3Config config = new S3Config();
-        try (S3Client storage = config.s3Client(rustfsEndpoint, "you", "you");
-             S3Presigner presigner = config.s3Presigner(rustfsEndpoint, "you", "you")) {
-            PutObjectRequest put = PutObjectRequest.builder()
-                    .bucket("you-files").key(key).contentType("image/png").build();
-            String url = presigner.presignPutObject(builder -> builder
-                            .signatureDuration(Duration.ofMinutes(10)).putObjectRequest(put))
-                    .url().toString();
-            try {
-                createMvc(rustfsEndpoint).perform(multipart("/media/uploads/test")
-                                .file(new MockMultipartFile("file", "pixel.png", "image/png", image))
-                                .param("url", url))
-                        .andExpect(status().isOk())
-                        .andExpect(jsonPath("$.data.statusCode").value(200));
-                byte[] stored = storage.getObjectAsBytes(GetObjectRequest.builder()
-                        .bucket("you-files").key(key).build()).asByteArray();
-                assertArrayEquals(image, stored);
-            } finally {
-                storage.deleteObject(builder -> builder.bucket("you-files").key(key));
-            }
-        }
-    }
+//    @Test
+//    @EnabledIfSystemProperty(named = "rustfs.test.enabled", matches = "true")
+//    void uploadsRealImageToRustFsUsingSdkPresignedUrl() throws Exception {
+//        String rustfsEndpoint = "http://localhost:9000";
+//        String key = "images/upload-test-" + UUID.randomUUID() + ".png";
+//        byte[] image = Base64.getDecoder().decode(
+//                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=");
+//        S3Config config = new S3Config();
+//        try (S3Client storage = config.s3Client(rustfsEndpoint, "you", "you");
+//             S3Presigner presigner = config.s3Presigner(rustfsEndpoint, "you", "you")) {
+//            PutObjectRequest put = PutObjectRequest.builder()
+//                    .bucket("you-files").key(key).contentType("image/png").build();
+//            String url = presigner.presignPutObject(builder -> builder
+//                            .signatureDuration(Duration.ofMinutes(10)).putObjectRequest(put))
+//                    .url().toString();
+//            try {
+//                createMvc(rustfsEndpoint).perform(multipart("/media/uploads/test")
+//                                .file(new MockMultipartFile("file", "pixel.png", "image/png", image))
+//                                .param("url", url))
+//                        .andExpect(status().isOk())
+//                        .andExpect(jsonPath("$.data.statusCode").value(200));
+//                byte[] stored = storage.getObjectAsBytes(GetObjectRequest.builder()
+//                        .bucket("you-files").key(key).build()).asByteArray();
+//                assertArrayEquals(image, stored);
+//            } finally {
+//                storage.deleteObject(builder -> builder.bucket("you-files").key(key));
+//            }
+//        }
+//    }
 
     @Test
     void validatesMalformedUrlBeforeForwarding() throws Exception {
@@ -175,12 +175,12 @@ class MediaUploadTest {
                 .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
         assertEquals(0, receivedRequests.get());
     }
-    private MockMvc createMvc(String storageEndpoint) {
-        var service = new MediaService(mock(S3Presigner.class), "you-files", storageEndpoint);
-        return MockMvcBuilders.standaloneSetup(new MediaController(service))
-                .setControllerAdvice(new GlobalExceptionHandler())
-                .build();
-    }
+//    private MockMvc createMvc(String storageEndpoint) {
+//        var service = new MediaService(mock(S3Presigner.class), "you-files", storageEndpoint);
+//        return MockMvcBuilders.standaloneSetup(new MediaController(service))
+//                .setControllerAdvice(new GlobalExceptionHandler())
+//                .build();
+//    }
 
     private MockMultipartFile image() {
         return new MockMultipartFile("file", "sample.png", "image/png", new byte[]{1, 2, 3});

@@ -23,8 +23,8 @@ public record UserResponse(
         @Schema(description = "头像文件 ID，未设置时为 null")
         UUID avatarFileId,
 
-        @Schema(description = "受保护的头像读取路径，未设置时为 null")
-        String avatarContentPath,
+        @Schema(description = "受保护的头像读取路径 url")
+        String avatarurl,
 
         @Schema(description = "注册时间，UTC")
         Instant createdAt,

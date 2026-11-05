@@ -2,27 +2,29 @@ package com.you.youbackend.media.controller;
 
 import com.you.youbackend.common.response.Result;
 import com.you.youbackend.media.request.CreateUploadRequest;
+import com.you.youbackend.media.request.MediaCallbackRequest;
 import com.you.youbackend.media.request.TestUploadRequest;
 import com.you.youbackend.media.response.CreateUploadResponse;
 import com.you.youbackend.media.response.TestUploadResponse;
 import com.you.youbackend.media.service.MediaService;
+import com.you.youbackend.user.filter.JwtAuthFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 
 /**
  * 媒体文件接口。
  */
+@SecurityRequirement(name = "bearerAuth")
 @Tag(name = "媒体", description = "图片直传相关接口")
 @RestController
 @RequestMapping("/media/uploads")
@@ -50,8 +52,10 @@ public class MediaController {
     })
     @PostMapping
     public Result<CreateUploadResponse> createUpload(
-            @Valid @RequestBody CreateUploadRequest request) {
-        return Result.ok(mediaService.createUpload(request));
+            @Valid @RequestBody CreateUploadRequest request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId
+    ) {
+        return Result.ok(mediaService.createUpload(request,userId));
     }
 
     /**
@@ -74,5 +78,21 @@ public class MediaController {
     @PostMapping(value = "/test", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<TestUploadResponse> testUpload(@Valid @ModelAttribute TestUploadRequest request) {
         return Result.ok(mediaService.testUpload(request));
+    }
+
+    /**
+     * 接收 RustFS 文件上传事件并登记文件元数据。
+     */
+    @Operation(
+            summary = "接收文件上传回调",
+            description = "由 RustFS 调用，Authorization 使用存储回调专用令牌。")
+    @PostMapping("/callback")
+    public Result<Void> callback(
+            @RequestHeader(value = "Authorization", required = false)
+            String authorization,
+            @Valid @RequestBody MediaCallbackRequest request) {
+
+        mediaService.handleCallback(authorization, request);
+        return Result.ok(null);
     }
 }

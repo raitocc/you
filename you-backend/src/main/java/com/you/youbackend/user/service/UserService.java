@@ -3,6 +3,7 @@ package com.you.youbackend.user.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.user.mapper.UserMapper;
 import com.you.youbackend.user.model.AppUser;
 import com.you.youbackend.user.request.LoginRequest;
@@ -16,7 +17,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -37,6 +37,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private static final Duration ACCESS_TOKEN_VALIDITY = Duration.ofDays(7);
     private final JwtService jwtService;
+    private final MediaService mediaService;
 
 
     /**
@@ -72,37 +73,18 @@ public class UserService {
 
         log.info("注册成功，userId={}", userId);
 
-        return new UserResponse(
-                userId,
-                user.getUsername(),
-                user.getNickname(),
-                null,
-                null,
-                now.toInstant(ZoneOffset.UTC),
-                now.toInstant(ZoneOffset.UTC));
+        return toUserResponse(user);
     }
 
 
     /**
      * 验证账号密码，返回访问令牌和本人资料。
-     * todo 验证 mp 如何处理软删除
      */
     public LoginResponse login(LoginRequest request) {
         String username = request.username().toLowerCase(Locale.ROOT);
 
         // 数据库查询用户
-        AppUser user = userMapper.selectOne(
-                Wrappers.<AppUser>lambdaQuery()
-                        .select(
-                                AppUser::getId,
-                                AppUser::getUsername,
-                                AppUser::getPasswordHash,
-                                AppUser::getNickname,
-                                AppUser::getAvatarFileId,
-                                AppUser::getCreatedAt,
-                                AppUser::getUpdatedAt)
-                        .eq(AppUser::getUsername, username)
-                        .isNull(AppUser::getDeletedAt));
+        AppUser user = findUserByUsername(username);
 
         // 验证密码
         if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
@@ -131,6 +113,21 @@ public class UserService {
                 userResponse);
     }
 
+    private AppUser findUserByUsername(String username) {
+        return userMapper.selectOne(
+                Wrappers.<AppUser>lambdaQuery()
+                        .select(
+                                AppUser::getId,
+                                AppUser::getUsername,
+                                AppUser::getPasswordHash,
+                                AppUser::getNickname,
+                                AppUser::getAvatarFileId,
+                                AppUser::getCreatedAt,
+                                AppUser::getUpdatedAt)
+                        .eq(AppUser::getUsername, username)
+        );
+    }
+
     /**
      * 获取当前登录用户的最新资料。
      *
@@ -138,18 +135,7 @@ public class UserService {
      * @return 本人资料
      */
     public UserResponse getCurrentUser(UUID userId) {
-        // todo 查询或许要包装一下呢，已经出现两次了
-        AppUser user = userMapper.selectOne(
-                Wrappers.<AppUser>lambdaQuery()
-                        .select(
-                                AppUser::getId,
-                                AppUser::getUsername,
-                                AppUser::getNickname,
-                                AppUser::getAvatarFileId,
-                                AppUser::getCreatedAt,
-                                AppUser::getUpdatedAt)
-                        .eq(AppUser::getId, userId)
-                        .isNull(AppUser::getDeletedAt));
+        AppUser user = findUserById(userId);
 
         if (user == null) {
             log.warn("获取本人资料失败，userId={}，reason=账号不存在或已删除", userId);
@@ -163,20 +149,35 @@ public class UserService {
         return toUserResponse(user);
     }
 
+    private AppUser findUserById(UUID userId) {
+        return userMapper.selectOne(
+                Wrappers.<AppUser>lambdaQuery()
+                        .select(
+                                AppUser::getId,
+                                AppUser::getUsername,
+                                AppUser::getNickname,
+                                AppUser::getAvatarFileId,
+                                AppUser::getCreatedAt,
+                                AppUser::getUpdatedAt)
+                        .eq(AppUser::getId, userId)
+        );
+    }
+
     /**
      * 将用户记录转换为本人资料。
      */
     private UserResponse toUserResponse(AppUser user) {
-        // todo 头像path暂且返回null
         UUID avatarFileId = user.getAvatarFileId();
-        String avatarContentPath = null;
+        String avatarUrl = avatarFileId == null
+                ? null
+                : mediaService.getReadUrl(avatarFileId);
 
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
                 user.getNickname(),
                 avatarFileId,
-                avatarContentPath,
+                avatarUrl,
                 user.getCreatedAt().toInstant(ZoneOffset.UTC),
                 user.getUpdatedAt().toInstant(ZoneOffset.UTC));
     }
