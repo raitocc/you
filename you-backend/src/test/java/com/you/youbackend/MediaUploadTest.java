@@ -1,6 +1,7 @@
 package com.you.youbackend;
 
 import com.sun.net.httpserver.HttpServer;
+import com.you.youbackend.common.config.S3Config;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
 import com.you.youbackend.media.controller.MediaController;
 import com.you.youbackend.media.service.MediaService;
