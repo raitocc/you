@@ -95,10 +95,14 @@ class MomentRepository {
     );
   }
 
-  /// 带上草稿版本保存编辑内容。
-  Future<Moment> edit(MomentDraft draft) async => momentFromJson(
-    await _remote.edit(draft.id, draft.version!, draftPayload(draft)),
-  );
+  /// 全量保存编辑内容，并按本人详情契约解析结果。
+  Future<Moment> edit(MomentDraft draft) async {
+    final author = await _currentAuthor();
+    return momentFromJson(
+      await _remote.edit(draft.id, updateMomentPayload(draft)),
+      currentAuthor: author,
+    );
+  }
 
   Future<void> delete(String id, String version) => _remote.delete(id, version);
 

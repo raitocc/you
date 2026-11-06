@@ -11,7 +11,9 @@ import com.you.youbackend.moment.mapper.MomentImageMapper;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentFeedCursor;
+import com.you.youbackend.moment.model.MomentMood;
 import com.you.youbackend.moment.request.CreateMomentRequest;
+import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.response.MomentFeedItem;
 import com.you.youbackend.moment.response.MomentResponse;
 import lombok.RequiredArgsConstructor;
@@ -121,18 +123,8 @@ public class MomentService {
         Moment moment = new Moment();
         moment.setId(id);
         moment.setAuthorUserId(userId);
-        moment.setTitle(StringUtils.hasText(request.title()) ? request.title() : null);
-        moment.setBody(request.body());
-        moment.setMood(request.mood());
-        moment.setMemoryTime(memoryTime);
         moment.setCreatedAt(savedAt);
-        moment.setUpdatedAt(savedAt);
-        if (location != null) {
-            moment.setLatitude(location.latitude());
-            moment.setLongitude(location.longitude());
-            moment.setLocationName(location.name());
-            moment.setLocationAddress(location.address());
-        }
+        applyContent(moment, request.title(), request.body(), request.mood(), memoryTime, location, savedAt);
 
         try {
             // 主键同时覆盖并发提交和已软删除记录的 ID。
@@ -150,17 +142,37 @@ public class MomentService {
     }
 
     /**
+     * 在同一事务内替换本人瞬间的内容及关联，保留原瞬间和历史关联的标识。
+     */
+    @Transactional
+    public MomentResponse updateMoment(UUID id, UpdateMomentRequest request, UUID userId) {
+        Moment moment = requireOwnedMoment(momentMapper.selectForUpdate(id), userId);
+        List<UUID> fileIds = request.imageFileIds().stream().map(UUID::fromString).toList();
+        validateContent(request.body(), fileIds);
+        List<String> tags = normalizeTags(request.tags());
+        MomentResponse.Location location = normalizeLocation(request.location());
+        LocalDateTime memoryTime = parseMemoryTime(request.memoryTime());
+        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+
+        applyContent(moment, request.title(), request.body(), request.mood(), memoryTime, location, savedAt);
+        momentMapper.updateContent(moment);
+
+        // 先解除旧关联，再按提交顺序恢复或新增，移除的图片文件继续保留。
+        momentImageMapper.removeAssociations(id);
+        List<MomentResponse.Image> images = saveImages(id, userId, fileIds, savedAt);
+        momentTagMapper.removeAssociations(id);
+        for (String name : tags) {
+            momentTagMapper.saveAssociation(newTag(id, name, savedAt));
+        }
+        return toResponse(moment, images, momentTagMapper.selectNames(id), location);
+    }
+
+    /**
      * 查询有效的本人瞬间，并签发当前可用的图片读取地址。
      */
     @Transactional(readOnly = true)
     public MomentResponse getMoment(UUID id, UUID userId) {
-        Moment moment = momentMapper.selectById(id);
-        if (moment == null) {
-            throw new BusinessException(HttpStatus.NOT_FOUND, "MOMENT_NOT_FOUND", "瞬间不存在");
-        }
-        if (!userId.equals(moment.getAuthorUserId())) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "仅作者可以查看此瞬间");
-        }
+        Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
         List<MomentResponse.Image> images = momentImageMapper.selectInDisplayOrder(id)
                 .stream().map(image -> new MomentResponse.Image(image.getFileId(),
                         mediaService.createOwnedImageReadUrl(image.getFileId(), userId))).toList();
@@ -170,6 +182,35 @@ public class MomentService {
                 : new MomentResponse.Location(moment.getLatitude(), moment.getLongitude(),
                         moment.getLocationName(), moment.getLocationAddress());
         return toResponse(moment, images, tags, location);
+    }
+
+    /**
+     * 校验瞬间仍然有效且归当前用户所有。
+     */
+    private Moment requireOwnedMoment(Moment moment, UUID userId) {
+        if (moment == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "MOMENT_NOT_FOUND", "瞬间不存在");
+        }
+        if (!userId.equals(moment.getAuthorUserId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "仅作者可以操作此瞬间");
+        }
+        return moment;
+    }
+
+    /**
+     * 应用发布和全量编辑共用的内容字段。
+     */
+    private void applyContent(Moment moment, String title, String body, MomentMood mood, LocalDateTime memoryTime,
+                              MomentResponse.Location location, LocalDateTime savedAt) {
+        moment.setTitle(StringUtils.hasText(title) ? title : null);
+        moment.setBody(body);
+        moment.setMood(mood);
+        moment.setMemoryTime(memoryTime);
+        moment.setUpdatedAt(savedAt);
+        moment.setLatitude(location == null ? null : location.latitude());
+        moment.setLongitude(location == null ? null : location.longitude());
+        moment.setLocationName(location == null ? null : location.name());
+        moment.setLocationAddress(location == null ? null : location.address());
     }
 
     private MomentResponse toResponse(Moment moment, List<MomentResponse.Image> images,
@@ -262,7 +303,7 @@ public class MomentService {
             image.setSortOrder(images.size() + 1);
             image.setCreatedAt(savedAt);
             image.setUpdatedAt(savedAt);
-            momentImageMapper.insert(image);
+            momentImageMapper.saveAssociation(image);
             images.add(new MomentResponse.Image(fileId, url));
         }
         return images;
@@ -274,14 +315,8 @@ public class MomentService {
     private List<String> saveTags(UUID momentId, List<String> tags, LocalDateTime savedAt) {
         List<String> savedTags = new ArrayList<>(tags.size());
         for (String name : tags) {
-            MomentTag tag = new MomentTag();
-            tag.setId(UuidCreator.getTimeOrderedEpoch());
-            tag.setMomentId(momentId);
-            tag.setTagName(name);
-            tag.setCreatedAt(savedAt);
-            tag.setUpdatedAt(savedAt);
             try {
-                momentTagMapper.insert(tag);
+                momentTagMapper.insert(newTag(momentId, name, savedAt));
                 savedTags.add(name);
             } catch (DuplicateKeyException exception) {
                 // 标签唯一索引按数据库排序规则比较，保留首次出现的写法。
@@ -289,6 +324,19 @@ public class MomentService {
             }
         }
         return savedTags;
+    }
+
+    /**
+     * 创建待保存的瞬间标签关联。
+     */
+    private MomentTag newTag(UUID momentId, String name, LocalDateTime savedAt) {
+        MomentTag tag = new MomentTag();
+        tag.setId(UuidCreator.getTimeOrderedEpoch());
+        tag.setMomentId(momentId);
+        tag.setTagName(name);
+        tag.setCreatedAt(savedAt);
+        tag.setUpdatedAt(savedAt);
+        return tag;
     }
 
     /**

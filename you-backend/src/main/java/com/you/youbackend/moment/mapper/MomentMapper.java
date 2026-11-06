@@ -15,6 +15,30 @@ import java.util.UUID;
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
     /**
+     * 锁定有效瞬间，串行化同一瞬间的全量编辑。
+     */
+    default Moment selectForUpdate(UUID id) {
+        return selectOne(Wrappers.<Moment>lambdaQuery().eq(Moment::getId, id).last("FOR UPDATE"));
+    }
+
+    /**
+     * 全量更新可编辑字段，允许显式清空可空字段。
+     */
+    default void updateContent(Moment moment) {
+        update(Wrappers.<Moment>lambdaUpdate()
+                .eq(Moment::getId, moment.getId())
+                .set(Moment::getTitle, moment.getTitle())
+                .set(Moment::getBody, moment.getBody())
+                .set(Moment::getMood, moment.getMood())
+                .set(Moment::getMemoryTime, moment.getMemoryTime())
+                .set(Moment::getLatitude, moment.getLatitude())
+                .set(Moment::getLongitude, moment.getLongitude())
+                .set(Moment::getLocationName, moment.getLocationName())
+                .set(Moment::getLocationAddress, moment.getLocationAddress())
+                .set(Moment::getUpdatedAt, moment.getUpdatedAt()));
+    }
+
+    /**
      * 读取本人瞬间流中位于游标之后的卡片数据。
      */
     default List<Moment> selectFeed(UUID userId, MomentFeedCursor cursor, int rowCount) {

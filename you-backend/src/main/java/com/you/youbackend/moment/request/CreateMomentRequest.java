@@ -23,7 +23,7 @@ public record CreateMomentRequest(
         @CodePointLength(max = 255, message = "标题不能超过 255 字符") String title,
         String body,
         List<@NotNull(message = "图片 ID 不能为空") @Pattern(
-                regexp = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                regexp = CreateMomentRequest.FILE_ID_PATTERN,
                 message = "图片 ID 必须是 UUID") String> imageFileIds,
         List<@NotNull(message = "标签不能为 null") String> tags,
         MomentMood mood,
@@ -33,6 +33,8 @@ public record CreateMomentRequest(
 ) {
     public static final String ID_PATTERN =
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}";
+    public static final String FILE_ID_PATTERN =
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
     public record Location(
             @DecimalMin(value = "-90", message = "纬度不能小于 -90")

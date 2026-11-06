@@ -9,27 +9,30 @@ Map<String, dynamic> _location(MomentLocation location) => {
   'longitude': location.longitude,
 };
 
-/// 构建提交参数，使用已上传图片的文件 ID 和 UTC 记忆时间。
-Map<String, dynamic> draftPayload(MomentDraft draft) => {
-  if (draft.version == null) 'id': draft.id,
+Map<String, dynamic> _editablePayload(MomentDraft draft, DateTime time) => {
   'title': draft.title.trim().isEmpty ? null : draft.title,
   'body': draft.body.trim().isEmpty ? null : draft.body,
   'tags': draft.tags,
-  'mood': draft.mood,
-  if (draft.time != null) 'memoryTime': draft.time!.toUtc().toIso8601String(),
+  'mood': momentMoodCodes[draft.mood] ?? draft.mood,
+  'memoryTime': time.toUtc().toIso8601String(),
   'location': draft.location == null ? null : _location(draft.location!),
-  'journeyId': draft.journeyId,
-  'circleIds': draft.circleIds,
   'imageFileIds': draft.images.map((image) => image.fileId!).toList(),
+};
+
+/// 提交全部可编辑字段，保留用于清空内容的 null 和空列表。
+Map<String, dynamic> updateMomentPayload(MomentDraft draft) => {
+  ..._editablePayload(draft, draft.time!),
+  'body': draft.body.isEmpty ? null : draft.body,
 };
 
 /// 生成创建接口接受的字段，并兼容旧草稿中保存的发布请求。
 Map<String, dynamic> createMomentPayload(MomentDraft draft) {
-  final payload = draft.pending ?? draftPayload(draft);
   final createdAt = DateTime.fromMillisecondsSinceEpoch(
     int.parse(draft.id.replaceAll('-', '').substring(0, 12), radix: 16),
     isUtc: true,
   );
+  final payload =
+      draft.pending ?? _editablePayload(draft, draft.time ?? createdAt);
   final mood = payload['mood'] as String?;
   return {
     'id': draft.id,
@@ -75,7 +78,8 @@ MomentDraft draftFromJson(Map<String, dynamic> json, Moment? current) {
     body: json['body'] as String,
     tags: List.unmodifiable((json['tags'] as List).cast<String>()),
     mood: json['mood'] as String?,
-    time: DateTime.tryParse(json['time'] as String? ?? ''),
+    time:
+        DateTime.tryParse(json['time'] as String? ?? '') ?? current?.memoryTime,
     location: location == null
         ? null
         : (

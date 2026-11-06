@@ -28,18 +28,11 @@ class MomentRemoteDataSource {
   Future<Map<String, dynamic>> publish(Map<String, dynamic> payload) async =>
       _data(await _dio.post<dynamic>('/moments', data: payload));
 
-  /// 通过 If-Match 提交当前版本的编辑。
+  /// 全量替换本人瞬间的可编辑内容。
   Future<Map<String, dynamic>> edit(
     String id,
-    String version,
     Map<String, dynamic> payload,
-  ) async => _data(
-    await _dio.patch<dynamic>(
-      _path(id),
-      data: payload,
-      options: _version(version),
-    ),
-  );
+  ) async => _data(await _dio.put<dynamic>(_path(id), data: payload));
 
   /// 通过 If-Match 删除指定版本的瞬间。
   Future<void> delete(String id, String version) async =>

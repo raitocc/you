@@ -135,7 +135,7 @@ void main() {
     expect(router.routeInformationProvider.value.uri.path, '/albums/42');
     expect(find.text('瞬间'), findsNothing);
   });
-  testWidgets('root moment editor, publishing, detail, editing and deletion', (
+  testWidgets('root moment editor, publishing, detail and full editing', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -204,19 +204,25 @@ void main() {
             );
             return;
           } else if (path.startsWith('/moments/') && moment != null) {
-            if (request.method == 'PATCH') {
-              expect(request.headers['If-Match'], '"2026-11-06T10:00:00.000Z"');
+            if (request.method == 'PUT') {
+              expect(request.headers, isNot(contains('If-Match')));
+              final payload = request.data as Map<String, dynamic>;
+              expect(payload, {
+                'title': null,
+                'body': '更新记录',
+                'imageFileIds': [],
+                'tags': [],
+                'mood': null,
+                'memoryTime': '2026-11-06T10:00:00.000Z',
+                'location': null,
+              });
               moment = {
                 ...moment!,
-                ...request.data as Map<String, dynamic>,
+                ...payload,
                 'updatedAt': '2026-11-06T10:01:00.000Z',
               };
             }
-            if (request.method == 'DELETE') {
-              expect(request.headers['If-Match'], '"2026-11-06T10:01:00.000Z"');
-              moment = null;
-              data = {'deleted': true};
-            } else if (request.method == 'GET') {
+            if (request.method == 'GET' || request.method == 'PUT') {
               data = {
                 for (final field in [
                   'id',
@@ -232,8 +238,6 @@ void main() {
                   field: moment![field],
                 'createdAt': '2026-11-06T10:00:00.000Z',
               };
-            } else {
-              data = moment;
             }
           }
           handler.resolve(
@@ -307,13 +311,6 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(find.text('更新记录'), findsOneWidget);
-    await tester.tap(find.byTooltip('更多操作'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('删除瞬间'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('删除'));
-    await tester.pumpAndSettle();
-    expect(moment, isNull);
-    expect(find.byTooltip('个人资料'), findsOneWidget);
+    expect(find.byTooltip('更多操作'), findsNothing);
   });
 }

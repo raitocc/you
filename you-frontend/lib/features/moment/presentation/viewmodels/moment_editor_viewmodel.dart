@@ -174,12 +174,8 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
         _checkSession(token);
       }
       if (result == null &&
-          id == null &&
           (draft.journeyId != null || draft.circleIds.isNotEmpty)) {
-        throw const AppException(
-          'UNSUPPORTED_SHARING',
-          '当前仅支持发布私人瞬间，请先移除同行和圈子',
-        );
+        throw const AppException('UNSUPPORTED_SHARING', '当前仅支持私人瞬间，请先移除同行和圈子');
       }
       if (draft.pending == null) {
         _validate(draft);

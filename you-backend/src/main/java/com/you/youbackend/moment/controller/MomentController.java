@@ -3,6 +3,7 @@ package com.you.youbackend.moment.controller;
 import com.you.youbackend.common.response.Result;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.moment.request.CreateMomentRequest;
+import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.response.MomentFeedItem;
 import com.you.youbackend.moment.response.MomentResponse;
 import com.you.youbackend.moment.service.MomentService;
@@ -36,7 +37,7 @@ public class MomentController {
     /**
      * 浏览当前用户发布的瞬间流。
      */
-    @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentV1Yours")
+    @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentYours")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "分页参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
@@ -67,6 +68,26 @@ public class MomentController {
             String momentId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         return Result.ok(momentService.getMoment(UUID.fromString(momentId), userId));
+    }
+
+    /**
+     * 全量保存本人瞬间的可编辑内容并返回最新详情。
+     */
+    @Operation(summary = "全量修改瞬间", operationId = "updateMoment")
+    @ApiResponse(responseCode = "200", description = "修改成功")
+    @ApiResponse(responseCode = "400", description = "参数或图片校验失败")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
+    @ApiResponse(responseCode = "403", description = "当前用户不是作者")
+    @ApiResponse(responseCode = "404", description = "瞬间不存在或已删除")
+    @PutMapping(path = "/{momentId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Result<MomentResponse> updateMoment(
+            @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
+            @PathVariable("momentId")
+            @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
+            String momentId,
+            @Valid @RequestBody UpdateMomentRequest request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        return Result.ok(momentService.updateMoment(UUID.fromString(momentId), request, userId));
     }
 
     /**
