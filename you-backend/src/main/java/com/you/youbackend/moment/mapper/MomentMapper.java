@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.model.MomentFeedCursor;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 import java.util.UUID;
@@ -14,6 +16,16 @@ import java.util.UUID;
  */
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
+    /**
+     * 锁定瞬间并读取作者和删除状态，用于校验重复删除。
+     */
+    @Select("""
+            SELECT author_user_id AS authorUserId, deleted_at AS deletedAt
+            FROM moment WHERE id = #{id,typeHandler=com.you.youbackend.common.mybatis.UuidTypeHandler}
+            FOR UPDATE
+            """)
+    Moment selectDeletionState(@Param("id") UUID id);
+
     /**
      * 锁定有效瞬间，串行化同一瞬间的全量编辑。
      */

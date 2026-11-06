@@ -32,12 +32,12 @@ class _MomentDetailPageState extends ConsumerState<MomentDetailPage> {
   }
 
   /// 确认删除操作并在成功后离开详情页。
-  Future<void> _delete(Moment moment) async {
+  Future<void> _delete() async {
     final approved = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除这个瞬间？'),
-        content: const Text('它会从信息流及关联的同行、时光和圈子中移除。'),
+        content: const Text('删除后，它将从你的瞬间列表中移除。'),
         actions: [
           TextButton(
             onPressed: () => context.pop(false),
@@ -54,12 +54,11 @@ class _MomentDetailPageState extends ConsumerState<MomentDetailPage> {
     setState(() => _deleting = true);
     final provider = momentDetailProvider(widget.id);
     try {
-      await ref.read(provider.notifier).delete(moment);
+      await ref.read(provider.notifier).delete();
       if (mounted) _back();
     } catch (error) {
       if (!mounted) return;
-      if (momentErrorCode(error) == 'VERSION_CONFLICT' ||
-          momentErrorCode(error) == 'RESOURCE_NOT_FOUND') {
+      if (momentErrorCode(error) == 'MOMENT_NOT_FOUND') {
         ref.invalidate(provider);
       }
       ScaffoldMessenger.of(
@@ -113,7 +112,7 @@ class _MomentDetailPageState extends ConsumerState<MomentDetailPage> {
         PopupMenuButton<String>(
           tooltip: '更多操作',
           enabled: !_deleting,
-          onSelected: (_) => _delete(moment),
+          onSelected: (_) => _delete(),
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'delete', child: Text('删除瞬间')),
           ],

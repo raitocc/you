@@ -185,6 +185,21 @@ public class MomentService {
     }
 
     /**
+     * 软删除本人瞬间并解除关联，已删除的本人瞬间可重复提交。
+     */
+    @Transactional
+    public void deleteMoment(UUID id, UUID userId) {
+        Moment moment = requireOwnedMoment(momentMapper.selectDeletionState(id), userId);
+        if (moment.getDeletedAt() != null) {
+            return;
+        }
+        momentMapper.deleteById(id);
+        momentImageMapper.removeAssociations(id);
+        momentTagMapper.removeAssociations(id);
+        // TODO 时光模块实现后，在同一事务中解除此瞬间的时光关联。
+    }
+
+    /**
      * 校验瞬间仍然有效且归当前用户所有。
      */
     private Moment requireOwnedMoment(Moment moment, UUID userId) {

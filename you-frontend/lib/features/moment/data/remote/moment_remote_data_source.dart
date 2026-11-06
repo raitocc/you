@@ -34,14 +34,11 @@ class MomentRemoteDataSource {
     Map<String, dynamic> payload,
   ) async => _data(await _dio.put<dynamic>(_path(id), data: payload));
 
-  /// 通过 If-Match 删除指定版本的瞬间。
-  Future<void> delete(String id, String version) async =>
-      unwrap(await _dio.delete<dynamic>(_path(id), options: _version(version)));
+  /// 删除指定瞬间，成功响应的数据为空。
+  Future<void> delete(String id) async =>
+      unwrap(await _dio.delete<dynamic>(_path(id)));
 
   String _path(String id) => '/moments/${Uri.encodeComponent(id)}';
-
-  Options _version(String version) =>
-      Options(headers: {'If-Match': '"$version"'});
 
   Map<String, dynamic> _data(Response<dynamic> response) =>
       unwrap(response) as Map<String, dynamic>;

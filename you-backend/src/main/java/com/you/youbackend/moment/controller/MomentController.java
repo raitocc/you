@@ -91,6 +91,26 @@ public class MomentController {
     }
 
     /**
+     * 删除本人瞬间并解除图片和标签关联。
+     */
+    @Operation(summary = "删除瞬间", operationId = "deleteMoment")
+    @ApiResponse(responseCode = "200", description = "删除成功")
+    @ApiResponse(responseCode = "400", description = "瞬间 ID 格式无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
+    @ApiResponse(responseCode = "403", description = "当前用户不是作者")
+    @ApiResponse(responseCode = "404", description = "瞬间不存在")
+    @DeleteMapping("/{momentId}")
+    public Result<Void> deleteMoment(
+            @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
+            @PathVariable("momentId")
+            @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
+            String momentId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        momentService.deleteMoment(UUID.fromString(momentId), userId);
+        return Result.ok(null);
+    }
+
+    /**
      * 发布瞬间并返回详情。
      */
     @Operation(summary = "发布瞬间", operationId = "createMoment")

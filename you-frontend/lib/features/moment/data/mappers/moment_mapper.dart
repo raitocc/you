@@ -54,7 +54,7 @@ Moment momentFromJson(
     ),
     isOwn: currentAuthor != null || json['isOwn'] as bool,
     canEdit: currentAuthor != null || json['canEdit'] as bool,
-    canDelete: json['canDelete'] as bool? ?? false,
+    canDelete: currentAuthor != null || json['canDelete'] == true,
     version: json['updatedAt'] as String,
   );
 }

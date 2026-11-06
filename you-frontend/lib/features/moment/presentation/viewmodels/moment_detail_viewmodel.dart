@@ -20,10 +20,10 @@ class MomentDetailViewModel extends AsyncNotifier<Moment> {
     return ref.watch(momentRepositoryProvider).detail(id);
   }
 
-  /// 按当前版本删除瞬间并通知相关页面刷新。
-  Future<void> delete(Moment moment) async {
+  /// 删除当前瞬间并通知相关页面刷新。
+  Future<void> delete() async {
     final token = ref.read(sessionProvider).asData?.value;
-    await ref.read(momentRepositoryProvider).delete(id, moment.version);
+    await ref.read(momentRepositoryProvider).delete(id);
     if (ref.mounted && token == ref.read(sessionProvider).asData?.value) {
       ref.read(momentRevisionProvider.notifier).changed();
     }

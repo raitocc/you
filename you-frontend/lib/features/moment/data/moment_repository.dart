@@ -104,7 +104,8 @@ class MomentRepository {
     );
   }
 
-  Future<void> delete(String id, String version) => _remote.delete(id, version);
+  /// 删除本人瞬间。
+  Future<void> delete(String id) => _remote.delete(id);
 
   /// 获取本人详情和发布结果使用的作者信息。
   Future<MomentAuthor> _currentAuthor() async {

@@ -52,7 +52,7 @@ class Moment {
   final bool canEdit;
   final bool canDelete;
 
-  /// 服务端原始 updatedAt 字符串，保留毫秒以发送 If-Match。
+  /// 服务端原始 updatedAt 字符串，用于记录草稿对应的版本。
   final String version;
 }
 

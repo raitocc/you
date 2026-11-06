@@ -135,7 +135,7 @@ void main() {
     expect(router.routeInformationProvider.value.uri.path, '/albums/42');
     expect(find.text('瞬间'), findsNothing);
   });
-  testWidgets('root moment editor, publishing, detail and full editing', (
+  testWidgets('root moment editor, publishing, detail, editing and deletion', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -222,7 +222,12 @@ void main() {
                 'updatedAt': '2026-11-06T10:01:00.000Z',
               };
             }
-            if (request.method == 'GET' || request.method == 'PUT') {
+            if (request.method == 'DELETE') {
+              expect(path, '/moments/${moment!['id']}');
+              expect(request.headers, isNot(contains('If-Match')));
+              expect(request.data, isNull);
+              moment = null;
+            } else if (request.method == 'GET' || request.method == 'PUT') {
               data = {
                 for (final field in [
                   'id',
@@ -311,6 +316,13 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(find.text('更新记录'), findsOneWidget);
-    expect(find.byTooltip('更多操作'), findsNothing);
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除瞬间'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    expect(moment, isNull);
+    expect(find.text('还没有瞬间'), findsOneWidget);
   });
 }
