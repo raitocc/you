@@ -22,7 +22,6 @@ spring:
 
 storage:
   endpoint: http://localhost:9000
-  presign-endpoint: http://10.0.2.2:9000
   access-key: you
   secret-key: you
   bucket: you-files
