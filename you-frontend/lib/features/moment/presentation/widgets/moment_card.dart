@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../../../app/theme/app_theme.dart';
 import '../../models/moment.dart';
+import '../../models/moment_mood.dart';
 
 String momentDate(DateTime time) {
   final local = time.toLocal();
   return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
 }
 
-const momentMoods = ['开心', '平静', '松弛', '心动', '惊喜', '自在', '低落'];
+final momentMoods = momentMoodCodes.keys;
 
 class MoodBadge extends StatelessWidget {
   const MoodBadge(this.mood, {super.key});

@@ -115,6 +115,9 @@ public class UserService {
                 userResponse);
     }
 
+    /**
+     * 按用户名查询登录所需的账号资料和密码散列。
+     */
     private AppUser findUserByUsername(String username) {
         return userMapper.selectOne(
                 Wrappers.<AppUser>lambdaQuery()
@@ -151,6 +154,9 @@ public class UserService {
         return toUserResponse(user);
     }
 
+    /**
+     * 按用户 ID 查询本人资料所需字段。
+     */
     private AppUser findUserById(UUID userId) {
         return userMapper.selectOne(
                 Wrappers.<AppUser>lambdaQuery()

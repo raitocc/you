@@ -53,6 +53,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     }
   }
 
+  /// 选择头像或背景图片，并提交对应的资料更新。
   Future<void> _pick({required bool avatar}) =>
       _run(avatar ? '正在上传头像…' : '正在保存背景…', () async {
         final file = await ImagePicker().pickImage(source: ImageSource.gallery);
@@ -394,6 +395,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     });
   }
 
+  /// 保存当前编辑的资料字段。
   Future<void> _saveField() async {
     final nickname = _field == _Field.nickname;
     final value = _text.text.trim();

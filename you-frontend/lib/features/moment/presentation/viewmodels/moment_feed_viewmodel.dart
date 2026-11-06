@@ -16,6 +16,7 @@ class MomentFeedViewModel extends AsyncNotifier<MomentFeedState> {
   final MomentTab tab;
   int _generation = 0;
 
+  /// 读取当前分类的首页数据。
   @override
   Future<MomentFeedState> build() async {
     _generation++;
@@ -29,6 +30,7 @@ class MomentFeedViewModel extends AsyncNotifier<MomentFeedState> {
     );
   }
 
+  /// 使用游标加载下一页并追加到列表。
   Future<void> loadMore() async {
     final current = state.asData?.value;
     if (state.isLoading ||

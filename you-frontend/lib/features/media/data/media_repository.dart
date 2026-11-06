@@ -12,6 +12,7 @@ final mediaRepositoryProvider = Provider(
 class MediaRepository {
   MediaRepository(this._remote);
   final MediaRemoteDataSource _remote;
+  /// 校验图片格式和大小，上传后返回文件 ID。
   Future<String> upload(
     Uint8List bytes,
     String mimeType, {
@@ -44,7 +45,9 @@ class MediaRepository {
     }
   }
 
+  /// 查询上传文件是否已登记，可供业务关联。
   Future<bool> isUploadReady(String fileId) => _remote.isUploadReady(fileId);
 
+  /// 读取临时地址对应的媒体字节。
   Future<Uint8List> download(String url) => _remote.download(url);
 }

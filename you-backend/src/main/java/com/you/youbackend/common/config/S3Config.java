@@ -16,6 +16,13 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 @Configuration
 public class S3Config {
 
+    /**
+     * 	Java 后端直接访问 RustFS
+     * @param endpoint
+     * @param accessKey
+     * @param secretKey
+     * @return
+     */
     @Bean
     public S3Client s3Client(
             @Value("${storage.endpoint}") String endpoint,
@@ -35,7 +42,7 @@ public class S3Config {
      */
     @Bean
     public S3Presigner s3Presigner(
-            @Value("${storage.endpoint}") String endpoint,
+            @Value("${storage.proc-endpoint}") String endpoint,
             @Value("${storage.access-key}") String accessKey,
             @Value("${storage.secret-key}") String secretKey) {
 

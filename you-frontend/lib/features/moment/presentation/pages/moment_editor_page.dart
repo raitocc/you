@@ -55,6 +55,7 @@ class _MomentEditorPageState extends ConsumerState<MomentEditorPage> {
     });
   }
 
+  /// 离开编辑页前处理未保存的草稿。
   Future<void> _requestBack(MomentEditorState? state) async {
     if (_leaving || state?.progress != null) return;
     if (state == null || !state.dirty) {
@@ -111,6 +112,7 @@ class _MomentEditorPageState extends ConsumerState<MomentEditorPage> {
     }
   }
 
+  /// 选择图片并交给编辑状态保存到本地。
   Future<void> _pickImages(int remaining) async {
     if (remaining == 0) {
       _message('一个瞬间最多添加 20 张照片');
@@ -139,6 +141,7 @@ class _MomentEditorPageState extends ConsumerState<MomentEditorPage> {
     }
   }
 
+  /// 提交当前草稿，成功后携带结果退出编辑页。
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
     final result = await _editor.submit();

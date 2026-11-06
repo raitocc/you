@@ -28,6 +28,9 @@ public class JwtService {
 
     private final SecretKey signingKey;
 
+    /**
+     * 根据配置的密钥初始化 JWT 签名密钥。
+     */
     public JwtService(@Value("${jwt.secret}") String secret) {
         this.signingKey = Keys.hmacShaKeyFor(
                 secret.getBytes(StandardCharsets.UTF_8));

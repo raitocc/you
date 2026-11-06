@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 /**
  * 全局接口异常处理，将请求错误转换为统一响应。
@@ -29,6 +30,19 @@ public class GlobalExceptionHandler {
                 ? "请求参数不符合要求"
                 : error.getDefaultMessage();
 
+        return Result.fail("INVALID_ARGUMENT", message);
+    }
+
+    /**
+     * 将路径或查询参数的校验错误转换为统一响应。
+     */
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public Result<Void> handleMethodValidation(HandlerMethodValidationException exception) {
+        String message = exception.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream())
+                .map(error -> error.getDefaultMessage())
+                .findFirst().orElse("请求参数不符合要求");
         return Result.fail("INVALID_ARGUMENT", message);
     }
 

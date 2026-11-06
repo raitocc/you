@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../user/data/user_repository.dart';
 import '../models/moment.dart';
 import '../models/moment_draft.dart';
 import 'local/moment_draft_data_source.dart';
@@ -16,6 +17,7 @@ final momentRepositoryProvider = Provider(
   (ref) => MomentRepository(
     ref.watch(momentRemoteDataSourceProvider),
     ref.watch(momentDraftDataSourceProvider),
+    ref.watch(userRepositoryProvider),
   ),
 );
 
@@ -28,14 +30,16 @@ class MomentRevision extends Notifier<int> {
   @override
   int build() => 0;
 
+  /// 通知当前会话内的页面刷新。
   void changed() => state++;
 }
 
 class MomentRepository {
-  MomentRepository(this._remote, this._local);
+  MomentRepository(this._remote, this._local, this._users);
 
   final MomentRemoteDataSource _remote;
   final MomentDraftDataSource _local;
+  final UserRepository _users;
 
   Future<MomentDraft?> readDraft(String owner, String key, Moment? current) =>
       _local.read(owner, key, current);
@@ -55,17 +59,23 @@ class MomentRepository {
 
   Future<Uint8List> readDraftImage(String path) => File(path).readAsBytes();
 
+  /// 从远端瞬间创建编辑草稿。
   MomentDraft editDraft(Moment moment) => draftFromMoment(moment);
 
+  /// 固定待发布的请求内容，供失败重试时复用。
   MomentDraft preparePublication(MomentDraft draft) =>
-      draft.pending == null ? draft.withPending(draftPayload(draft)) : draft;
+      draft.withPending(createMomentPayload(draft));
 
   Future<MomentPageData> browse(MomentTab tab, [String? cursor]) async =>
       momentPageFromJson(await _remote.browse(tab.name, cursor));
 
-  Future<Moment> detail(String id) async =>
-      momentFromJson(await _remote.detail(id));
+  /// 查询本人瞬间，使用当前账号资料补充作者信息。
+  Future<Moment> detail(String id) async {
+    final response = await _remote.detail(id);
+    return momentFromJson(response, currentAuthor: await _currentAuthor());
+  }
 
+  /// 按草稿 ID 查询上次发布结果，详情不存在时返回空值。
   Future<Moment?> recoverPublication(String id) async {
     try {
       return await detail(id);
@@ -75,14 +85,27 @@ class MomentRepository {
     }
   }
 
-  Future<Moment> publish(MomentDraft draft) async =>
-      momentFromJson(await _remote.publish(draft.pending!));
+  /// 发送已保存的发布请求并解析返回的详情。
+  Future<Moment> publish(MomentDraft draft) async {
+    final author = await _currentAuthor();
+    return momentFromJson(
+      await _remote.publish(draft.pending!),
+      currentAuthor: author,
+    );
+  }
 
+  /// 带上草稿版本保存编辑内容。
   Future<Moment> edit(MomentDraft draft) async => momentFromJson(
     await _remote.edit(draft.id, draft.version!, draftPayload(draft)),
   );
 
   Future<void> delete(String id, String version) => _remote.delete(id, version);
+
+  /// 获取本人详情和发布结果使用的作者信息。
+  Future<MomentAuthor> _currentAuthor() async {
+    final user = await _users.current();
+    return (id: user.id, nickname: user.nickname, avatarUrl: user.avatarUrl);
+  }
 }
 
 String? momentErrorCode(Object error) {
@@ -90,6 +113,7 @@ String? momentErrorCode(Object error) {
   return cause is AppException ? cause.code : null;
 }
 
+/// 判断发布失败后是否可以解除草稿的待确认状态。
 bool isDefinitiveMomentFailure(Object error) {
   final status = error is DioException ? error.response?.statusCode : null;
   return status != null && status >= 400 && status < 500 && status != 408;

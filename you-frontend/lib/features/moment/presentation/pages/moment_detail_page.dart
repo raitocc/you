@@ -31,6 +31,7 @@ class _MomentDetailPageState extends ConsumerState<MomentDetailPage> {
     }
   }
 
+  /// 确认删除操作并在成功后离开详情页。
   Future<void> _delete(Moment moment) async {
     final approved = await showDialog<bool>(
       context: context,

@@ -67,6 +67,9 @@ public class MediaService {
     private final MediaFileMapper mediaFileMapper;
     private final S3Client s3Client;
 
+    /**
+     * 配置对象存储访问及测试上传所用的 HTTP 客户端。
+     */
     public MediaService(
             S3Presigner presigner,
             @Value("${storage.bucket}") String bucket,
@@ -277,6 +280,20 @@ public class MediaService {
      * @param userId 当前用户 ID
      */
     public void validateOwnedImage(UUID fileId, UUID userId) {
+        requireOwnedImage(fileId, userId);
+    }
+
+    /**
+     * 校验图片归属并生成临时读取地址。
+     */
+    public String createOwnedImageReadUrl(UUID fileId, UUID userId) {
+        return createReadUrl(requireOwnedImage(fileId, userId).getStorageKey());
+    }
+
+    /**
+     * 读取当前用户已入库的有效图片，校验失败时抛出业务异常。
+     */
+    private MediaFile requireOwnedImage(UUID fileId, UUID userId) {
         MediaFile file = mediaFileMapper.selectById(fileId);
 
         if (file == null
@@ -289,12 +306,13 @@ public class MediaService {
             } else if (!userId.equals(file.getOwnerUserId())) {
                 reason = "文件不属于当前用户";
             }
-            log.warn("头像文件校验失败，userId={}，fileId={}，reason={}", userId, fileId, reason);
+            log.warn("图片文件校验失败，userId={}，fileId={}，reason={}", userId, fileId, reason);
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     "FILE_NOT_USABLE",
                     "请选择已上传完成的本人图片");
         }
+        return file;
     }
 
     /**

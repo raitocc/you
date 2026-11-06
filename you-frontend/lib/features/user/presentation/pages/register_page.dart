@@ -24,6 +24,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
     super.dispose();
   }
 
+  /// 提交注册表单，并在注册成功后返回登录流程。
   Future<void> submit() async {
     setState(() {
       busy = true;

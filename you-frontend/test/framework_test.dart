@@ -12,6 +12,8 @@ import 'package:you_app/core/auth/session.dart';
 import 'package:you_app/core/network/api_client.dart';
 import 'package:you_app/core/storage/app_database.dart';
 import 'package:you_app/features/moment/data/local/moment_draft_data_source.dart';
+import 'package:you_app/features/moment/data/mappers/moment_draft_mapper.dart';
+import 'package:you_app/features/moment/data/mappers/moment_mapper.dart';
 import 'package:you_app/features/moment/models/moment.dart';
 import 'package:you_app/features/moment/models/moment_draft.dart';
 import 'package:you_app/features/user/models/user_profile.dart';
@@ -73,6 +75,46 @@ class MemoryMomentDrafts extends MomentDraftDataSource {
 }
 
 void main() {
+  test('saved publication and compact moment response match the API', () {
+    const id = '019aa3c0-0000-7000-8000-000000000001';
+    const draft = MomentDraft(
+      id: id,
+      pending: {
+        'body': '原发布内容',
+        'mood': '开心',
+        'circleIds': [],
+        'imageFileIds': ['file-1'],
+      },
+    );
+    final payload = createMomentPayload(draft);
+    expect(payload['mood'], 'HAPPY');
+    expect(payload['imageFileIds'], ['file-1']);
+    expect(payload, isNot(contains('circleIds')));
+    expect(createMomentPayload(draft), payload);
+
+    final result = momentFromJson(
+      {
+        'id': id,
+        'title': null,
+        'body': payload['body'],
+        'mood': payload['mood'],
+        'images': [
+          {'fileId': 'file-1', 'url': 'http://storage/image'},
+        ],
+        'tags': [],
+        'memoryTime': payload['memoryTime'],
+        'location': null,
+        'createdAt': '2026-11-06T10:00:00.000Z',
+        'updatedAt': '2026-11-06T10:00:00.000Z',
+      },
+      currentAuthor: (id: 'owner-1', nickname: null, avatarUrl: null),
+    );
+    expect(result.author.id, 'owner-1');
+    expect(result.images.single.id, 'file-1');
+    expect(result.mood, '开心');
+    expect(result.isOwn, isTrue);
+  });
+
   testWidgets('anonymous deep link resumes after authentication', (
     tester,
   ) async {
@@ -115,7 +157,7 @@ void main() {
           Object? data;
           if (path == '/users/me') {
             data = {'id': '1', 'username': 'user', 'nickname': 'User'};
-          } else if (path == '/moments') {
+          } else if (path == '/moments' && request.method == 'GET') {
             data = {
               'items': [
                 if (moment != null && request.queryParameters['tab'] == 'yours')
@@ -124,11 +166,14 @@ void main() {
               'nextCursor': null,
               'hasMore': false,
             };
-          } else if (path == '/moments/' && request.method == 'POST') {
+          } else if (path == '/moments' && request.method == 'POST') {
             publicationRequests++;
             final input = request.data as Map<String, dynamic>;
             final id = input['id'] as String;
             expect(id[14], '7');
+            expect(DateTime.parse(input['memoryTime'] as String).isUtc, isTrue);
+            expect(input, isNot(contains('journeyId')));
+            expect(input, isNot(contains('circleIds')));
             expect(drafts.draft?.pending?['id'], id);
             moment = {
               ...input,
@@ -162,6 +207,22 @@ void main() {
               expect(request.headers['If-Match'], '"2026-11-06T10:01:00.000Z"');
               moment = null;
               data = {'deleted': true};
+            } else if (request.method == 'GET') {
+              data = {
+                for (final field in [
+                  'id',
+                  'title',
+                  'body',
+                  'images',
+                  'tags',
+                  'mood',
+                  'memoryTime',
+                  'location',
+                  'updatedAt',
+                ])
+                  field: moment![field],
+                'createdAt': '2026-11-06T10:00:00.000Z',
+              };
             } else {
               data = moment;
             }

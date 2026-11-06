@@ -11,6 +11,7 @@ final loginProvider = AsyncNotifierProvider.autoDispose<LoginViewModel, void>(
 class LoginViewModel extends AsyncNotifier<void> {
   @override
   void build() {}
+  /// 验证账号密码并建立本地登录会话。
   Future<void> submit(String username, String password) async {
     if (state.isLoading) return;
     state = const AsyncLoading();

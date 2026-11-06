@@ -64,6 +64,7 @@ class _MomentFeedState extends ConsumerState<_MomentFeed>
     _scroll.addListener(_nearEnd);
   }
 
+  /// 列表接近底部时触发下一页加载。
   void _nearEnd() {
     if (!_scroll.hasClients || _scroll.position.extentAfter > 360) return;
     final provider = momentFeedProvider(widget.tab);

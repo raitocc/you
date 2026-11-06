@@ -25,6 +25,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
   String get _key => 'moment:${id ?? 'new'}';
   String? _owner;
 
+  /// 按当前账号恢复草稿，编辑时同时读取远端版本并检查权限。
   @override
   Future<MomentEditorState> build() async {
     final token = ref.watch(sessionProvider).asData?.value;
@@ -55,6 +56,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
     );
   }
 
+  /// 更新可编辑草稿，并保留尚未处理的版本冲突。
   void updateDraft(MomentDraft Function(MomentDraft) change) {
     final current = state.asData?.value;
     if (current == null ||
@@ -74,6 +76,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
     );
   }
 
+  /// 校验图片数量和格式，将原图保存到本地草稿目录。
   Future<void> addImages(List<Uint8List> files) async {
     final current = state.asData?.value;
     final owner = _owner;
@@ -107,6 +110,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
     }
   }
 
+  /// 保存当前编辑内容供下次恢复。
   Future<void> saveDraft() async {
     final current = state.requireValue;
     await ref
@@ -114,6 +118,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
         .saveDraft(_owner!, _key, current.draft);
   }
 
+  /// 清理当前账号的草稿及原图。
   Future<void> discard() async {
     final current = state.requireValue;
     await ref
@@ -150,6 +155,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
     }
   }
 
+  /// 恢复未确认的发布结果，或在图片就绪后发布或保存编辑。
   Future<Moment?> submit() async {
     final current = state.asData?.value;
     final owner = _owner;
@@ -166,7 +172,16 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
       if (draft.pending != null) {
         result = await repository.recoverPublication(draft.id);
         _checkSession(token);
-      } else {
+      }
+      if (result == null &&
+          id == null &&
+          (draft.journeyId != null || draft.circleIds.isNotEmpty)) {
+        throw const AppException(
+          'UNSUPPORTED_SHARING',
+          '当前仅支持发布私人瞬间，请先移除同行和圈子',
+        );
+      }
+      if (draft.pending == null) {
         _validate(draft);
         await repository.saveDraft(owner, _key, draft);
         for (var index = 0; index < draft.images.length; index++) {
@@ -225,7 +240,9 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
       return result;
     } catch (error) {
       if (!_isCurrent(token)) return null;
-      if (draft.pending != null && isDefinitiveMomentFailure(error)) {
+      if (draft.pending != null &&
+          (isDefinitiveMomentFailure(error) ||
+              momentErrorCode(error) == 'UNSUPPORTED_SHARING')) {
         final editable = draft.withPending(null);
         try {
           await repository.saveDraft(owner, _key, editable);
@@ -260,6 +277,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
       token != null &&
       ref.read(sessionProvider).asData?.value == token;
 
+  /// 中止当前会话已变化的操作。
   void _checkSession(String? token) {
     if (!_isCurrent(token)) {
       throw const AppException('AUTH_REQUIRED', '登录状态已变化');
@@ -267,6 +285,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
   }
 }
 
+/// 校验草稿是否满足提交要求。
 void _validate(MomentDraft draft) {
   if (draft.body.trim().isEmpty && draft.images.isEmpty) {
     throw const AppException('EMPTY_CONTENT', '请填写正文或添加图片');
@@ -281,6 +300,7 @@ void _validate(MomentDraft draft) {
   }
 }
 
+/// 根据文件头识别图片类型。
 String _imageType(Uint8List bytes) {
   if (bytes.length > 10 * 1024 * 1024) {
     throw const AppException('INVALID_IMAGE', '每张图片不能超过 10 MiB');

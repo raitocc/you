@@ -12,6 +12,7 @@ class MomentDetailViewModel extends AsyncNotifier<Moment> {
 
   final String id;
 
+  /// 读取瞬间详情，并在数据变更后刷新。
   @override
   Future<Moment> build() {
     ref.watch(sessionProvider);
@@ -19,6 +20,7 @@ class MomentDetailViewModel extends AsyncNotifier<Moment> {
     return ref.watch(momentRepositoryProvider).detail(id);
   }
 
+  /// 按当前版本删除瞬间并通知相关页面刷新。
   Future<void> delete(Moment moment) async {
     final token = ref.read(sessionProvider).asData?.value;
     await ref.read(momentRepositoryProvider).delete(id, moment.version);

@@ -12,6 +12,7 @@ class ProfileLocalDataSource {
     return File('${root.path}/profiles/${Uri.encodeComponent(userId)}.json');
   }
 
+  /// 按账号读取保存在设备上的资料编辑。
   Future<ProfileEdits> read(String userId) async {
     final file = await _file(userId);
     final json = await file.exists()
@@ -27,6 +28,7 @@ class ProfileLocalDataSource {
     );
   }
 
+  /// 将账号的本地资料编辑写入文件。
   Future<void> write(String userId, ProfileEdits edits) async {
     final file = await _file(userId);
     await file.parent.create(recursive: true);

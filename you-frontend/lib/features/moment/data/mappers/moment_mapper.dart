@@ -1,15 +1,22 @@
 import '../../models/moment.dart';
+import '../../models/moment_mood.dart';
 
-Moment momentFromJson(Map<String, dynamic> json) {
-  final author = json['author'] as Map<String, dynamic>;
+/// 将接口详情转换为前端瞬间模型。
+Moment momentFromJson(
+  Map<String, dynamic> json, {
+  MomentAuthor? currentAuthor,
+}) {
+  final author = json['author'] as Map<String, dynamic>?;
   final location = json['location'] as Map<String, dynamic>?;
   return Moment(
     id: json['id'] as String,
-    author: (
-      id: author['id'] as String,
-      nickname: author['nickname'] as String?,
-      avatarUrl: author['avatarUrl'] as String?,
-    ),
+    author:
+        currentAuthor ??
+        (
+          id: author!['id'] as String,
+          nickname: author['nickname'] as String?,
+          avatarUrl: author['avatarUrl'] as String?,
+        ),
     title: json['title'] as String?,
     body: json['body'] as String?,
     images: List.unmodifiable(
@@ -18,7 +25,7 @@ Moment momentFromJson(Map<String, dynamic> json) {
       ),
     ),
     tags: List.unmodifiable((json['tags'] as List).cast<String>()),
-    mood: json['mood'] as String?,
+    mood: momentMoodLabel(json['mood'] as String?),
     memoryTime: DateTime.parse(json['memoryTime'] as String),
     location: location == null
         ? null
@@ -45,13 +52,14 @@ Moment momentFromJson(Map<String, dynamic> json) {
         ),
       ),
     ),
-    isOwn: json['isOwn'] as bool,
-    canEdit: json['canEdit'] as bool,
-    canDelete: json['canDelete'] as bool,
+    isOwn: currentAuthor != null || json['isOwn'] as bool,
+    canEdit: currentAuthor != null || json['canEdit'] as bool,
+    canDelete: currentAuthor != null || json['canDelete'] as bool,
     version: json['updatedAt'] as String,
   );
 }
 
+/// 解析列表数据和分页信息。
 MomentPageData momentPageFromJson(Map<String, dynamic> json) => (
   items: List.unmodifiable(_objects(json['items']).map(momentFromJson)),
   nextCursor: json['nextCursor'] as String?,

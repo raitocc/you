@@ -16,9 +16,11 @@ class UserRepository {
 
   final UserRemoteDataSource _remote;
 
+  /// 登录并返回会话令牌。
   Future<String> login(String username, String password) =>
       _remote.login(username, password);
 
+  /// 注册账号并转换返回的用户资料。
   Future<UserProfile> register(
     String username,
     String password,
@@ -32,6 +34,7 @@ class UserRepository {
     failed: AppLogEvent.authRegisterFailed,
   );
 
+  /// 读取当前登录用户的服务端资料。
   Future<UserProfile> current() => AppLogger.track<UserProfile>(
     () async => userProfileFromJson(await _remote.current()),
     started: AppLogEvent.userProfileReadStarted,
@@ -39,13 +42,16 @@ class UserRepository {
     failed: AppLogEvent.userProfileReadFailed,
   );
 
+  /// 用已登记的媒体文件更新用户头像。
   Future<UserProfile> updateAvatar(String nickname, String fileId) async =>
       userProfileFromJson(await _remote.updateAvatar(nickname, fileId));
 
   final _local = ProfileLocalDataSource();
 
+  /// 读取指定账号的本地资料编辑。
   Future<ProfileEdits> profileEdits(String userId) => _local.read(userId);
 
+  /// 保存指定账号的本地资料编辑。
   Future<void> saveProfileEdits(String userId, ProfileEdits edits) =>
       _local.write(userId, edits);
 }

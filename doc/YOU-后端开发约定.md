@@ -1,42 +1,72 @@
 # YOU 后端开发约定
 
-新增接口沿着“定义请求 → 编写业务 → 接入 Controller → 验证结果”完成。本文说明项目实际接法；组件的独立示例见文末教程。
+## 模块组织
 
-## 1. 按业务组织代码
+应用根包为 `com.you.youbackend`，采用**按业务模块组织、模块内分层**的架构。
 
-应用根包为 `com.you.youbackend`，当前主要代码如下：
+- `common/`：存放跨业务模块复用的基础能力，包括配置、异常处理、统一响应、MyBatis 类型映射等。
+- 新业务在根包下创建独立模块，比如当前的 `user` 包与 `media` 包，不按技术层级建立全局 `controller/`、`service/`、`mapper/` 等目录。
+- 模块内部按实际需求创建子包，不要求所有模块具有完全相同的目录结构。
+- 优先复用现有公共能力，避免重复实现。
 
-```text
-com.you.youbackend
-├── common
-│   ├── config          # S3、RabbitMQ、OpenAPI、密码散列配置
-│   ├── exception       # BusinessException、GlobalExceptionHandler
-│   ├── response        # Result
-│   └── mybatis         # UUID 与 BINARY(16) 的类型映射
-├── user
-│   ├── controller      # AuthController、UserController
-│   ├── filter          # JwtAuthFilter
-│   ├── model           # AppUser、AccessTokenClaims
-│   ├── mapper
-│   ├── request
-│   ├── response
-│   └── service         # 用户业务、JWT、令牌黑名单
-└── media
-    ├── controller
-    ├── consumer        # MediaUploadConsumer
-    ├── event           # MediaUploadEvent
-    ├── entity
-    ├── mapper
-    ├── request
-    ├── response
-    └── service
-```
+新业务模块参考下面基础模块分层结构：
 
-新模块沿用实际需要的目录。Service 使用具体的 `@Service` 类；依赖通过构造器注入，字段使用 `final`。普通 Bean 可以通过 `@RequiredArgsConstructor` 注入，包含 `@Value` 时参考 `MediaService` 的显式构造器。
+| 目录          | 职责                                                       |
+| ------------- | ---------------------------------------------------------- |
+| `controller/` | 定义 HTTP 接口，负责参数接收、校验、调用 Service、返回响应 |
+| `service/`    | 实现业务逻辑、业务校验、流程编排和事务管理                 |
+| `mapper/`     | 使用 MyBatis Plus 访问数据库，封装 SQL 操作及数据映射      |
+| `entity/`     | 定义数据库持久化实体，负责与数据库表结构映射               |
+| `model/`      | 定义业务数据模型，封装业务领域中的数据结构                 |
+| `request/`    | 定义 API 请求 DTO，不直接使用持久化对象接收请求            |
+| `response/`   | 定义 API 响应 DTO，不直接暴露持久化对象                    |
+
+Service 使用具体的 `@Service` 类；依赖通过构造器注入，字段使用 `final`。普通 Bean 可以通过 `@RequiredArgsConstructor` 注入，包含 `@Value` 时参考 `MediaService` 的显式构造器。
 
 Controller 负责接收、校验、委托和返回；Service 负责业务判断、流程和事务；Mapper 负责数据库读写；Consumer 负责接收消息并委托业务处理。
 
-## 2. 定义请求与响应
+## 技术框架
+
+当前后端技术框架选型，
+
+| 用途       | 技术选型                    |
+| ---------- | --------------------------- |
+| 基础框架   | Spring Boot **4.1.2**       |
+| HTTP API   | Spring MVC、Jakarta Servlet |
+| JSON       | Jackson 3                   |
+| 数据访问   | **MyBatis-Plus**            |
+| 数据库迁移 | Flyway                      |
+| 对象存储   | **RustFS**                  |
+| 日志       | **Apache Log4j 2**          |
+| API 文档   | Scalar                      |
+| ID 生成    | UUIDv7                      |
+| 编译期辅助 | Lombok                      |
+
+- **技术栈优先**：优先使用项目现有框架、依赖及其官方提供的能力解决问题，不重复实现已有的成熟功能，不随意引入功能重叠的新依赖。
+- **遵循框架惯例**：遵循各框架和组件的官方推荐用法、惯用 API、注解、配置机制及设计模式，充分利用框架提供的声明式能力，避免不必要的底层实现和样板代码。
+- **保持技术一致性**：新增功能应与现有项目的技术选型、代码风格、架构分层及实现方式保持一致，不擅自替换技术组件或引入平行实现。
+- **优先复用现有实现**：开发前检查项目中已有的公共组件、工具类、配置和业务实现，优先复用或合理扩展，避免重复封装。
+- **控制抽象复杂度**：仅在现有技术栈无法合理满足业务需求时引入自定义实现或额外依赖，避免过度封装、冗余抽象及不必要的复杂性。
+- **版本兼容性**：所有 API、配置及实现方式必须与项目实际使用的依赖版本兼容，不使用已废弃或不受支持的功能。
+
+## 代码质量
+
+- **可读性优先**：使用语义明确的命名和清晰的代码结构，使代码易于理解，避免晦涩写法、过深嵌套及复杂控制流。
+- **简洁精炼**：以满足业务需求的最简单实现为优先，减少重复代码、冗余判断、无意义的中间变量及不必要的抽象，不为追求简短而牺牲可读性。
+- **职责清晰**：类、方法及模块应具有明确的职责，合理拆分复杂逻辑，避免单个方法承担过多功能或产生过度碎片化的封装。
+- **适度注释**：对业务方法提供必要的中文注释，重点解释“负责什么业务”，避免重复描述代码行为。比如controller、service、mapper方法都需要有简洁的中文注释，示例：
+  */***&#xA; ** 登录并取得访问令牌和本人资料。*&#xA; **/*
+
+- **避免防御性编码**：不对已由框架、类型系统或上游逻辑保证的条件进行重复校验，不添加缺乏明确需求依据的兼容分支、异常捕获或兜底逻辑；必要的输入校验、安全边界和错误处理必须保留。
+- **风格一致**：遵循项目既有的命名规范、格式化规则与代码组织方式，避免同一项目中出现多套不同的实现风格。
+
+
+
+
+
+
+
+## 定义请求与响应
 
 入参使用 `动作 + 对象 + Request`，输出使用对应 `Response`。固定字段使用明确类型，例如 `CreateUploadRequest`、`CreateUploadResponse`；动态键值数据可以使用 Map。
 
@@ -68,7 +98,7 @@ public Result<CreateUploadResponse> createUpload(
 
 Controller 类使用 `@Tag`，方法使用 `@Operation`、`@ApiResponses` 描述实际行为。JavaDoc 说明代码职责和方法输入输出，行内注释解释业务原因。接口字段变更时同步响应模型、注解和前端调用。
 
-## 3. 接入当前用户与退出登录
+## 接入当前用户与退出登录
 
 当前使用 JWT Bearer 认证。注册和登录公开；Scalar、OpenAPI、WebJars、错误入口与 OPTIONS 请求由过滤器放行，其余请求进入 `JwtAuthFilter`。
 
@@ -110,7 +140,7 @@ public Result<UserResponse> getCurrentUser(
 
 过滤器中的 `BusinessException` 交给 MVC 的 `HandlerExceptionResolver` 转换为统一响应，同时设置 `WWW-Authenticate: Bearer`。这样认证失败与业务接口使用相同的错误结构。
 
-## 4. 使用数据库与事务
+## 使用数据库与事务
 
 Entity 对应数据库记录，Response 表达接口输出。Mapper 使用 `@Mapper` 并继承相应的 `BaseMapper`，查询列和条件优先使用 Lambda 表达式。
 
@@ -127,7 +157,7 @@ Entity 对应数据库记录，Response 表达接口输出。Mapper 使用 `@Map
 
 多次数据修改需要共同提交时，在 Service 的公开业务方法上使用 `@Transactional`。Consumer 调用受 Spring 管理的 Service，使事务完成后再返回消费结果。
 
-## 5. 理解图片直传和事件入库
+## 理解图片直传和事件入库
 
 当前媒体接口为：
 
@@ -183,7 +213,7 @@ Spring Boot 在宿主机运行，通过 `localhost:5672` 连接 MQ；RustFS 在 
 
 RustFS 镜像日志还保存在容器的 `/logs/rustfs.log`；容器标准输出信息不足时，从这里查看通知目标和事件发送错误。
 
-## 6. 统一响应与异常
+## 统一响应与异常
 
 普通成功响应使用 `Result.ok(data)`，失败使用相同结构：
 
@@ -209,7 +239,7 @@ Service 对可预期失败抛出 `BusinessException(status, code, message)`。�
 
 当前处理器覆盖字段校验、请求体解析和显式业务异常。multipart 超限、Redis 连接失败等其他框架或系统异常仍使用默认错误处理；接口实际增加对应处理时同步维护这里的覆盖说明。
 
-## 7. 写日志、常量和配置
+## 写日志、常量和配置
 
 使用 `@Log4j2`，沿用默认格式和 INFO 级别，消息采用“事件 + 关键字段”并使用 `{}` 占位符。
 
@@ -226,7 +256,7 @@ Service 记录业务事件；Consumer 需要时记录消息处理边界。同一
 
 固定业务限制、Key 前缀和路由名称使用语义明确的常量，放在所属模块维护。连接地址和凭据放在配置文件，部署时覆盖；令牌黑名单 TTL 从令牌剩余时间计算。
 
-## 8. 交付前检查
+## 交付前检查
 
 1. 正常流程能返回明确的 Response，必要的失败返回对应状态与统一结构。
 2. 受保护接口在无令牌、过期或已撤销时返回 401，业务权限检查使用已验证身份。

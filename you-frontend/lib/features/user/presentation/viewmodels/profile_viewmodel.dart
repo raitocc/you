@@ -51,6 +51,7 @@ final profileAvatarProvider = FutureProvider.autoDispose<Uint8List?>((
 }, retry: (_, _) => null);
 
 class ProfileViewModel extends AsyncNotifier<ProfileCardData> {
+  /// 读取当前用户资料和对应的本地编辑。
   @override
   Future<ProfileCardData> build() async {
     ref.watch(sessionProvider);
@@ -59,6 +60,7 @@ class ProfileViewModel extends AsyncNotifier<ProfileCardData> {
     return (user: user, edits: await repository.profileEdits(user.id));
   }
 
+  /// 上传并绑定新头像，将昵称、签名和背景的修改保存到本地。
   Future<void> save({
     String? nickname,
     String? signature,
@@ -103,6 +105,7 @@ class ProfileViewModel extends AsyncNotifier<ProfileCardData> {
     }
   }
 
+  /// 清除当前登录会话。
   Future<void> logout() => AppLogger.track<void>(
     () => ref.read(sessionProvider.notifier).clear(),
     started: AppLogEvent.authLogoutStarted,

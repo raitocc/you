@@ -19,6 +19,7 @@ class MomentDraftDataSource {
   MomentDraftDataSource(this._database);
   final AppDatabase _database;
 
+  /// 按账号和草稿键读取本地内容，使用远端详情补充图片地址。
   Future<MomentDraft?> read(String owner, String key, Moment? current) async {
     final query = _database.select(_database.drafts)
       ..where((row) => row.ownerId.equals(owner) & row.draftId.equals(key));
@@ -30,9 +31,11 @@ class MomentDraftDataSource {
     );
   }
 
+  /// 将草稿内容和待确认的发布请求写入数据库。
   Future<void> save(String owner, String key, MomentDraft draft) =>
       _database.saveDraft(owner, key, jsonEncode(draftToJson(draft)));
 
+  /// 写入草稿原图并返回本地路径。
   Future<String> saveImage(
     String owner,
     String draftId,
@@ -46,6 +49,7 @@ class MomentDraftDataSource {
     ).writeAsBytes(bytes, flush: true)).path;
   }
 
+  /// 清理草稿记录及其原图目录。
   Future<void> remove(String owner, String key, String draftId) async {
     await (_database.delete(_database.drafts)
           ..where((row) => row.ownerId.equals(owner) & row.draftId.equals(key)))

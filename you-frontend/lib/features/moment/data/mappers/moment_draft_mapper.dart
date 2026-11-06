@@ -1,5 +1,6 @@
 import '../../models/moment.dart';
 import '../../models/moment_draft.dart';
+import '../../models/moment_mood.dart';
 
 Map<String, dynamic> _location(MomentLocation location) => {
   'name': location.name,
@@ -8,6 +9,7 @@ Map<String, dynamic> _location(MomentLocation location) => {
   'longitude': location.longitude,
 };
 
+/// 构建提交参数，使用已上传图片的文件 ID 和 UTC 记忆时间。
 Map<String, dynamic> draftPayload(MomentDraft draft) => {
   if (draft.version == null) 'id': draft.id,
   'title': draft.title.trim().isEmpty ? null : draft.title,
@@ -21,6 +23,27 @@ Map<String, dynamic> draftPayload(MomentDraft draft) => {
   'imageFileIds': draft.images.map((image) => image.fileId!).toList(),
 };
 
+/// 生成创建接口接受的字段，并兼容旧草稿中保存的发布请求。
+Map<String, dynamic> createMomentPayload(MomentDraft draft) {
+  final payload = draft.pending ?? draftPayload(draft);
+  final createdAt = DateTime.fromMillisecondsSinceEpoch(
+    int.parse(draft.id.replaceAll('-', '').substring(0, 12), radix: 16),
+    isUtc: true,
+  );
+  final mood = payload['mood'] as String?;
+  return {
+    'id': draft.id,
+    'title': payload['title'],
+    'body': payload['body'],
+    'tags': payload['tags'],
+    'mood': momentMoodCodes[mood] ?? mood,
+    'memoryTime': payload['memoryTime'] ?? createdAt.toIso8601String(),
+    'location': payload['location'],
+    'imageFileIds': payload['imageFileIds'],
+  };
+}
+
+/// 序列化本地草稿，保留图片路径和待确认的发布请求。
 Map<String, dynamic> draftToJson(MomentDraft draft) => {
   'id': draft.id,
   'version': draft.version,
@@ -39,6 +62,7 @@ Map<String, dynamic> draftToJson(MomentDraft draft) => {
   'pending': draft.pending,
 };
 
+/// 还原本地草稿，并从当前详情补充已有图片的地址。
 MomentDraft draftFromJson(Map<String, dynamic> json, Moment? current) {
   final location = json['location'] as Map<String, dynamic>?;
   final urls = {
@@ -75,6 +99,7 @@ MomentDraft draftFromJson(Map<String, dynamic> json, Moment? current) {
   );
 }
 
+/// 把远端详情转换为带版本号的编辑草稿。
 MomentDraft draftFromMoment(Moment moment) => MomentDraft(
   id: moment.id,
   version: moment.version,

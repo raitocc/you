@@ -12,6 +12,7 @@ class MediaRemoteDataSource {
 
   final Ref _ref;
 
+  /// 向后端申请预签名地址，再将原始字节直接 PUT 到对象存储。
   Future<String> upload(
     Uint8List bytes,
     String mimeType, {
@@ -38,6 +39,7 @@ class MediaRemoteDataSource {
     return ticket['fileId'] as String;
   }
 
+  /// 通过业务接口查询上传文件是否已完成登记。
   Future<bool> isUploadReady(String fileId) async {
     final response = await _ref
         .read(dioProvider)
@@ -45,6 +47,7 @@ class MediaRemoteDataSource {
     return (unwrap(response) as Map<String, dynamic>)['ready'] as bool;
   }
 
+  /// 从对象存储的临时地址读取文件字节。
   Future<Uint8List> download(String url) async {
     final response = await _ref
         .read(storageDioProvider)
