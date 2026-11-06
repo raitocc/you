@@ -11,7 +11,6 @@ import '../../models/moment.dart';
 import '../../models/moment_draft.dart';
 import '../states/moment_editor_state.dart';
 import '../viewmodels/moment_editor_viewmodel.dart';
-import '../viewmodels/moment_feed_viewmodel.dart';
 import '../widgets/moment_card.dart';
 import '../widgets/moment_editor_fields.dart';
 import '../widgets/moment_editor_sheets.dart';
@@ -170,22 +169,8 @@ class _MomentEditorPageState extends ConsumerState<MomentEditorPage> {
     );
   }
 
-  List<MomentSource> _knownSources(MomentEditorState state) {
-    final sources = <String, MomentSource>{
-      for (final source in state.original?.sources ?? <MomentSource>[])
-        source.id: source,
-    };
-    for (final tab in MomentTab.values) {
-      final moments =
-          ref.read(momentFeedProvider(tab)).asData?.value.items ?? <Moment>[];
-      for (final moment in moments) {
-        for (final source in moment.sources) {
-          sources[source.id] = source;
-        }
-      }
-    }
-    return sources.values.toList();
-  }
+  List<MomentSource> _knownSources(MomentEditorState state) =>
+      state.original?.sources ?? const [];
 
   Future<void> _pickTargets(
     MomentEditorState state, {

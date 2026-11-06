@@ -12,14 +12,13 @@ class MomentRemoteDataSource {
 
   final Dio _dio;
 
-  /// 按分类和游标请求瞬间列表。
-  Future<Map<String, dynamic>> browse(String tab, String? cursor) async =>
-      _data(
-        await _dio.get<dynamic>(
-          '/moments',
-          queryParameters: {'tab': tab, 'cursor': ?cursor},
-        ),
-      );
+  /// 按游标查询本人发布的瞬间流。
+  Future<Map<String, dynamic>> browseYours(String? cursor) async => _data(
+    await _dio.get<dynamic>(
+      '/moments/yours',
+      queryParameters: {'cursor': ?cursor},
+    ),
+  );
 
   /// 按 ID 请求瞬间详情。
   Future<Map<String, dynamic>> detail(String id) async =>

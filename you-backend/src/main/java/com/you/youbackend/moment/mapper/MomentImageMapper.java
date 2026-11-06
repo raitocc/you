@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.moment.entity.MomentImage;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,5 +21,15 @@ public interface MomentImageMapper extends BaseMapper<MomentImage> {
         return selectList(Wrappers.<MomentImage>lambdaQuery()
                 .eq(MomentImage::getMomentId, momentId)
                 .orderByAsc(MomentImage::getSortOrder));
+    }
+
+    /**
+     * 批量读取一页瞬间的图片关联，保留每组图片的展示顺序。
+     */
+    default List<MomentImage> selectFeedImages(Collection<UUID> momentIds) {
+        return selectList(Wrappers.<MomentImage>lambdaQuery()
+                .select(MomentImage::getMomentId, MomentImage::getFileId)
+                .in(MomentImage::getMomentId, momentIds)
+                .orderByAsc(MomentImage::getMomentId, MomentImage::getSortOrder));
     }
 }

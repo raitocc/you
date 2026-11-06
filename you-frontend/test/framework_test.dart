@@ -157,11 +157,20 @@ void main() {
           Object? data;
           if (path == '/users/me') {
             data = {'id': '1', 'username': 'user', 'nickname': 'User'};
-          } else if (path == '/moments' && request.method == 'GET') {
+          } else if (path == '/moments/yours' && request.method == 'GET') {
+            expect(request.queryParameters, isEmpty);
             data = {
               'items': [
-                if (moment != null && request.queryParameters['tab'] == 'yours')
-                  moment,
+                if (moment != null)
+                  {
+                    'id': moment!['id'],
+                    'title': moment!['title'],
+                    'bodyPreview': moment!['body'],
+                    'coverUrl': null,
+                    'imageCount': 0,
+                    'mood': 'HAPPY',
+                    'memoryTime': moment!['memoryTime'],
+                  },
               ],
               'nextCursor': null,
               'hasMore': false,

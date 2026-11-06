@@ -59,9 +59,21 @@ Moment momentFromJson(
   );
 }
 
-/// 解析列表数据和分页信息。
+/// 解析瞬间卡片摘要及下一页游标。
 MomentPageData momentPageFromJson(Map<String, dynamic> json) => (
-  items: List.unmodifiable(_objects(json['items']).map(momentFromJson)),
+  items: List.unmodifiable(
+    _objects(json['items']).map(
+      (item) => (
+        id: item['id'] as String,
+        title: item['title'] as String?,
+        bodyPreview: item['bodyPreview'] as String?,
+        coverUrl: item['coverUrl'] as String?,
+        imageCount: item['imageCount'] as int,
+        mood: momentMoodLabel(item['mood'] as String?),
+        memoryTime: DateTime.parse(item['memoryTime'] as String),
+      ),
+    ),
+  ),
   nextCursor: json['nextCursor'] as String?,
   hasMore: json['hasMore'] as bool,
 );

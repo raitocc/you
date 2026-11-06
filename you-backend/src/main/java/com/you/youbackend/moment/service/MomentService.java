@@ -2,6 +2,7 @@ package com.you.youbackend.moment.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.entity.MomentImage;
@@ -9,7 +10,9 @@ import com.you.youbackend.moment.entity.MomentTag;
 import com.you.youbackend.moment.mapper.MomentImageMapper;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
+import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.request.CreateMomentRequest;
+import com.you.youbackend.moment.response.MomentFeedItem;
 import com.you.youbackend.moment.response.MomentResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -32,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Log4j2
 @Service
@@ -47,6 +51,51 @@ public class MomentService {
     private final MomentImageMapper momentImageMapper;
     private final MomentTagMapper momentTagMapper;
     private final MediaService mediaService;
+
+    /**
+     * 分页读取本人瞬间，并为每张卡片补充有效图片数和封面。
+     */
+    @Transactional(readOnly = true)
+    public ResultPage<MomentFeedItem> browseYours(UUID userId, String cursor, int limit) {
+        MomentFeedCursor boundary = cursor == null ? null : MomentFeedCursor.decode(cursor);
+        // 多查一条判断是否还有下一页，图片只按实际返回的记录批量查询。
+        List<Moment> rows = momentMapper.selectFeed(userId, boundary, limit + 1);
+        if (rows.isEmpty()) {
+            return new ResultPage<>(List.of(), null, false);
+        }
+        boolean hasMore = rows.size() > limit;
+        List<Moment> page = rows.subList(0, Math.min(limit, rows.size()));
+        List<MomentImage> images = momentImageMapper.selectFeedImages(page.stream().map(Moment::getId).toList());
+        var imageKeys = mediaService.findOwnedImageKeys(userId,
+                images.stream().map(MomentImage::getFileId).distinct().toList());
+        // 按展示顺序保留有效图片，首张作为封面，其余图片也计入总数。
+        var imagesByMoment = images.stream()
+                .filter(image -> imageKeys.containsKey(image.getFileId()))
+                .collect(Collectors.groupingBy(MomentImage::getMomentId));
+
+        List<MomentFeedItem> items = page.stream().map(moment -> {
+            List<MomentImage> validImages = imagesByMoment.getOrDefault(moment.getId(), List.of());
+            String coverUrl = validImages.isEmpty() ? null
+                    : mediaService.createReadUrl(imageKeys.get(validImages.get(0).getFileId()));
+            return new MomentFeedItem(moment.getId(), moment.getTitle(), bodyPreview(moment.getBody()),
+                    coverUrl, validImages.size(), moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC));
+        }).toList();
+        // 下一页从本页最后一条之后开始，多查的那条留到下一页。
+        Moment last = page.get(page.size() - 1);
+        String nextCursor = hasMore ? new MomentFeedCursor(last.getMemoryTime(), last.getId()).encode() : null;
+        return new ResultPage<>(items, nextCursor, hasMore);
+    }
+
+    /**
+     * 保留正文开头最多 100 个 Unicode 字符。
+     */
+    private String bodyPreview(String body) {
+        if (body == null || body.isEmpty()) {
+            return null;
+        }
+        int end = body.offsetByCodePoints(0, Math.min(100, body.codePointCount(0, body.length())));
+        return body.substring(0, end);
+    }
 
     /**
      * 在同一事务中保存瞬间、图片和标签，并返回详情。

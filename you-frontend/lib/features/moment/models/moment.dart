@@ -56,8 +56,18 @@ class Moment {
   final String version;
 }
 
+typedef MomentFeedItem = ({
+  String id,
+  String? title,
+  String? bodyPreview,
+  String? coverUrl,
+  int imageCount,
+  String? mood,
+  DateTime memoryTime,
+});
+
 typedef MomentPageData = ({
-  List<Moment> items,
+  List<MomentFeedItem> items,
   String? nextCursor,
   bool hasMore,
 });

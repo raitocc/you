@@ -1,9 +1,11 @@
 package com.you.youbackend.moment.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.you.youbackend.moment.model.MomentMood;
+import com.you.youbackend.moment.mapper.MomentMoodTypeHandler;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -13,7 +15,7 @@ import java.util.UUID;
 
 @Getter
 @Setter
-@TableName("moment")
+@TableName(value = "moment", autoResultMap = true)
 public class Moment {
 
     @TableId(type = IdType.INPUT)
@@ -21,6 +23,7 @@ public class Moment {
     private UUID authorUserId;
     private String title;
     private String body;
+    @TableField(typeHandler = MomentMoodTypeHandler.class)
     private MomentMood mood;
     private LocalDateTime memoryTime;
     private BigDecimal latitude;

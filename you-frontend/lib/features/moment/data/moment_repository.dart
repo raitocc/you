@@ -66,8 +66,9 @@ class MomentRepository {
   MomentDraft preparePublication(MomentDraft draft) =>
       draft.withPending(createMomentPayload(draft));
 
-  Future<MomentPageData> browse(MomentTab tab, [String? cursor]) async =>
-      momentPageFromJson(await _remote.browse(tab.name, cursor));
+  /// 读取本人瞬间卡片及分页信息。
+  Future<MomentPageData> browseYours([String? cursor]) async =>
+      momentPageFromJson(await _remote.browseYours(cursor));
 
   /// 查询本人瞬间，使用当前账号资料补充作者信息。
   Future<Moment> detail(String id) async {

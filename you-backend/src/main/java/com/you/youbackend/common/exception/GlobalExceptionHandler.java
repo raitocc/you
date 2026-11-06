@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 全局接口异常处理，将请求错误转换为统一响应。
@@ -44,6 +45,15 @@ public class GlobalExceptionHandler {
                 .map(error -> error.getDefaultMessage())
                 .findFirst().orElse("请求参数不符合要求");
         return Result.fail("INVALID_ARGUMENT", message);
+    }
+
+    /**
+     * 将无法转换类型的请求参数统一返回为参数错误。
+     */
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
+        return Result.fail("INVALID_ARGUMENT", "请求参数格式无效");
     }
 
     /**

@@ -18,8 +18,11 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.you.youbackend.media.response.UploadStatusResponse;
 import lombok.extern.log4j.Log4j2;
@@ -288,6 +291,17 @@ public class MediaService {
      */
     public String createOwnedImageReadUrl(UUID fileId, UUID userId) {
         return createReadUrl(requireOwnedImage(fileId, userId).getStorageKey());
+    }
+
+    /**
+     * 批量取得本人有效图片的对象键，供列表筛选和封面签名。
+     */
+    public Map<UUID, String> findOwnedImageKeys(UUID userId, Collection<UUID> fileIds) {
+        if (fileIds.isEmpty()) {
+            return Map.of();
+        }
+        return mediaFileMapper.selectOwnedStorageKeys(userId, fileIds, ALLOWED_IMAGE_TYPES)
+                .stream().collect(Collectors.toMap(MediaFile::getId, MediaFile::getStorageKey));
     }
 
     /**

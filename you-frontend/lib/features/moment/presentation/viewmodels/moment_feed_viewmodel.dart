@@ -22,11 +22,11 @@ class MomentFeedViewModel extends AsyncNotifier<MomentFeedState> {
     _generation++;
     final token = ref.watch(sessionProvider).asData?.value;
     ref.watch(momentRevisionProvider);
-    if (token == null) {
+    if (token == null || tab != MomentTab.yours) {
       return momentFeedState((items: [], nextCursor: null, hasMore: false));
     }
     return momentFeedState(
-      await ref.watch(momentRepositoryProvider).browse(tab),
+      await ref.watch(momentRepositoryProvider).browseYours(),
     );
   }
 
@@ -57,7 +57,7 @@ class MomentFeedViewModel extends AsyncNotifier<MomentFeedState> {
     try {
       final page = await ref
           .read(momentRepositoryProvider)
-          .browse(tab, current.cursor);
+          .browseYours(current.cursor);
       if (!isCurrent()) return;
       final seen = current.items.map((moment) => moment.id).toSet();
       state = AsyncData(

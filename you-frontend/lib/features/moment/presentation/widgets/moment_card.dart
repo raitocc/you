@@ -90,16 +90,15 @@ class MomentNetworkImage extends StatelessWidget {
 
 class MomentCard extends StatelessWidget {
   const MomentCard({super.key, required this.moment, required this.onTap});
-  final Moment moment;
+  final MomentFeedItem moment;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final hasImage = moment.images.isNotEmpty;
+    final coverUrl = moment.coverUrl;
+    final hasImage = coverUrl != null;
     final title = moment.title?.trim() ?? '';
     final mood = moment.mood;
-    final source = moment.sources.map((source) => source.name).join(' / ');
-    final name = moment.author.nickname ?? (moment.isOwn ? '我' : '用户');
     return Semantics(
       button: true,
       child: InkWell(
@@ -117,7 +116,7 @@ class MomentCard extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       MomentNetworkImage(
-                        moment.images.first.url,
+                        coverUrl,
                         label: title.isEmpty ? '瞬间封面' : title,
                       ),
                       if (mood != null)
@@ -157,11 +156,11 @@ class MomentCard extends StatelessWidget {
                         fontSize: hasImage ? 14 : 17,
                       ),
                     ),
-                  if (moment.body?.trim().isNotEmpty ?? false)
+                  if (moment.bodyPreview?.trim().isNotEmpty ?? false)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        moment.body!,
+                        moment.bodyPreview!,
                         maxLines: hasImage ? 2 : 5,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -189,7 +188,9 @@ class MomentCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
               child: Text(
-                '$name · ${source.isEmpty ? '仅自己可见' : source}',
+                moment.imageCount > 1
+                    ? '仅自己可见 · ${moment.imageCount} 张照片'
+                    : '仅自己可见',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: Tokens.muted),

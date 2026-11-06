@@ -1,7 +1,9 @@
 package com.you.youbackend.moment.controller;
 
 import com.you.youbackend.common.response.Result;
+import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.moment.request.CreateMomentRequest;
+import com.you.youbackend.moment.response.MomentFeedItem;
 import com.you.youbackend.moment.response.MomentResponse;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
@@ -12,6 +14,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,6 +32,23 @@ import java.util.UUID;
 public class MomentController {
 
     private final MomentService momentService;
+
+    /**
+     * 浏览当前用户发布的瞬间流。
+     */
+    @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentV1Yours")
+    @ApiResponse(responseCode = "200", description = "查询成功")
+    @ApiResponse(responseCode = "400", description = "分页参数无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
+    @GetMapping("/yours")
+    public Result<ResultPage<MomentFeedItem>> browseYours(
+            @RequestParam(name = "cursor", required = false) String cursor,
+            @RequestParam(name = "limit", defaultValue = "20")
+            @Min(value = 1, message = "每页数量至少为 1")
+            @Max(value = 100, message = "每页数量不能超过 100") int limit,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        return Result.ok(momentService.browseYours(userId, cursor, limit));
+    }
 
     /**
      * 查看本人发布的瞬间，供阅读和编辑回填。
