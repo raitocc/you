@@ -7,6 +7,8 @@ import '../../core/auth/session.dart';
 import '../../shared/ui/page_state.dart';
 import '../../features/user/presentation/pages/login_page.dart';
 import '../../features/moment/presentation/pages/moment_page.dart';
+import '../../features/moment/presentation/pages/moment_detail_page.dart';
+import '../../features/moment/presentation/pages/moment_editor_page.dart';
 import '../../features/album/presentation/pages/album_page.dart';
 import '../../features/gathering/presentation/pages/gathering_page.dart';
 import '../../features/circle/presentation/pages/circle_page.dart';
@@ -105,10 +107,23 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
+      GoRoute(
+        path: '/moments/new',
+        builder: (_, _) => const MomentEditorPage(),
+      ),
+      GoRoute(
+        path: '/moments/:id/edit',
+        builder: (_, state) => MomentEditorPage(
+          id: state.pathParameters['id']!,
+          focusSharing: state.uri.queryParameters['focus'] == 'sharing',
+        ),
+      ),
+      GoRoute(
+        path: '/moments/:id',
+        builder: (_, state) =>
+            MomentDetailPage(id: state.pathParameters['id']!),
+      ),
       for (final path in [
-        '/moments/new',
-        '/moments/:id',
-        '/moments/:id/edit',
         '/albums/new',
         '/albums/:id',
         '/gatherings/new',
@@ -126,9 +141,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(
           path: path,
           builder: (context, state) => Scaffold(
-            appBar: AppBar(
-              title: Text(path == '/moments/new' ? '发布瞬间' : 'YOU'),
-            ),
+            appBar: AppBar(title: const Text('YOU')),
             body: const PageState(title: '即将相遇', message: '页面框架已就绪，业务功能待接入'),
           ),
         ),
