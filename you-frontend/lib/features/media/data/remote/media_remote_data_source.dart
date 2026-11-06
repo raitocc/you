@@ -12,7 +12,7 @@ class MediaRemoteDataSource {
 
   final Ref _ref;
 
-  Future<void> upload(
+  Future<String> upload(
     Uint8List bytes,
     String mimeType, {
     void Function(int, int)? onProgress,
@@ -35,5 +35,26 @@ class MediaRemoteDataSource {
       ),
       onSendProgress: onProgress,
     );
+    return ticket['fileId'] as String;
+  }
+
+  Future<bool> isUploadReady(String fileId) async {
+    final response = await _ref
+        .read(dioProvider)
+        .get<dynamic>('/media/uploads/${Uri.encodeComponent(fileId)}');
+    return (unwrap(response) as Map<String, dynamic>)['ready'] as bool;
+  }
+
+  Future<Uint8List> download(String url) async {
+    final response = await _ref
+        .read(storageDioProvider)
+        .get<List<int>>(
+          url,
+          options: Options(
+            responseType: ResponseType.bytes,
+            followRedirects: false,
+          ),
+        );
+    return Uint8List.fromList(response.data!);
   }
 }

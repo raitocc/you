@@ -1676,3 +1676,149 @@ Cache-Control: private, no-store
 | --- | --- | --- |
 | 404 | RESOURCE_NOT_FOUND | 文件不存在、已删除或当前无读取资格 |
 | 503 | STORAGE_UNAVAILABLE | 合法文件对象暂时无法读取 |
+
+## 媒体模块
+
+### 接口清单
+
+| 接口名称 | 方法 | 路径 |
+| --- | --- | --- |
+| 申请图片上传地址 | POST | `/media/uploads` |
+| 查询图片上传就绪状态 | GET | `/media/uploads/{fileId}` |
+
+### 申请图片上传地址
+
+POST `/media/uploads` 受保护接口
+
+根据当前用户及声明的图片信息生成文件 ID 和有效期为 10 分钟的预签名 PUT 地址。
+
+#### 基本信息
+
+| 属性 | 内容 |
+| --- | --- |
+| 接口名称 | 申请图片上传地址 |
+| 请求方式 | POST |
+| 请求路径 | `/media/uploads` |
+| 认证要求 | JWT Bearer Token |
+| 成功状态码 | 200 |
+
+#### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| mimeType | string | 是 | 图片 MIME 类型，支持 image/jpeg、image/png、image/webp |
+| byteSize | integer | 是 | 声明的文件字节数，范围为 1～10485760 字节（10 MiB） |
+
+#### 请求示例
+
+```http
+POST /media/uploads
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "mimeType": "image/jpeg",
+  "byteSize": 204800
+}
+```
+
+#### 响应数据
+
+以下字段均位于成功响应的 data 内。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| fileId | string | 本次申请生成的文件 UUID，用于查询上传就绪状态 |
+| url | string | 对象存储的完整预签名 PUT 地址，有效期为 10 分钟 |
+
+#### 响应示例
+
+```json
+{
+  "code": "SUCCESS",
+  "message": "操作成功",
+  "data": {
+    "fileId": "019a48d0-0000-7000-8000-000000000003",
+    "url": "https://storage.example.com/you-files/images/019a48d0-0000-7000-8000-000000000001/019a48d0-0000-7000-8000-000000000003?X-Amz-Expires=600&X-Amz-Signature=example"
+  }
+}
+```
+
+#### 业务规则
+
+- 文件归属由 JWT 确定，每次申请生成新的文件 ID。申请成功时尚未建立 media_file 记录。
+- 客户端使用返回的完整 URL 向对象存储发起 PUT 请求，请求体为图片原始字节，Content-Type 与申请时的 mimeType 一致。直传请求无需携带业务 JWT。
+- 直传成功后，服务端异步处理对象存储事件，检查对象实际字节数及 Content-Type，符合要求后登记 media_file 记录。
+- 客户端通过查询图片上传就绪状态确认文件已登记，待 ready 为 true 后再提交业务引用。
+
+#### 异常处理
+
+| HTTP 状态码 | 业务错误码 | 场景 |
+| --- | --- | --- |
+| 400 | INVALID_ARGUMENT | 必填字段缺失，或 byteSize 超出允许范围 |
+| 400 | INVALID_REQUEST_BODY | 请求体格式、字段类型或 mimeType 枚举值不正确 |
+| 401 | UNAUTHORIZED | 登录凭证缺失、无效或已过期 |
+
+### 查询图片上传就绪状态
+
+GET `/media/uploads/{fileId}` 受保护接口
+
+根据文件 ID 查询当前用户的图片是否已登记并可用于业务关联。
+
+#### 基本信息
+
+| 属性 | 内容 |
+| --- | --- |
+| 接口名称 | 查询图片上传就绪状态 |
+| 请求方式 | GET |
+| 请求路径 | `/media/uploads/{fileId}` |
+| 认证要求 | JWT Bearer Token |
+| 成功状态码 | 200 |
+
+#### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| fileId | string | 是 | Path；申请图片上传地址时返回的文件 UUID |
+
+#### 请求示例
+
+```http
+GET /media/uploads/019a48d0-0000-7000-8000-000000000003
+Authorization: Bearer <accessToken>
+```
+
+#### 响应数据
+
+以下字段均位于成功响应的 data 内。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| fileId | string | 本次查询的文件 UUID |
+| ready | boolean | 存在属于当前用户的有效文件记录时为 true，其余情况为 false |
+
+#### 响应示例
+
+```json
+{
+  "code": "SUCCESS",
+  "message": "操作成功",
+  "data": {
+    "fileId": "019a48d0-0000-7000-8000-000000000003",
+    "ready": true
+  }
+}
+```
+
+#### 业务规则
+
+- 仅查询当前用户拥有且未删除的文件记录。
+- 文件未登记、已删除或属于其他用户时，均返回 200，ready 为 false。
+- 对象存储返回上传成功后，文件登记可能仍在进行，客户端可再次查询。
+
+#### 异常处理
+
+| HTTP 状态码 | 业务错误码 | 场景 |
+| --- | --- | --- |
+| 400 | — | fileId 不是合法 UUID，由框架处理路径参数转换错误 |
+| 401 | UNAUTHORIZED | 登录凭证缺失、无效或已过期 |

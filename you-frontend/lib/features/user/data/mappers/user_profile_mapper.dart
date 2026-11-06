@@ -6,4 +6,5 @@ UserProfile userProfileFromJson(Map<String, dynamic> json) => UserProfile(
   username: json['username'] as String,
   nickname: json['nickname'] as String,
   avatarFileId: json['avatarFileId'] as String?,
+  avatarUrl: json['avatarUrl'] as String?,
 );

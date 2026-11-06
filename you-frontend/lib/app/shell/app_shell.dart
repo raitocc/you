@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import '../../features/user/presentation/viewmodels/profile_viewmodel.dart';
 import '../theme/app_theme.dart';
 
 class AppShell extends StatelessWidget {
@@ -60,13 +62,7 @@ class AppShell extends StatelessWidget {
             letterSpacing: -3,
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: '个人资料',
-            onPressed: () => context.push('/profile'),
-            icon: const Icon(Icons.account_circle_outlined),
-          ),
-        ],
+        actions: [const _ProfileButton()],
       ),
       body: navigationShell,
       bottomNavigationBar: SafeArea(
@@ -92,6 +88,31 @@ class AppShell extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ProfileButton extends ConsumerWidget {
+  const _ProfileButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final avatar = ref.watch(profileAvatarProvider).asData?.value;
+    const placeholder = Icon(Icons.account_circle_outlined);
+    return IconButton(
+      tooltip: '个人资料',
+      onPressed: () => context.push('/profile'),
+      icon: avatar == null
+          ? placeholder
+          : ClipOval(
+              child: Image.memory(
+                avatar,
+                width: 32,
+                height: 32,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => placeholder,
+              ),
+            ),
     );
   }
 }

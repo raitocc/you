@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/logging/app_logger.dart';
+import '../models/profile_edits.dart';
 import '../models/user_profile.dart';
+import 'local/profile_local_data_source.dart';
 import 'mappers/user_profile_mapper.dart';
 import 'remote/user_remote_data_source.dart';
 
@@ -36,4 +38,14 @@ class UserRepository {
     succeeded: AppLogEvent.userProfileReadSucceeded,
     failed: AppLogEvent.userProfileReadFailed,
   );
+
+  Future<UserProfile> updateAvatar(String nickname, String fileId) async =>
+      userProfileFromJson(await _remote.updateAvatar(nickname, fileId));
+
+  final _local = ProfileLocalDataSource();
+
+  Future<ProfileEdits> profileEdits(String userId) => _local.read(userId);
+
+  Future<void> saveProfileEdits(String userId, ProfileEdits edits) =>
+      _local.write(userId, edits);
 }

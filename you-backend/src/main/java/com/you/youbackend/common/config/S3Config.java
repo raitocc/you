@@ -35,7 +35,7 @@ public class S3Config {
      */
     @Bean
     public S3Presigner s3Presigner(
-            @Value("${storage.endpoint}") String endpoint,
+            @Value("${storage.presign-endpoint}") String endpoint,
             @Value("${storage.access-key}") String accessKey,
             @Value("${storage.secret-key}") String secretKey) {
 

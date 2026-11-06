@@ -55,7 +55,28 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/login', builder: (_, _) => const LoginPage()),
       GoRoute(path: '/register', builder: (_, _) => const RegisterPage()),
-      GoRoute(path: '/profile', builder: (_, _) => const ProfilePage()),
+      GoRoute(
+        path: '/profile',
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          key: state.pageKey,
+          opaque: false,
+          barrierColor: Colors.black54,
+          barrierDismissible: true,
+          barrierLabel: MaterialLocalizations.of(
+            context,
+          ).modalBarrierDismissLabel,
+          child: const ProfilePage(),
+          transitionsBuilder: (_, animation, _, child) => SlideTransition(
+            position: animation.drive(
+              Tween(
+                begin: const Offset(0, 1),
+                end: Offset.zero,
+              ).chain(CurveTween(curve: Curves.easeOutCubic)),
+            ),
+            child: child,
+          ),
+        ),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (_, _, shell) => AppShell(navigationShell: shell),
         branches: [

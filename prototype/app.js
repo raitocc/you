@@ -17,7 +17,7 @@ const tabIcon=(name,active)=>tabIcons[name].outline;
 function nav(){ $('#nav').style.display='flex';$('#nav').innerHTML=['瞬间','时光','创建','同行','圈子'].map((n,i)=>`<button aria-label="${n}" aria-current="${n===tab?'page':'false'}" class="${n===tab?'active ':''}${i===2?'create':''}" onclick="${i===2?'createSheet()':`go('${n}')`}">${i===2?icon('plus'):tabIcon(['AiArtIcon','AiBookIcon',null,'AiBackgroundIcon','AppleIntelligenceIcon'][i],n===tab)}${i!==2?`<span>${n}</span>`:''}</button>`).join('')}
 
 function go(t){document.querySelector('.phone').classList.remove('subpage');document.querySelector('.phone').classList.remove('immersive');tab=t;closeSheet();nav();render();app.scrollTop=0}
-function brandHeader(){return `<header class="header"><div><div class="logo">you<span style="font-size:12px;vertical-align:top;letter-spacing:0"> ®</span></div><div class="caption">把日子留给自己</div></div><button class="icon" onclick="profile()" aria-label="我的记忆"><img class="avatar" src="${avatar}" alt="我的头像"></button></header>`}
+function brandHeader(){return `<header class="header"><div><div class="logo">you<span style="font-size:12px;vertical-align:top;letter-spacing:0"> ®</span></div><div class="caption">把日子留给自己</div></div><button class="icon" onclick="profile()" aria-label="我的资料"><img class="avatar" src="${esc(userProfile.avatar || avatar)}" alt="我的头像"></button></header>`}
 function render(){if(tab==='瞬间')moments();if(tab==='时光')times();if(tab==='同行')companions();if(tab==='圈子')circlePage()}
 function card(m){return `<button class="card" onclick="detail(${m.id})">${m.images.length?`<div class="visual"><img src="${m.images[0]}" alt="${esc(m.title)}" loading="lazy" style="height:${m.id%3===0?235:202}px">${moodBadge(m.mood)}</div><h3>${esc(m.title)}</h3><p>${esc(m.text.slice(0,32))}</p>`:`<div class="note"><div class="quote">“</div><h3>${esc(m.title)}</h3><p>${esc(m.text)}</p>${moodBadge(m.mood)}</div>`}<div class="meta">${m.date.slice(5).replace('-','.')} &nbsp; ${esc(m.place)}</div></button>`}
 function times(){app.innerHTML=header()+`<div class="page-heading"><h1>把瞬间，串成时光。</h1><p class="sub">那些不经意的记录，正在慢慢成为故事</p></div><div class="section-label"><b>你的时光集</b><span>随记忆生长 · AI 整理</span></div><div class="feature" role="button" tabindex="0" onclick="timeDetail('山野之间')" onkeydown="if(event.key==='Enter')this.click()"><img src="${imgs[1]}" alt="阳光穿过森林"><span class="overline">A BREATH OF FRESH AIR</span><div class="feature-text"><span class="pill">${memories.filter(m=>m.tag==='山野之间').length} 个瞬间 · 持续生长</span><h2>在山野里，找回自己</h2><span>2026.10 — 至今 &nbsp; ${icon('arrow')}</span></div></div>${[['出走日记','去远方，也回到自己',imgs[0]],['日常碎片','平凡日子的闪光',imgs[2]]].map(([tag,title,img])=>`<button class="list-card" onclick="timeDetail('${tag}')"><img src="${img}" alt="${title}"><div><span class="sub">${memories.filter(m=>m.tag===tag).length} 个瞬间</span><h3>${title}</h3><p>每一个片段，都值得被记得</p></div>${icon('arrow')}</button>`).join('')}`}
@@ -38,15 +38,193 @@ function joinCircle(){if($('#invite').value.toUpperCase()!=='YOU')return toast('
 function confirmLeave(){sheet(`<h2>退出这个圈子？</h2><p class="sub">退出后将无法查看圈内分享，自己的瞬间会保留。</p><button class="primary full" onclick="circles=circles.filter(c=>c!==selectedCircle);selectedCircle=circles[0]||'未加入圈子';closeSheet();circlePage();toast('已退出圈子')">确认退出</button><button class="secondary full" onclick="closeSheet()">再想想</button>`)}
 function detail(id){document.querySelector('.phone').classList.add('subpage');current=id;let m=allMoments().find(m=>m.id===id);if(!m)return toast('该瞬间已不可访问');$('#nav').style.display='none';app.innerHTML=(m.images.length?'<div class="moment-cover">':'')+backbar('',(isMine(m)?ib('edit',`editMemory(${id})`,'编辑瞬间')+ib('share',`shareMemory(${id})`,'分享到同行或圈子'):''))+`${m.images.length?gallery(m):''}${m.images.length?'</div>':''}<div class="post-head" style="padding:12px 18px"><img class="avatar" src="${peoplePhotos[m.author]||avatar}" alt="作者头像"><div><b>${esc(m.author||'我')}</b><small>记录生活的瞬间</small></div><span class="pill" style="margin-left:auto">${m.scope.length||m.trip?'已分享':'私人记忆'}</span></div><div class="detail-body">${moodBadge(m.mood)}<h1>${esc(m.title)}</h1><p style="white-space:pre-line">${esc(m.text)}</p><p class="tags">${tagBadge(m.tag)}</p><div class="detail-meta">${esc(m.date)} &nbsp; ${esc(m.place)}<br>${m.people?participantFaces(m.people):'一个人的片刻'}<br>${sourceLinks(m)}</div><div class="row">${icon('lock')}<span class="sub">${m.scope.length||m.trip?'同行与圈子中的有效成员可见':'只属于自己的记忆'}</span></div><p class="sub">评论 ${comments[id]?.length||0}</p>${(comments[id]||[]).map(s=>`<div class="comment">我：${esc(s)}</div>`).join('')}<button class="secondary full" onclick="detailComment(${id})">${icon('comment')} 写一条评论</button></div>`;if(m.images.length)immersive();else document.querySelector('.phone').classList.remove('immersive');app.scrollTop=0}
 function detailComment(id){sheet(`<h2>写一条评论</h2><div class="form"><label>评论内容<textarea id="dc"></textarea></label><button class="primary full" onclick="let s=$('#dc').value.trim();if(!s)return toast('请输入评论');(comments[${id}]??=[]).push(s);closeSheet();detail(${id})">发布评论</button></div>`)}
-function sheet(html){$('#overlay').innerHTML=`<div class="shade" onclick="if(event.target===this)closeSheet()"><section class="sheet" role="dialog" aria-modal="true"><div class="handle"></div>${ib('close','closeSheet()','关闭面板')}${html}</section></div>`;setTimeout(()=>$('#overlay button')?.focus(),50)}
-function closeSheet(){$('#overlay').innerHTML=''}document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
+function sheet(html,{showClose=true, profileCard=false, editing=false}={}) {
+  const overlay = $('#overlay');
+  overlay.innerHTML = `<div class="shade" onclick="if(event.target===this)closeSheet()"><section class="sheet${profileCard ? ' user-profile' : ''}${editing ? ' profile-editing' : ''}" role="dialog" aria-modal="true"${profileCard ? ' aria-label="用户资料"' : ''}><div class="${profileCard ? 'profile-grip' : 'handle'}" aria-hidden="true"></div>${showClose ? ib('close','closeSheet()','关闭面板') : ''}${html}</section></div>`;
+  const panel = overlay.firstElementChild;
+  setTimeout(() => {
+    if (panel.isConnected && !panel.classList.contains('profile-leaving')) {
+      (panel.querySelector('.profile-field input, .profile-field textarea') || panel.querySelector('button'))?.focus({preventScroll:true});
+    }
+  }, 50);
+}
+function closeSheet() {
+  const overlay = $('#overlay');
+  const shade = overlay.firstElementChild;
+  const card = shade?.querySelector('.user-profile');
+  if (!card) {
+    overlay.innerHTML = '';
+    return;
+  }
+  if (shade.classList.contains('profile-leaving')) return;
+  const animations = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 240;
+  shade.classList.add('profile-leaving');
+  setTimeout(() => {
+    if (overlay.firstElementChild !== shade) return;
+    shade.remove();
+    $('.header button[onclick="profile()"]')?.focus({preventScroll:true});
+  }, animations);
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
 function createSheet(){sheet(`<h2>留住这个瞬间</h2><p class="sub">一张照片，或几句此刻的心情</p><button class="option" onclick="draft={};pickForDraft()">${icon('image')}<span>从相册选择<small>把看见的美好收进记忆</small></span>${icon('arrow')}</button><button class="option" onclick="draft={};editor()">${icon('text')}<span>文字<small>记录那些值得记住的念头</small></span>${icon('arrow')}</button><button class="secondary full" onclick="closeSheet()">取消</button>`)}
 function pickFiles(cb){let input=$('#upload');input.value='';input.onchange=()=>{if(input.files.length)cb([...input.files])};input.click()}
 function pickForDraft(){pickFiles(async files=>{draft.images=await Promise.all(files.map(f=>new Promise(res=>{let r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(f)})));editor()})}
 function editMemory(id){if(!memories.some(m=>m.id===id))return toast('只有作者可以编辑');draft=structuredClone(memories.find(m=>m.id===id));editor()}
 function cancelEdit(){sheet(`<h2>离开编辑？</h2><p class="sub">未保存的修改将会丢失。</p><button class="primary full" onclick="go(tab)">放弃修改</button><button class="secondary full" onclick="closeSheet()">继续编辑</button>`)}
 function publish(){captureDraft();if(!draft.title.trim()||!draft.text.trim())return toast('请填写标题和记录内容');if(!draft.date)return toast('请选择记忆时间');draft.images=draft.images||[];if(draft.id)memories=memories.map(m=>m.id===draft.id?draft:m);else{draft.id=Date.now();memories.unshift(draft)}save();go('瞬间');toast('瞬间已保存，时光集已更新')}
-function profile(){sheet(`<img class="avatar" src="${avatar}" alt="我的头像"><h2>属于你的记忆宇宙</h2><p class="sub">${memories.length} 个瞬间 · 3 个时光集 · ${trips.length} 段同行</p><div class="ai">每一个看似普通的今天，都会成为某一天珍贵的回忆。</div><button class="primary full" onclick="closeSheet();createSheet()">记录今天</button>`)}
+const defaultProfile = { nickname:'Calmer', account:'calmer', signature:'把日子留给自己', avatar:'', background:'' };
+let userProfile = {...defaultProfile};
+try {
+  userProfile = {...defaultProfile, ...JSON.parse(localStorage.getItem('you-profile'))};
+} catch {}
+
+function saveProfile(changes) {
+  const next = {...userProfile, ...changes};
+  try {
+    localStorage.setItem('you-profile', JSON.stringify(next));
+  } catch {
+    toast('资料保存失败，请检查浏览器存储空间');
+    return false;
+  }
+  userProfile = next;
+  return true;
+}
+
+function profile(view = 'card') {
+  const {nickname, account, signature, background} = userProfile;
+  const cover = esc(background || imgs[1]);
+  const editing = view !== 'card';
+  const avatarButton = `
+    <button class="profile-avatar" type="button" aria-label="更换头像" onclick="this.closest('.sheet').querySelector('[data-avatar]').click()">
+      <img src="${esc(userProfile.avatar || avatar)}" alt=""><span>${icon('image')}</span>
+    </button>`;
+  const pickBackground = "this.closest('.sheet').querySelector('[data-background]').click()";
+  let content;
+  if (view === 'card') {
+    content = `
+      <img class="profile-background" src="${cover}" alt="">
+      <div class="profile-identity">
+        ${avatarButton}
+        <div class="profile-name"><h2>${esc(nickname)}</h2><p>you ID：${esc(account)}</p></div>
+        <div class="profile-toolbar">
+          <button type="button" onclick="profile('list')" aria-label="编辑资料">${icon('edit')}</button>
+          <button type="button" onclick="${pickBackground}" aria-label="更换背景">${icon('image')}</button>
+        </div>
+      </div>
+      <div class="profile-stats">
+        <span><strong>${memories.filter(isMine).length}</strong> 瞬间</span>
+        <span><strong>${trips.length}</strong> 同行</span>
+        <span><strong>${circles.length}</strong> 圈子</span>
+      </div>
+      <p class="profile-signature">${esc(signature || '还没有个性签名')}</p>`;
+  } else if (view === 'list') {
+    content = `
+      <div class="profile-nav">
+        <button type="button" onclick="profile()" aria-label="返回资料卡">${icon('back')}</button>
+        <h2>编辑资料</h2>
+        <button type="button" onclick="profile()">预览</button>
+      </div>
+      <div class="profile-editor-avatar">${avatarButton}</div>
+      <div class="profile-group">
+        <button class="profile-row" type="button" onclick="profile('nickname')"><span>昵称</span><span>${esc(nickname)}</span>${icon('arrow')}</button>
+        <div class="profile-row"><span>you ID</span><span>${esc(account)}</span></div>
+        <button class="profile-row" type="button" onclick="${pickBackground}"><span>背景</span><img class="profile-thumbnail" src="${cover}" alt="当前背景">${icon('arrow')}</button>
+      </div>
+      <div class="profile-group">
+        <button class="profile-row" type="button" onclick="profile('signature')"><span>个性签名</span><span>${esc(signature || '添加签名')}</span>${icon('arrow')}</button>
+      </div>`;
+  } else {
+    const bio = view === 'signature';
+    const limit = bio ? 160 : 24;
+    const value = bio ? signature : nickname;
+    const count = "this.form.querySelector('output').textContent=this.value.length+'/" + limit + "'";
+    content = `
+      <form class="profile-form" onsubmit="submitProfile(event,'${view}')">
+        <div class="profile-nav">
+          <button type="button" onclick="profile('list')" aria-label="返回编辑资料">${icon('back')}</button>
+          <h2>${bio ? '编辑个性签名' : '编辑昵称'}</h2>
+          <button type="submit">保存</button>
+        </div>
+        <div class="profile-field">
+          ${bio ? `<textarea name="value" aria-label="个性签名" maxlength="${limit}" rows="5" oninput="${count}">\n${esc(value)}</textarea>` :
+            `<input name="value" aria-label="昵称" value="${esc(value)}" maxlength="${limit}" oninput="${count}" required>`}
+          <output>${value.length}/${limit}</output>
+        </div>
+      </form>`;
+  }
+
+  sheet(`
+    <div class="profile-content">${content}</div>
+    <input type="file" hidden data-avatar accept="image/*" onchange="changeProfileImage(this,'avatar')">
+    <input type="file" hidden data-background accept="image/*" onchange="changeProfileImage(this,'background')">
+  `, {showClose:false, profileCard:true, editing});
+  enableProfileDrag($('#overlay .sheet'));
+}
+
+function submitProfile(event, field) {
+  event.preventDefault();
+  if (field !== 'nickname' && field !== 'signature') return;
+  const value = event.currentTarget.elements.value.value.trim();
+  if (field === 'nickname' && !value) {
+    toast('请填写昵称');
+    return;
+  }
+  if (saveProfile({[field]:value})) profile('list');
+}
+
+async function changeProfileImage(input, field) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxSize = field === 'avatar' ? 384 : 1200;
+    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    if (!input.isConnected || input.closest('.shade').classList.contains('profile-leaving')) return;
+    const source = canvas.toDataURL('image/webp', .84);
+    if (!saveProfile({[field]:source})) return;
+    if (field === 'background') {
+      input.closest('.sheet').querySelector('.profile-background, .profile-thumbnail').src = source;
+    } else {
+      input.closest('.sheet').querySelector('.profile-avatar img').src = source;
+      document.querySelectorAll('.header button[onclick="profile()"] img').forEach(img => { img.src = source; });
+    }
+  } catch {
+    if (input.isConnected) toast('无法读取这张图片，请试试其他图片');
+  }
+}
+
+function enableProfileDrag(card) {
+  const shade = card.parentElement;
+  let drag;
+  card.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0 || shade.classList.contains('profile-leaving')) return;
+    if (event.target.closest('button,input,textarea,label') ||
+        (card.classList.contains('profile-editing') && !event.target.closest('.profile-grip'))) return;
+    drag = {id:event.pointerId, start:event.clientY, offset:0};
+    card.setPointerCapture(event.pointerId);
+    card.classList.add('profile-dragging');
+  });
+  card.addEventListener('pointermove', event => {
+    if (drag?.id !== event.pointerId) return;
+    drag.offset = Math.max(0, event.clientY - drag.start);
+    card.style.setProperty('--profile-offset', `${drag.offset}px`);
+  });
+  function finish(event) {
+    if (drag?.id !== event.pointerId) return;
+    const dismiss = event.type === 'pointerup' && drag.offset >= Math.min(96, card.offsetHeight / 3);
+    drag = null;
+    card.classList.remove('profile-dragging');
+    if (dismiss) closeSheet();
+    else card.style.removeProperty('--profile-offset');
+  }
+  for (const type of ['pointerup','pointercancel','lostpointercapture']) card.addEventListener(type, finish);
+}
 // Interaction and visual refinements.
 const moodStyles={开心:['#936222','#ffe6aa','happy'],平静:['#466b82','#d9edf9','smile'],松弛:['#527348','#e1efd6','sleeping'],心动:['#a05371','#f9dce9','heart'],惊喜:['#8c659a','#edddf8','sparkles'],自在:['#3c7971','#d3efea','smile'],低落:['#65728d','#e1e6f3','sad-01']};
 function moodBadge(mood,label=mood){let [ink,bg,glyph]=moodStyles[mood]||moodStyles.平静;return `<span class="emotion" style="--emotion-ink:${ink};--emotion-bg:${bg}cc" aria-label="${esc(mood)}" title="${esc(mood)}">${icon(glyph)}${label}</span>`}

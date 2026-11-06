@@ -12,7 +12,7 @@ final mediaRepositoryProvider = Provider(
 class MediaRepository {
   MediaRepository(this._remote);
   final MediaRemoteDataSource _remote;
-  Future<void> upload(
+  Future<String> upload(
     Uint8List bytes,
     String mimeType, {
     void Function(int, int)? onProgress,
@@ -27,8 +27,13 @@ class MediaRepository {
           '请选择 10 MiB 以内的 JPEG、PNG 或 WebP 图片',
         );
       }
-      await _remote.upload(bytes, mimeType, onProgress: onProgress);
+      final fileId = await _remote.upload(
+        bytes,
+        mimeType,
+        onProgress: onProgress,
+      );
       AppLogger.info(AppLogEvent.storageUploadSucceeded);
+      return fileId;
     } catch (error, stackTrace) {
       AppLogger.error(
         AppLogEvent.storageUploadFailed,
@@ -38,4 +43,8 @@ class MediaRepository {
       rethrow;
     }
   }
+
+  Future<bool> isUploadReady(String fileId) => _remote.isUploadReady(fileId);
+
+  Future<Uint8List> download(String url) => _remote.download(url);
 }

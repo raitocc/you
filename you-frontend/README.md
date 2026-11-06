@@ -58,7 +58,7 @@ flutter test
 
 ## 用户与媒体连调
 
-当前后端的 OpenAPI 由本地服务的 /v3/api-docs 提供。注册使用 POST /auth/register，登录使用 POST /auth/login，个人资料使用 GET /users/me。退出会清除本机安全存储中的令牌。资料编辑和头像操作需等待对应接口。
+当前后端的 OpenAPI 由本地服务的 /v3/api-docs 提供。注册使用 POST /auth/register，登录使用 POST /auth/login，个人资料使用 GET /users/me。退出会清除本机安全存储中的令牌。资料卡默认森林封面来自仓库原型使用的 Unsplash 图片。昵称、签名、封面和已上传头像预览按账号保存在本机应用目录，供资料编辑接口上线前使用。头像通过真实 PUT 上传，服务端头像绑定接口上线前由本机预览提供回显。
 
 媒体上传向 POST /media/uploads 发送 MIME 类型与字节数，再使用独立 Dio 向返回的签名 URL 发起 PUT。图片限 JPEG、PNG、WebP 和 10 MiB。签名 URL 的主机必须从客户端可达，签名后需保留原始地址。
 

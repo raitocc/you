@@ -1,6 +1,7 @@
 services:
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: you
       MYSQL_USER: you
@@ -13,6 +14,7 @@ services:
 
   rustfs:
     image: rustfs/rustfs:latest
+    restart: unless-stopped
     environment:
       RUSTFS_ACCESS_KEY: you
       RUSTFS_SECRET_KEY: you
@@ -33,6 +35,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:4-management
+    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: you
       RABBITMQ_DEFAULT_PASS: you
@@ -44,6 +47,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--requirepass", "you", "--appendonly", "yes"]
     ports:
       - "127.0.0.1:6379:6379"

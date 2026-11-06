@@ -36,4 +36,15 @@ class UserRemoteDataSource {
     final response = await _api.get<dynamic>('/users/me');
     return unwrap(response) as Map<String, dynamic>;
   }
+
+  Future<Map<String, dynamic>> updateAvatar(
+    String nickname,
+    String fileId,
+  ) async {
+    final response = await _api.put<dynamic>(
+      '/users/me',
+      data: {'nickname': nickname, 'avatarFileId': fileId},
+    );
+    return unwrap(response) as Map<String, dynamic>;
+  }
 }

@@ -10,6 +10,8 @@
 
 ## 启动项目
 
+### 后端服务
+
 准备 JDK 17 或 21、Maven 3、Docker Desktop。IDEA 导入 `you-backend/pom.xml`，语言级别保持 17。
 
 在仓库根目录执行：
@@ -38,6 +40,30 @@ mvn -f you-backend/pom.xml spring-boot:run
 | Redis | `localhost:6379` | 密码 `you` |
 
 基础服务由 [compose.yaml](compose.yaml) 编排，端口绑定本机，数据保存在命名卷中。修改 Compose 环境变量后执行 `docker compose up -d 服务名`，让 Compose 重新创建对应容器并加载配置。
+
+### 前端服务
+
+启动命令，
+
+```
+flutter run --dart-define-from-file=env/dev.json
+```
+
+若拉取太慢，可在当前终端配置代理，
+
+```
+$env:https_proxy = 'http://127.0.0.1:7890'
+```
+
+若显示连接不到 device，可以指定 emulator，
+
+```
+flutter run -d emulator-5554 --dart-define-from-file=env/dev.json
+```
+
+
+
+
 
 ## 跑通一次登录与图片上传
 
