@@ -11,6 +11,7 @@ import com.you.youbackend.moment.mapper.MomentImageMapper;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentFeedCursor;
+import com.you.youbackend.moment.model.MomentLocation;
 import com.you.youbackend.moment.model.MomentMood;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
@@ -27,10 +28,8 @@ import org.springframework.util.StringUtils;
 import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.math.RoundingMode;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -46,7 +45,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MomentService {
 
-    private static final Duration MAX_FUTURE_ID_SKEW = Duration.ofMinutes(5);
     private static final int MAX_BODY_BYTES = 65_535;
     private static final int MAX_TAG_LENGTH = 64;
     private static final int COORDINATE_SCALE = 7;
@@ -111,26 +109,21 @@ public class MomentService {
      * 在同一事务中保存瞬间、图片和标签，并返回详情。
      * TODO：补充 request、当前登录用户 ID 和详情返回值的说明，写清重复瞬间 ID 冲突及图片无效等失败条件。
      * TODO：说明本接口承接客户端草稿发布；图片应已直传并登记，本接口负责校验和建立关联。
-     * TODO：写清 UUIDv7 时间检查、图文至少一种、图片可用性、标签与地点整理、关联保存、响应组装及失败回滚流程。
+     * 请求中的 UUIDv7 及时间格式已由 MVC 校验、转换，业务层直接使用 UUID 和 Instant。
+     * TODO：写清图文至少一种、图片可用性、标签与地点整理、关联保存、响应组装及失败回滚流程。
      * TODO：将图片校验前置到数据库写入之前，主流程明确区分校验、保存和响应组装阶段。
      */
     @Transactional
     public MomentResponse createMoment(CreateMomentRequest request, UUID userId) {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        UUID id = UUID.fromString(request.id());
-        // UUIDv7 的高 48 位记录草稿 ID 的生成时间。
-        long idTimestamp = id.getMostSignificantBits() >>> 16;
-        if (idTimestamp > now.plus(MAX_FUTURE_ID_SKEW).toEpochMilli()) {
-            // TODO：错误提示中的允许超前分钟数取自 MAX_FUTURE_ID_SKEW，保持提示与校验规则一致。
-            throw invalidArgument("瞬间 ID 的时间不能超前服务端超过 5 分钟");
-        }
+        UUID id = request.id();
 
         List<UUID> fileIds = request.imageFileIds() == null ? List.of()
-                : request.imageFileIds().stream().map(UUID::fromString).toList();
+                : request.imageFileIds();
         validateContent(request.body(), fileIds);
         List<String> tags = normalizeTags(request.tags());
-        MomentResponse.Location location = normalizeLocation(request.location());
-        LocalDateTime memoryTime = parseMemoryTime(request.memoryTime());
+        MomentLocation location = normalizeLocation(request.location());
+        LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
         LocalDateTime savedAt = LocalDateTime.ofInstant(now, ZoneOffset.UTC);
 
         Moment moment = new Moment();
@@ -162,11 +155,11 @@ public class MomentService {
     @Transactional
     public MomentResponse updateMoment(UUID id, UpdateMomentRequest request, UUID userId) {
         Moment moment = requireOwnedMoment(momentMapper.selectForUpdate(id), userId);
-        List<UUID> fileIds = request.imageFileIds().stream().map(UUID::fromString).toList();
+        List<UUID> fileIds = request.imageFileIds();
         validateContent(request.body(), fileIds);
         List<String> tags = normalizeTags(request.tags());
-        MomentResponse.Location location = normalizeLocation(request.location());
-        LocalDateTime memoryTime = parseMemoryTime(request.memoryTime());
+        MomentLocation location = normalizeLocation(request.location());
+        LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
         LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
 
         applyContent(moment, request.title(), request.body(), request.mood(), memoryTime, location, savedAt);
@@ -198,9 +191,9 @@ public class MomentService {
                 .stream().map(image -> new MomentResponse.Image(image.getFileId(),
                         mediaService.createOwnedImageReadUrl(image.getFileId(), userId))).toList();
         List<String> tags = momentTagMapper.selectNames(id);
-        MomentResponse.Location location = moment.getLocationName() == null && moment.getLocationAddress() == null
+        MomentLocation location = moment.getLocationName() == null && moment.getLocationAddress() == null
                 && moment.getLatitude() == null && moment.getLongitude() == null ? null
-                : new MomentResponse.Location(moment.getLatitude(), moment.getLongitude(),
+                : new MomentLocation(moment.getLatitude(), moment.getLongitude(),
                         moment.getLocationName(), moment.getLocationAddress());
         return toResponse(moment, images, tags, location);
     }
@@ -244,10 +237,9 @@ public class MomentService {
      * 应用发布和全量编辑共用的内容字段。
      * TODO：补充各参数的含义与校验前提、地点为 null 时清空地点字段、空白标题转为 null、保存时间用于更新时间；明确无返回值且仅修改传入实体。
      * TODO：改为能表达“填写实体可编辑字段”的明确名称，整理过长参数列表；结合创建、修改流程选择简单复用方式，允许少量直观重复。
-     * TODO：使用独立的 MomentLocation 共用模型，解除实体赋值过程对响应体内部类型的依赖，并说明本方法直接修改传入实体。
      */
     private void applyContent(Moment moment, String title, String body, MomentMood mood, LocalDateTime memoryTime,
-                              MomentResponse.Location location, LocalDateTime savedAt) {
+                              MomentLocation location, LocalDateTime savedAt) {
         moment.setTitle(StringUtils.hasText(title) ? title : null);
         moment.setBody(body);
         moment.setMood(mood);
@@ -264,7 +256,7 @@ public class MomentService {
      * TODO：地点转换放入本方法或独立辅助方法，避免调用方重复判断字段是否全部为空。
      */
     private MomentResponse toResponse(Moment moment, List<MomentResponse.Image> images,
-                                      List<String> tags, MomentResponse.Location location) {
+                                      List<String> tags, MomentLocation location) {
         return new MomentResponse(moment.getId(), moment.getTitle(), moment.getBody(),
                 images, tags, moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC), location,
                 moment.getCreatedAt().toInstant(ZoneOffset.UTC), moment.getUpdatedAt().toInstant(ZoneOffset.UTC));
@@ -307,17 +299,19 @@ public class MomentService {
     }
 
     /**
-     * 解析带时区的发生时间，转换为可入库的 UTC 毫秒时间。
-     * TODO：补充参数、返回值和异常说明：当前接收已通过非 null 校验的时间字符串，返回 UTC 毫秒精度 LocalDateTime，格式或数据库年份范围无效时抛参数业务异常。
-     * TODO：请求时间改为 Instant 后，同步简化为 UTC 入库转换，保留实际需要的数据库时间范围检查。
+     * 将发生时间转换为数据库使用的 UTC 毫秒时间。
+     *
+     * @param value 已由请求校验保证非空的时间点；JSON 时间格式由 Jackson 解析
+     * @return UTC 下的 LocalDateTime，截断至 DATETIME(3) 支持的毫秒精度
+     * @throws BusinessException 时间超出 MySQL DATETIME 的 1000～9999 年范围
      */
-    private LocalDateTime parseMemoryTime(String value) {
+    private LocalDateTime toDatabaseMemoryTime(Instant value) {
         LocalDateTime memoryTime;
         try {
-            memoryTime = LocalDateTime.ofInstant(OffsetDateTime.parse(value).toInstant(), ZoneOffset.UTC)
+            memoryTime = LocalDateTime.ofInstant(value, ZoneOffset.UTC)
                     .truncatedTo(ChronoUnit.MILLIS);
         } catch (DateTimeException exception) {
-            throw invalidArgument("发生时间必须使用带时区偏移的 ISO 8601 格式");
+            throw invalidArgument("发生时间超出可保存范围");
         }
         if (memoryTime.getYear() < 1000 || memoryTime.getYear() > 9999) {
             throw invalidArgument("发生时间超出可保存范围");
@@ -327,11 +321,12 @@ public class MomentService {
 
     /**
      * 校验经纬度成对填写，并统一坐标精度。
-     * TODO：补充输入输出约定：地点可空，空输入返回 null；经纬度需成对提供，允许仅有名称和地址，坐标四舍五入至七位小数，返回新地点对象且不修改输入。
-     * TODO：抽出独立的 MomentLocation，供请求、业务处理和响应复用；实体保留现有地点字段，通过赋值转换。
-     * TODO：移除对 CreateMomentRequest.Location 和 MomentResponse.Location 的依赖，避免借用响应对象作为入库中间数据。
+     *
+     * @param location 请求中的地点，允许为空；允许仅填写地名和地址，经纬度需成对提供
+     * @return 新的地点对象，坐标四舍五入至七位小数；输入为空时返回 null，不修改原对象
+     * @throws BusinessException 经纬度仅填写其中一项
      */
-    private MomentResponse.Location normalizeLocation(CreateMomentRequest.Location location) {
+    private MomentLocation normalizeLocation(MomentLocation location) {
         if (location == null) {
             return null;
         }
@@ -339,9 +334,9 @@ public class MomentService {
             throw invalidArgument("经度和纬度必须同时填写");
         }
         if (location.latitude() == null) {
-            return new MomentResponse.Location(null, null, location.name(), location.address());
+            return new MomentLocation(null, null, location.name(), location.address());
         }
-        return new MomentResponse.Location(
+        return new MomentLocation(
                 location.latitude().setScale(COORDINATE_SCALE, RoundingMode.HALF_UP),
                 location.longitude().setScale(COORDINATE_SCALE, RoundingMode.HALF_UP),
                 location.name(), location.address());

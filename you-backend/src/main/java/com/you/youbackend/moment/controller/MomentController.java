@@ -1,5 +1,6 @@
 package com.you.youbackend.moment.controller;
 
+import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.common.response.Result;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.moment.request.CreateMomentRequest;
@@ -17,7 +18,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -66,12 +66,11 @@ public class MomentController {
     @GetMapping("/{momentId}")
     public Result<MomentResponse> getMoment(
             @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
-            @PathVariable("momentId") // TODO：移除与参数名一致的 PathVariable 名称声明，统一使用 @PathVariable，保留参数业务说明。
-            // TODO：改用独立位置的共用 UUIDv7 格式常量，避免此入口依赖创建请求类。
-            @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
-            String momentId,
+            @PathVariable
+            @UUIDv7(checkTimestamp = false)
+            UUID momentId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        return Result.ok(momentService.getMoment(UUID.fromString(momentId), userId));
+        return Result.ok(momentService.getMoment(momentId, userId));
     }
 
     /**
@@ -86,13 +85,12 @@ public class MomentController {
     @PutMapping(path = "/{momentId}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Result<MomentResponse> updateMoment(
             @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
-            @PathVariable("momentId") // TODO：移除与参数名一致的 PathVariable 名称声明，统一使用 @PathVariable，保留参数业务说明。
-            // TODO：改用独立位置的共用 UUIDv7 格式常量，避免此入口依赖创建请求类。
-            @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
-            String momentId,
+            @PathVariable
+            @UUIDv7(checkTimestamp = false)
+            UUID momentId,
             @Valid @RequestBody UpdateMomentRequest request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        return Result.ok(momentService.updateMoment(UUID.fromString(momentId), request, userId));
+        return Result.ok(momentService.updateMoment(momentId, request, userId));
     }
 
     /**
@@ -107,12 +105,11 @@ public class MomentController {
     @DeleteMapping("/{momentId}")
     public Result<Void> deleteMoment(
             @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
-            @PathVariable("momentId") // TODO：移除与参数名一致的 PathVariable 名称声明，统一使用 @PathVariable，保留参数业务说明。
-            // TODO：改用独立位置的共用 UUIDv7 格式常量，避免此入口依赖创建请求类。
-            @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
-            String momentId,
+            @PathVariable
+            @UUIDv7(checkTimestamp = false)
+            UUID momentId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        momentService.deleteMoment(UUID.fromString(momentId), userId);
+        momentService.deleteMoment(momentId, userId);
         return Result.ok(null);
     }
 
