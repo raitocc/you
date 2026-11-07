@@ -17,6 +17,20 @@ import java.util.UUID;
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
     /**
+     * 批量读取本人未删除瞬间的 ID，用于关联创建前校验；只投影 ID，不返回不完整实体。
+     * @param userId 当前用户 ID
+     * @param ids 非空且已去重的候选瞬间 ID
+     * @return 有效且属于本人的瞬间 ID，逻辑删除由 MP 自动过滤
+     */
+    default List<UUID> selectOwnedIds(UUID userId, List<UUID> ids) {
+        // 按当前用户和候选 ID 批量筛选，沿用逻辑删除过滤，最终只向业务层返回有效 ID。
+        return selectList(Wrappers.<Moment>lambdaQuery()
+                .select(Moment::getId)
+                .eq(Moment::getAuthorUserId, userId)
+                .in(Moment::getId, ids)).stream().map(Moment::getId).toList();
+    }
+
+    /**
      * 查询瞬间，包含已软删除的记录，用于删除时校验归属和识别重复请求。
      * 自定义查询绕过 MP 的逻辑删除过滤，直接返回完整实体。
      *

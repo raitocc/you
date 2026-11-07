@@ -1,0 +1,204 @@
+package com.you.youbackend.album.service;
+
+import com.github.f4b6a3.uuid.UuidCreator;
+import com.you.youbackend.album.entity.Album;
+import com.you.youbackend.album.entity.AlbumMoment;
+import com.you.youbackend.album.mapper.AlbumMapper;
+import com.you.youbackend.album.mapper.AlbumMomentMapper;
+import com.you.youbackend.album.model.AlbumOrganizeMode;
+import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.response.AlbumResponse;
+import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.media.service.MediaService;
+import com.you.youbackend.moment.mapper.MomentMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.UUID;
+
+/** 时光创建、访问权限和信息查询。 */
+@Log4j2
+@Service
+@RequiredArgsConstructor
+public class AlbumService {
+    private final AlbumMapper albumMapper;
+    private final AlbumMomentMapper albumMomentMapper;
+    private final MomentMapper momentMapper;
+    private final MediaService mediaService;
+
+    /**
+     * 手动创建时光：整理瞬间 ID，校验封面及所有瞬间，再保存主记录和批量关联，返回信息。
+     * 主记录及关联在同一事务中写入，校验或后续操作失败全部回滚；允许无初始瞬间。
+     * @param request 已由 MVC 完成名称、介绍长度、UUID 格式及必填校验的请求
+     * @param userId 当前登录用户，作为时光所有者及资源校验依据
+     * @return 已保存的时光信息，含有效瞬间数量和封面签名 URL
+     * @throws BusinessException 封面不可用或任一瞬间不属于本人、已删除或不存在
+     */
+    @Transactional
+    public AlbumResponse createAlbum(CreateAlbumRequest request, UUID userId) {
+        // 1. 合并重复瞬间 ID，并在写入前确认封面和全部瞬间均为本人有效资源。
+        List<UUID> momentIds = request.momentIds().stream().distinct().toList();
+        String coverKey = requireCoverKey(request.coverFileId(), userId);
+        validateOwnedMoments(momentIds, userId);
+        // 2. 统一本次写入时间，保证时光主记录和初始关联的审计时间一致。
+        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+
+        // 3. 在当前事务内先保存时光，再批量保存关联；任一步失败均整体回滚。
+        Album album = saveNewAlbum(request, userId, savedAt);
+        saveMomentAssociations(album.getId(), momentIds, savedAt);
+        // 4. 按有效本人瞬间统计数量，复用已校验的封面对象键生成响应。
+        long momentCount = albumMomentMapper.countValidMoments(album.getId(), userId);
+        AlbumResponse response = toResponse(album, coverKey, momentCount);
+        log.info("已写入时光，albumId={}，userId={}，associationCount={}", album.getId(), userId, momentIds.size());
+        return response;
+    }
+
+    /**
+     * 查看时光信息：先检查存在和归属，再统计有效的本人瞬间、读取有效封面并组装响应。
+     * @param albumId 时光 ID，软删除记录不可访问
+     * @param userId 当前登录用户 ID
+     * @return 时光信息，不包含瞬间列表；封面失效时 URL 为 null
+     * @throws BusinessException 时光不存在、已删除或非当前用户所有
+     */
+    @Transactional(readOnly = true)
+    public AlbumResponse getAlbum(UUID albumId, UUID userId) {
+        // 1. 先确认时光存在且属于当前用户，通过后才加载详情相关资源。
+        Album album = requireOwnedAlbum(albumMapper.selectById(albumId), userId);
+        // 2. 排除已移除关联、已删除或非本人瞬间，并读取当前仍有效的封面。
+        long momentCount = albumMomentMapper.countValidMoments(albumId, userId);
+        String coverKey = findCoverKey(album.getCoverFileId(), userId);
+        log.debug("查询时光信息，albumId={}，userId={}，momentCount={}", albumId, userId, momentCount);
+        // 3. 组装详情；封面失效时保留文件 ID，签名 URL 返回 null。
+        return toResponse(album, coverKey, momentCount);
+    }
+
+    /**
+     * 校验选定封面，复用媒体模块的就绪图片查询；不生成签名地址。
+     * @param fileId 可空，null 表示不设置封面
+     * @param userId 当前用户 ID
+     * @return 有效封面的对象键；无封面为 null
+     */
+    private String requireCoverKey(UUID fileId, UUID userId) {
+        // 先查询有效封面；仅在用户明确指定了不可用文件时拒绝创建。
+        String key = findCoverKey(fileId, userId);
+        if (fileId != null && key == null) {
+            log.warn("时光封面校验失败，fileId={}，userId={}，reason=非本人有效图片", fileId, userId);
+            throw BusinessException.badRequest("FILE_NOT_USABLE", "请选择已上传完成的本人封面图片");
+        }
+        return key;
+    }
+
+    /**
+     * 读取本人已登记且未删除图片的对象键，缺失或失效不抛出业务错误，供详情降级展示。
+     * @param fileId 可空的封面文件 ID
+     * @param userId 文件所有者 ID
+     * @return 有效对象键，无封面或文件失效时为 null
+     */
+    private String findCoverKey(UUID fileId, UUID userId) {
+        // 未设置封面时跳过查询；文件已删除、未就绪或非本人图片时按无有效封面处理。
+        return fileId == null ? null : mediaService.findOwnedImageKeys(userId, List.of(fileId)).get(fileId);
+    }
+
+    /**
+     * 一次查询校验全部候选瞬间，任一无效则拒绝整次创建。
+     * @param ids 已去重且非 null 的瞬间 ID 列表，允许为空
+     * @param userId 当前用户 ID，所有瞬间须为本人发布
+     */
+    private void validateOwnedMoments(List<UUID> ids, UUID userId) {
+        // 空时光无需查询；去重后的提交数量必须与查到的本人有效瞬间数量一致。
+        if (!ids.isEmpty() && momentMapper.selectOwnedIds(userId, ids).size() != ids.size()) {
+            log.warn("时光瞬间校验失败，userId={}，submittedCount={}，reason=存在非本人或无效瞬间", userId, ids.size());
+            throw BusinessException.invalidArgument("请选择本人发布且未删除的瞬间");
+        }
+    }
+
+    /**
+     * 保存时光主记录，服务端填写 ID、所有者、manual 整理方式及审计字段。
+     * @param request 已通过全部校验的请求
+     * @param userId 当前用户 ID
+     * @param savedAt 本次事务写入的 UTC 毫秒时间
+     * @return 已插入的完整实体
+     */
+    private Album saveNewAlbum(CreateAlbumRequest request, UUID userId, LocalDateTime savedAt) {
+        // 1. 服务端生成时光身份并绑定当前用户，名称等可编辑信息取自已校验请求。
+        Album album = new Album();
+        album.setId(UuidCreator.getTimeOrderedEpoch());
+        album.setOwnerUserId(userId);
+        album.setName(request.name());
+        album.setDescription(request.description());
+        album.setCoverFileId(request.coverFileId());
+        // 2. 手动创建固定使用 manual，创建和修改时间使用本次统一时间。
+        album.setOrganizeMode(AlbumOrganizeMode.manual);
+        album.setCreatedAt(savedAt);
+        album.setUpdatedAt(savedAt);
+        // 3. 保存主记录，返回实体供关联创建和响应组装复用。
+        albumMapper.insert(album);
+        return album;
+    }
+
+    /**
+     * 构造并批量保存初始关联，空列表跳过写入，所有记录参与创建事务。
+     * @param albumId 新建时光 ID
+     * @param momentIds 已去重且校验有效的瞬间 ID
+     * @param savedAt 主记录与关联共用的 UTC 时间
+     */
+    private void saveMomentAssociations(UUID albumId, List<UUID> momentIds, LocalDateTime savedAt) {
+        // 1. 允许创建空时光，未选瞬间时不执行关联写入。
+        if (momentIds.isEmpty()) {
+            return;
+        }
+        // 2. 为每个已去重的瞬间构造独立关联，统一使用主记录的审计时间。
+        List<AlbumMoment> associations = momentIds.stream().map(momentId -> {
+            AlbumMoment association = new AlbumMoment();
+            association.setId(UuidCreator.getTimeOrderedEpoch());
+            association.setAlbumId(albumId);
+            association.setMomentId(momentId);
+            association.setCreatedAt(savedAt);
+            association.setUpdatedAt(savedAt);
+            return association;
+        }).toList();
+        // 3. 批量写入全部关联，与时光主记录共同提交或回滚。
+        albumMomentMapper.insertAssociations(associations);
+    }
+
+    /**
+     * 检查时光存在及归属，不存在先于权限不足返回。
+     * @param album 已过滤软删除的查询结果，可空
+     * @param userId 当前用户 ID
+     * @return 原时光实体
+     */
+    private Album requireOwnedAlbum(Album album, UUID userId) {
+        // 1. 不存在或已删除的时光统一按资源不存在处理。
+        if (album == null) {
+            throw BusinessException.notFound("ALBUM_NOT_FOUND", "时光不存在或已删除");
+        }
+        // 2. 时光存在时继续校验所有者，拒绝访问他人时光。
+        if (!userId.equals(album.getOwnerUserId())) {
+            log.warn("时光访问被拒绝，albumId={}，userId={}，reason=非本人时光", album.getId(), userId);
+            throw BusinessException.forbidden("仅所有者可以查看此时光");
+        }
+        return album;
+    }
+
+    /**
+     * 组装详情并为有效封面签名，不访问数据库；签名异常继续抛出，避免掩盖系统故障。
+     * @param album 完整的已保存或查询实体，数据库时间为 UTC
+     * @param coverKey 已校验的封面对象键，可空
+     * @param momentCount 当前有效的本人瞬间数量
+     * @return 时间转换为 Instant 的独立响应
+     */
+    private AlbumResponse toResponse(Album album, String coverKey, long momentCount) {
+        // 1. 仅为有效封面生成临时地址，签名故障交由统一异常入口处理。
+        String coverUrl = coverKey == null ? null : mediaService.createReadUrl(coverKey);
+        // 2. 保留原封面 ID 和可空字段，将数据库 UTC 时间转换为接口时间点。
+        return new AlbumResponse(album.getId(), album.getName(), album.getDescription(), album.getCoverFileId(),
+                coverUrl, album.getOrganizeMode(), momentCount, album.getCreatedAt().toInstant(ZoneOffset.UTC),
+                album.getUpdatedAt().toInstant(ZoneOffset.UTC));
+    }
+}
