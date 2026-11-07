@@ -39,6 +39,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+// TODO：流程业务复杂的方法，应该说明业务流程，副作用
+// TODO: 私有方法应该注明作用，入参出参，副作用，行为等
 @Log4j2
 @Service
 @RequiredArgsConstructor
@@ -56,6 +58,9 @@ public class MomentService {
 
     /**
      * 分页读取本人瞬间，并为每张卡片补充有效图片数和封面。
+     * TODO：拆分有效图片整理、单条卡片组装和分页结果组装，主方法保留查询流程编排；保留图片批量查询。
+     * TODO：补充本方法业务注释：说明 userId、游标和页大小约定，按发生时间与 ID 倒序查询、多取一条判断下一页、筛选有效图片、生成摘要和封面以及返回分页结果的流程。
+     * TODO：说明只读事务范围、空列表与末页的返回约定；结合统一分页模型调整入参和返回游标。
      */
     @Transactional(readOnly = true)
     public ResultPage<MomentFeedItem> browseYours(UUID userId, String cursor, int limit) {
@@ -75,6 +80,7 @@ public class MomentService {
                 .filter(image -> imageKeys.containsKey(image.getFileId()))
                 .collect(Collectors.groupingBy(MomentImage::getMomentId));
 
+        // TODO：将此处图片查找、封面签名、正文摘要和时间转换提取为职责明确的卡片组装方法，说明首张有效图片作为封面的顺序约定。
         List<MomentFeedItem> items = page.stream().map(moment -> {
             List<MomentImage> validImages = imagesByMoment.getOrDefault(moment.getId(), List.of());
             String coverUrl = validImages.isEmpty() ? null
@@ -90,6 +96,8 @@ public class MomentService {
 
     /**
      * 保留正文开头最多 100 个 Unicode 字符。
+     * TODO：补充入参和返回值注释：正文允许为 null，null 或空字符串返回 null，截取按 Unicode 码点计算并保留原有文本。
+     * TODO：将本私有方法移至公共业务方法之后，集中组织辅助实现。
      */
     private String bodyPreview(String body) {
         if (body == null || body.isEmpty()) {
@@ -101,6 +109,10 @@ public class MomentService {
 
     /**
      * 在同一事务中保存瞬间、图片和标签，并返回详情。
+     * TODO：补充 request、当前登录用户 ID 和详情返回值的说明，写清重复瞬间 ID 冲突及图片无效等失败条件。
+     * TODO：说明本接口承接客户端草稿发布；图片应已直传并登记，本接口负责校验和建立关联。
+     * TODO：写清 UUIDv7 时间检查、图文至少一种、图片可用性、标签与地点整理、关联保存、响应组装及失败回滚流程。
+     * TODO：将图片校验前置到数据库写入之前，主流程明确区分校验、保存和响应组装阶段。
      */
     @Transactional
     public MomentResponse createMoment(CreateMomentRequest request, UUID userId) {
@@ -109,6 +121,7 @@ public class MomentService {
         // UUIDv7 的高 48 位记录草稿 ID 的生成时间。
         long idTimestamp = id.getMostSignificantBits() >>> 16;
         if (idTimestamp > now.plus(MAX_FUTURE_ID_SKEW).toEpochMilli()) {
+            // TODO：错误提示中的允许超前分钟数取自 MAX_FUTURE_ID_SKEW，保持提示与校验规则一致。
             throw invalidArgument("瞬间 ID 的时间不能超前服务端超过 5 分钟");
         }
 
@@ -143,6 +156,8 @@ public class MomentService {
 
     /**
      * 在同一事务内替换本人瞬间的内容及关联，保留原瞬间和历史关联的标识。
+     * TODO：补充本方法业务注释：说明瞬间 ID、全量更新请求、当前用户和详情返回值；交代记录锁定、作者校验、字段校验与整理、内容替换、图片和标签关联替换的执行步骤。
+     * TODO：写清 null 与空数组的清空语义、图片移除仅解除关联而保留文件、失败时整体回滚，以及本接口承接详情编辑后的保存请求。
      */
     @Transactional
     public MomentResponse updateMoment(UUID id, UpdateMomentRequest request, UUID userId) {
@@ -157,6 +172,8 @@ public class MomentService {
         applyContent(moment, request.title(), request.body(), request.mood(), memoryTime, location, savedAt);
         momentMapper.updateContent(moment);
 
+        // TODO：将图片、标签分别组织为含义明确的“替换关联”步骤，统一抽象层次，避免主方法直接展开标签逐项入库。
+        // TODO：明确是否需要保留历史关联 ID 和创建时间，再选择简单的恢复策略；先解除全部关联、再恢复保留项的过程需说明清楚。
         // 先解除旧关联，再按提交顺序恢复或新增，移除的图片文件继续保留。
         momentImageMapper.removeAssociations(id);
         List<MomentResponse.Image> images = saveImages(id, userId, fileIds, savedAt);
@@ -164,11 +181,15 @@ public class MomentService {
         for (String name : tags) {
             momentTagMapper.saveAssociation(newTag(id, name, savedAt));
         }
+        // TODO：补充修改业务 INFO 日志，记录 momentId、userId 及必要的图片数、标签数，遵循项目现有日志风格。
         return toResponse(moment, images, momentTagMapper.selectNames(id), location);
     }
 
     /**
      * 查询有效的本人瞬间，并签发当前可用的图片读取地址。
+     * TODO：补充本方法业务注释：说明用于阅读和编辑回填，入参为瞬间 ID 与当前用户 ID；写清归属检查、图片顺序、标签读取、地点与 UTC 时间转换、详情返回值、只读事务及不存在或非本人时的异常。
+     * TODO：整理为查询并确认归属、加载有效图片、加载标签、组装详情的清晰步骤，抽离图片响应和地点转换细节。
+     * TODO：读取时与列表统一跳过失效图片，保留文字和其他有效图片；发布、修改时仍严格校验提交的图片。
      */
     @Transactional(readOnly = true)
     public MomentResponse getMoment(UUID id, UUID userId) {
@@ -186,21 +207,28 @@ public class MomentService {
 
     /**
      * 软删除本人瞬间并解除关联，已删除的本人瞬间可重复提交。
+     * TODO：补充本方法业务注释：说明瞬间 ID 和当前用户 ID；交代读取并锁定删除状态、作者校验、已删除时直接返回、软删除与解除图片和标签关联的步骤。
+     * TODO：写清无返回数据、保留原图片文件、事务内整体提交或回滚，以及记录不存在或非本人时的业务异常。
      */
     @Transactional
     public void deleteMoment(UUID id, UUID userId) {
+        // TODO：结合一期需求简化删除查询和重复删除处理，并与修改流程统一评估锁；明确并发行为后调整，避免只删除一处锁导致关联交叉替换。
         Moment moment = requireOwnedMoment(momentMapper.selectDeletionState(id), userId);
         if (moment.getDeletedAt() != null) {
             return;
         }
+        // TODO：删除也属于修改，软删除时同步更新 updated_at；与关联解除统一 UTC 时间及审计字段处理方式。
         momentMapper.deleteById(id);
         momentImageMapper.removeAssociations(id);
         momentTagMapper.removeAssociations(id);
+        // TODO：补充首次删除的 INFO 日志，记录 momentId、userId；重复删除可省略或使用 DEBUG。
         // TODO 时光模块实现后，在同一事务中解除此瞬间的时光关联。
     }
 
     /**
      * 校验瞬间仍然有效且归当前用户所有。
+     * TODO：修正注释与实现的差异：当前只检查记录非空和作者归属，未检查删除状态；明确调用方的查询过滤约定。
+     * TODO：说明参数是已查询的实体、成功返回原对象，以及不存在或非本人时的业务异常。
      */
     private Moment requireOwnedMoment(Moment moment, UUID userId) {
         if (moment == null) {
@@ -214,6 +242,9 @@ public class MomentService {
 
     /**
      * 应用发布和全量编辑共用的内容字段。
+     * TODO：补充各参数的含义与校验前提、地点为 null 时清空地点字段、空白标题转为 null、保存时间用于更新时间；明确无返回值且仅修改传入实体。
+     * TODO：改为能表达“填写实体可编辑字段”的明确名称，整理过长参数列表；结合创建、修改流程选择简单复用方式，允许少量直观重复。
+     * TODO：使用独立的 MomentLocation 共用模型，解除实体赋值过程对响应体内部类型的依赖，并说明本方法直接修改传入实体。
      */
     private void applyContent(Moment moment, String title, String body, MomentMood mood, LocalDateTime memoryTime,
                               MomentResponse.Location location, LocalDateTime savedAt) {
@@ -228,6 +259,10 @@ public class MomentService {
         moment.setLocationAddress(location == null ? null : location.address());
     }
 
+    /**
+     * TODO：说明各输入数据的含义及返回的详情结构，统一从实体组装地点，移除额外传入的地点参数。
+     * TODO：地点转换放入本方法或独立辅助方法，避免调用方重复判断字段是否全部为空。
+     */
     private MomentResponse toResponse(Moment moment, List<MomentResponse.Image> images,
                                       List<String> tags, MomentResponse.Location location) {
         return new MomentResponse(moment.getId(), moment.getTitle(), moment.getBody(),
@@ -237,6 +272,7 @@ public class MomentService {
 
     /**
      * 检查正文与图片是否满足发布要求。
+     * TODO：补充入参前提与异常说明：正文可空，fileIds 应为已解析且非 null 的列表；检查图文至少一种、正文 UTF-8 字节上限和图片重复，失败抛参数业务异常；无返回值，不修改入参。
      */
     private void validateContent(String body, List<UUID> fileIds) {
         if (!StringUtils.hasText(body) && fileIds.isEmpty()) {
@@ -252,6 +288,8 @@ public class MomentService {
 
     /**
      * 清理标签空白、校验长度并去除重复项。
+     * TODO：补充参数和返回值约定：列表可为 null，元素应已通过非 null 校验；说明去首尾空白、过滤空白项、保留顺序、按码点校验长度及返回新列表的行为。
+     * TODO：统一标签等价和去重规则；Java distinct 与数据库不区分大小写、重音的排序规则存在差异，需明确保留的写法及创建、修改的一致行为。
      */
     private List<String> normalizeTags(List<String> tags) {
         if (tags == null) {
@@ -261,6 +299,7 @@ public class MomentService {
                 .filter(StringUtils::hasText).distinct().toList();
         for (String tag : normalized) {
             if (tag.codePointCount(0, tag.length()) > MAX_TAG_LENGTH) {
+                // TODO：错误提示中的标签长度取自 MAX_TAG_LENGTH，保持提示与校验规则一致。
                 throw invalidArgument("标签不能超过 64 字符");
             }
         }
@@ -269,6 +308,8 @@ public class MomentService {
 
     /**
      * 解析带时区的发生时间，转换为可入库的 UTC 毫秒时间。
+     * TODO：补充参数、返回值和异常说明：当前接收已通过非 null 校验的时间字符串，返回 UTC 毫秒精度 LocalDateTime，格式或数据库年份范围无效时抛参数业务异常。
+     * TODO：请求时间改为 Instant 后，同步简化为 UTC 入库转换，保留实际需要的数据库时间范围检查。
      */
     private LocalDateTime parseMemoryTime(String value) {
         LocalDateTime memoryTime;
@@ -286,6 +327,9 @@ public class MomentService {
 
     /**
      * 校验经纬度成对填写，并统一坐标精度。
+     * TODO：补充输入输出约定：地点可空，空输入返回 null；经纬度需成对提供，允许仅有名称和地址，坐标四舍五入至七位小数，返回新地点对象且不修改输入。
+     * TODO：抽出独立的 MomentLocation，供请求、业务处理和响应复用；实体保留现有地点字段，通过赋值转换。
+     * TODO：移除对 CreateMomentRequest.Location 和 MomentResponse.Location 的依赖，避免借用响应对象作为入库中间数据。
      */
     private MomentResponse.Location normalizeLocation(CreateMomentRequest.Location location) {
         if (location == null) {
@@ -305,6 +349,8 @@ public class MomentService {
 
     /**
      * 验证图片归属，按提交顺序保存关联并生成访问地址。
+     * TODO：拆分图片校验、关联保存、读取地址签名和响应组装职责，方法名称与实际职责保持一致。
+     * TODO：说明 fileIds 的校验前提、关联展示顺序、数据库写入行为，以及返回图片响应的顺序。
      */
     private List<MomentResponse.Image> saveImages(UUID momentId, UUID userId, List<UUID> fileIds,
                                                    LocalDateTime savedAt) {
@@ -326,6 +372,8 @@ public class MomentService {
 
     /**
      * 保存标签，按数据库排序规则保留首次出现的名称。
+     * TODO：补充参数、写入行为和返回值注释：接收已整理的标签名称和保存时间，逐项写入关联，返回实际保存的名称列表，明确排序与等价标签处理约定。
+     * TODO：结合标签去重规则统一创建、修改的保存方式；需要保留数据库去重时，解释唯一约束冲突与保留首次写法的原因。
      */
     private List<String> saveTags(UUID momentId, List<String> tags, LocalDateTime savedAt) {
         List<String> savedTags = new ArrayList<>(tags.size());
@@ -343,6 +391,7 @@ public class MomentService {
 
     /**
      * 创建待保存的瞬间标签关联。
+     * TODO：补充 momentId、已整理的标签名称、UTC 保存时间和返回实体的说明；明确生成 UUIDv7 并填写审计字段，本方法只构造对象，实际入库由调用方完成。
      */
     private MomentTag newTag(UUID momentId, String name, LocalDateTime savedAt) {
         MomentTag tag = new MomentTag();
@@ -356,6 +405,8 @@ public class MomentService {
 
     /**
      * 创建参数校验失败的业务异常。
+     * TODO：补充 message 为面向调用方的错误说明、返回固定状态码和错误码的异常对象；本方法只构造异常，由调用方抛出。
+     * TODO：将通用参数错误工厂方法移入 BusinessException，统一状态码和错误码，移除此处的重复包装。
      */
     private BusinessException invalidArgument(String message) {
         return new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", message);

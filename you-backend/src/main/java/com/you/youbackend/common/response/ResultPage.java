@@ -6,6 +6,7 @@ import java.util.List;
 
 /**
  * 统一封装游标分页数据，作为接口响应的 data。
+ * TODO：改为 ResultPage<T, C>，将 nextCursor 从 String 改为泛型 C，与统一分页请求 PageRequest<C> 对齐。
  */
 @Schema(description = "游标分页结果")
 public record ResultPage<T>(

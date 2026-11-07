@@ -7,6 +7,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * TODO：补充中文类注释和字段 @Schema，包括内部 Image、Location 的字段说明。
+ * TODO：说明图片顺序、心情枚举、各时间字段及空值、空数组的业务含义。
+ */
 public record MomentResponse(
         UUID id,
         String title,

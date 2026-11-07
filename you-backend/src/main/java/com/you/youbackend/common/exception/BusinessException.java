@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 
 /**
  * 可预期的业务失败，携带 HTTP 状态、业务错误码和面向调用方的说明。
+ * TODO：提供通用参数错误静态工厂方法 invalidArgument(message)，统一 BAD_REQUEST 与 INVALID_ARGUMENT，供各 Service 复用。
  */
 @Getter
 public class BusinessException extends RuntimeException {

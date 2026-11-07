@@ -9,6 +9,7 @@ import java.sql.SQLException;
 
 /**
  * 读取历史中文心情，新数据仍按枚举名称写入。
+ * TODO：清理此历史中文心情兼容；如数据库存在中文值，通过数据迁移统一为枚举名称，再移除此类并使用默认枚举映射。
  */
 public class MomentMoodTypeHandler extends EnumTypeHandler<MomentMood> {
 

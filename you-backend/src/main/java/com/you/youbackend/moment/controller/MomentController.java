@@ -36,6 +36,9 @@ public class MomentController {
 
     /**
      * 浏览当前用户发布的瞬间流。
+     * TODO：在 common/request 中定义 PageRequest<C>，统一 cursor、limit 及分页数量校验。
+     * TODO：本接口改用 PageRequest<MomentFeedCursor> 和 ResultPage<MomentFeedItem, MomentFeedCursor>，同步调整 Service 与前端。
+     * TODO：统一确定分页参数的 HTTP 传递方式；保留 GET 时使用 Query，使用 JSON 请求体时调整为 POST 查询。
      */
     @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentYours")
     @ApiResponse(responseCode = "200", description = "查询成功")
@@ -63,7 +66,8 @@ public class MomentController {
     @GetMapping("/{momentId}")
     public Result<MomentResponse> getMoment(
             @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
-            @PathVariable("momentId")
+            @PathVariable("momentId") // TODO：移除与参数名一致的 PathVariable 名称声明，统一使用 @PathVariable，保留参数业务说明。
+            // TODO：改用独立位置的共用 UUIDv7 格式常量，避免此入口依赖创建请求类。
             @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
             String momentId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
@@ -82,7 +86,8 @@ public class MomentController {
     @PutMapping(path = "/{momentId}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Result<MomentResponse> updateMoment(
             @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
-            @PathVariable("momentId")
+            @PathVariable("momentId") // TODO：移除与参数名一致的 PathVariable 名称声明，统一使用 @PathVariable，保留参数业务说明。
+            // TODO：改用独立位置的共用 UUIDv7 格式常量，避免此入口依赖创建请求类。
             @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
             String momentId,
             @Valid @RequestBody UpdateMomentRequest request,
@@ -102,7 +107,8 @@ public class MomentController {
     @DeleteMapping("/{momentId}")
     public Result<Void> deleteMoment(
             @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
-            @PathVariable("momentId")
+            @PathVariable("momentId") // TODO：移除与参数名一致的 PathVariable 名称声明，统一使用 @PathVariable，保留参数业务说明。
+            // TODO：改用独立位置的共用 UUIDv7 格式常量，避免此入口依赖创建请求类。
             @Pattern(regexp = CreateMomentRequest.ID_PATTERN, message = "瞬间 ID 必须是 UUIDv7")
             String momentId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {

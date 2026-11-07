@@ -25,4 +25,7 @@ public interface MediaFileMapper extends BaseMapper<MediaFile> {
                 .eq(MediaFile::getOwnerUserId, userId)
                 .in(MediaFile::getMimeType, mimeTypes));
     }
+
+    // TODO：新增 existsOwnedFile(UUID fileId, UUID userId)，承接 MediaService.getUploadStatus 中的查询条件与存在性判断。
+    // TODO：方法说明写清按文件 ID、所属用户查询，沿用全局软删除过滤，返回 boolean；业务日志和响应组装仍由 Service 负责。
 }

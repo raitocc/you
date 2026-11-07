@@ -9,6 +9,9 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+/**
+ * TODO：补充实体类及字段的中文注释，说明图片关联、展示顺序和软删除含义。
+ */
 @Getter
 @Setter
 @TableName("moment_image")

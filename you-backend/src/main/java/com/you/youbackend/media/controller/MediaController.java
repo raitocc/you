@@ -75,6 +75,7 @@ public class MediaController {
             @ApiResponse(responseCode = "400", description = "表单参数、文件或目标地址无效"),
             @ApiResponse(responseCode = "502", description = "RustFS 拒绝上传或上传连接失败")
     })
+    // todo 测试上传校验与签名器地址不一致
     @PostMapping(value = "/test", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<TestUploadResponse> testUpload(@Valid @ModelAttribute TestUploadRequest request) {
         return Result.ok(mediaService.testUpload(request));

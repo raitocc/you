@@ -49,7 +49,7 @@ public class UserService {
         String username = request.username().toLowerCase(Locale.ROOT);
         String password = request.password();
         String nickname = request.nickname();
-        UUID userId = UuidCreator.getTimeOrderedEpoch();
+        UUID userId = UuidCreator.getTimeOrderedEpoch(); // uuid v7
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC)
                 .truncatedTo(ChronoUnit.MILLIS); // UTC+0 截断到毫秒
 

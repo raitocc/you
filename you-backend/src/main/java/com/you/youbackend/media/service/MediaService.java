@@ -337,6 +337,8 @@ public class MediaService {
      * @return 文件上传就绪状态
      */
     public UploadStatusResponse getUploadStatus(UUID fileId, UUID userId) {
+        // TODO：将按 fileId、ownerUserId 查询有效文件是否存在的条件构造和计数判断移入 MediaFileMapper.existsOwnedFile(fileId, userId)。
+        // TODO：本方法仅调用 Mapper 获取存在性结果，再记录日志、组装 UploadStatusResponse；迁移完成后清理 Wrappers import。
         Long count = mediaFileMapper.selectCount(
                 Wrappers.<MediaFile>lambdaQuery()
                         .eq(MediaFile::getId, fileId)

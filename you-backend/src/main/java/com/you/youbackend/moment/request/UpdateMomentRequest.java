@@ -11,6 +11,9 @@ import java.util.List;
 
 /**
  * 提交瞬间的全部可编辑字段。
+ * TODO：补充字段中文注释和 @Schema，明确全量提交、null 清空和空数组的含义。
+ * TODO：将 memoryTime 与创建请求统一为 Instant，并同步调整业务层的 UTC 时间转换。
+ * TODO：改用独立的 MomentLocation，供请求、业务处理和响应复用，解除对 CreateMomentRequest.Location 的依赖。
  */
 public record UpdateMomentRequest(
         @JsonProperty(required = true)
