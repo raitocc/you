@@ -14,7 +14,6 @@ import java.util.UUID;
 import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -81,20 +80,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             if (!StringUtils.startsWithIgnoreCase(
                     authorization, BEARER_PREFIX)) {
 
-                throw new BusinessException(
-                        HttpStatus.UNAUTHORIZED,
-                        "UNAUTHORIZED",
-                        "请先登录");
+                throw BusinessException.unauthorized("请先登录");
             }
 
             String token = authorization.substring(BEARER_PREFIX.length()).trim();
             AccessTokenClaims claims = jwtService.parseToken(token);
             if (tokenBlacklistService.isRevoked(claims.jti())) {
-                throw new BusinessException(
-                        HttpStatus.UNAUTHORIZED,
-                        "UNAUTHORIZED",
-                        "登录状态已失效，请重新登录"
-                );
+                throw BusinessException.unauthorized("登录状态已失效，请重新登录");
             }
             // todo 有些重复了啊？
             request.setAttribute(CURRENT_USER_ID, claims.userId());

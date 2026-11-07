@@ -14,7 +14,6 @@ import com.you.youbackend.user.response.UserResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,11 +65,7 @@ public class UserService {
             userMapper.insert(user);
         } catch (DuplicateKeyException exception) {
             log.info("注册被拒绝，reason=用户名已存在，username={}", username);
-            throw new BusinessException(
-                    HttpStatus.CONFLICT,
-                    "USERNAME_ALREADY_EXISTS",
-                    "用户名已被使用",
-                    exception);
+            throw BusinessException.conflict("USERNAME_ALREADY_EXISTS", "用户名已被使用", exception);
         }
 
         log.info("注册成功，userId={}", userId);
@@ -91,10 +86,7 @@ public class UserService {
         // 验证密码
         if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             log.warn("登录失败，username={}，reason=凭据无效", username);
-            throw new BusinessException(
-                    HttpStatus.UNAUTHORIZED,
-                    "INVALID_CREDENTIALS",
-                    "用户名或密码错误");
+            throw BusinessException.unauthorized("INVALID_CREDENTIALS", "用户名或密码错误");
         }
 
         // 验证通过
@@ -145,10 +137,7 @@ public class UserService {
         if (user == null) {
             log.warn("获取本人资料失败，userId={}，reason=账号不存在或已删除", userId);
 
-            throw new BusinessException(
-                    HttpStatus.UNAUTHORIZED,
-                    "UNAUTHORIZED",
-                    "账号不存在或已注销，请重新登录");
+            throw BusinessException.unauthorized("账号不存在或已注销，请重新登录");
         }
 
         return toUserResponse(user);
@@ -199,10 +188,7 @@ public class UserService {
 
         if (affectedRows == 0) {
             log.warn("更新本人资料被拒绝，userId={}，reason=账号不存在或已删除", userId);
-            throw new BusinessException(
-                    HttpStatus.UNAUTHORIZED,
-                    "UNAUTHORIZED",
-                    "账号不存在或已注销，请重新登录");
+            throw BusinessException.unauthorized("账号不存在或已注销，请重新登录");
         }
 
         log.info("更新本人资料，userId={}，avatarFileId={}", userId, avatarFileId);

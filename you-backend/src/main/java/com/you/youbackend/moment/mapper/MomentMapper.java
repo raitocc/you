@@ -17,29 +17,36 @@ import java.util.UUID;
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
     /**
-     * 锁定瞬间并读取作者和删除状态，用于校验重复删除。
-     * TODO：结合一期删除流程评估能否简化此查询；说明刻意包含已删除记录的原因及调用事务要求。
-     * TODO：目前只读取作者和删除时间却返回完整 Moment，简化查询时消除此特殊结果，或改用明确的 MomentDeletionState。
-     * TODO：移除 SQL 参数中重复指定的 UuidTypeHandler，统一使用项目已注册的全局 UUID 映射。
+     * 查询瞬间，包含已软删除的记录，用于删除时校验归属和识别重复请求。
+     * 自定义查询绕过 MP 的逻辑删除过滤，直接返回完整实体。
+     *
+     * @param id 瞬间 ID
+     * @return 瞬间实体，不存在时为 null
      */
     @Select("""
-            SELECT author_user_id AS authorUserId, deleted_at AS deletedAt
-            FROM moment WHERE id = #{id,typeHandler=com.you.youbackend.common.mybatis.UuidTypeHandler}
-            FOR UPDATE
+            SELECT id, author_user_id, title, body, mood, memory_time,
+                latitude, longitude, location_name, location_address,
+                created_at, updated_at, deleted_at
+            FROM moment WHERE id = #{id}
             """)
-    Moment selectDeletionState(@Param("id") UUID id);
+    Moment selectIncludingDeleted(@Param("id") UUID id);
 
     /**
-     * 锁定有效瞬间，串行化同一瞬间的全量编辑。
-     * TODO：与删除流程一起评估一期并发处理，选择简单、一致的方案；保留锁时说明其避免关联替换交叉执行的用途及事务前提。
+     * 软删除有效瞬间，同时记录本次修改时间；MP 自动过滤已删除记录。
+     *
+     * @param id 瞬间 ID
+     * @param deletedAt 本次删除的 UTC 时间
      */
-    default Moment selectForUpdate(UUID id) {
-        return selectOne(Wrappers.<Moment>lambdaQuery().eq(Moment::getId, id).last("FOR UPDATE"));
+    default void softDelete(UUID id, LocalDateTime deletedAt) {
+        update(Wrappers.<Moment>lambdaUpdate()
+                .eq(Moment::getId, id)
+                .set(Moment::getDeletedAt, deletedAt)
+                .set(Moment::getUpdatedAt, deletedAt));
     }
 
     /**
      * 全量更新可编辑字段，允许显式清空可空字段。
-     * TODO：补充实体已完成校验与字段整理的入参前提，说明显式 set 用于将 null 写入数据库以完成字段清空。
+     * 实体由 Service 完成校验和整理；显式 set 将 null 写入数据库，清空对应字段。
      */
     default void updateContent(Moment moment) {
         update(Wrappers.<Moment>lambdaUpdate()
@@ -64,7 +71,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param cursorId 游标记录 ID，由 Service 与 cursorTime 成对传入
      * @param rowCount 实际页大小加一，额外一条用于判断下一页
      * @return 仅填充卡片查询所需字段的瞬间列表
-     * TODO：明确仅查询卡片所需字段；评估使用独立查询模型，避免部分字段填充的 Moment 被误当完整实体。
+     * 返回实体仅含 id、title、body、mood、memoryTime，供卡片组装使用。
      */
     default List<Moment> selectFeed(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
         var query = Wrappers.<Moment>lambdaQuery()

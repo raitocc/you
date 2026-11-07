@@ -6,6 +6,7 @@ import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.controller.MomentController;
 import com.you.youbackend.moment.entity.Moment;
+import com.you.youbackend.moment.entity.MomentImage;
 import com.you.youbackend.moment.mapper.MomentImageMapper;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
@@ -136,6 +137,42 @@ class MomentPaginationTest {
         assertFalse(page.hasMore());
         assertNull(page.nextCursor());
         verifyNoInteractions(images);
+    }
+
+    @Test
+    void feedFiltersUnavailableImagesSignsOnlyFirstValidCoverAndPreservesUnicodePreview() {
+        MomentMapper moments = mock(MomentMapper.class);
+        MomentImageMapper images = mock(MomentImageMapper.class);
+        MediaService media = mock(MediaService.class);
+        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media);
+        Moment first = moment(3), second = moment(2), extra = moment(1);
+        first.setBody("😊".repeat(101));
+        when(moments.selectFeed(userId, null, null, 3)).thenReturn(List.of(first, second, extra));
+        UUID invalid = UUID.randomUUID(), cover = UUID.randomUUID(), remaining = UUID.randomUUID();
+        List<MomentImage> associations = List.of(feedImage(first.getId(), invalid),
+                feedImage(first.getId(), cover), feedImage(first.getId(), remaining));
+        when(images.selectFeedImages(List.of(first.getId(), second.getId()))).thenReturn(associations);
+        when(media.findOwnedImageKeys(userId, List.of(invalid, cover, remaining)))
+                .thenReturn(Map.of(cover, "cover-key", remaining, "remaining-key"));
+        when(media.createReadUrl("cover-key")).thenReturn("cover-url");
+
+        var page = real.browseYours(userId, new PageRequest<>(null, 2));
+
+        assertEquals("😊".repeat(100), page.items().get(0).bodyPreview());
+        assertEquals("cover-url", page.items().get(0).coverUrl());
+        assertEquals(2, page.items().get(0).imageCount());
+        assertNull(page.items().get(1).coverUrl());
+        assertEquals(0, page.items().get(1).imageCount());
+        assertEquals(new MomentFeedCursor(time, second.getId()), page.nextCursor());
+        verify(images).selectFeedImages(List.of(first.getId(), second.getId()));
+        verify(media, times(1)).createReadUrl(anyString());
+    }
+
+    private MomentImage feedImage(UUID parentId, UUID fileId) {
+        MomentImage image = new MomentImage();
+        image.setMomentId(parentId);
+        image.setFileId(fileId);
+        return image;
     }
 
     private Moment moment(int suffix) {

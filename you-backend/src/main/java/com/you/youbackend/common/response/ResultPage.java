@@ -6,7 +6,6 @@ import java.util.List;
 
 /**
  * 统一封装游标分页数据，作为接口响应的 data。
- * TODO：或许改名 PageResponse 统一
  * @param <T> 本页条目类型
  * @param <C> 与 PageRequest 对应的业务游标类型
  */

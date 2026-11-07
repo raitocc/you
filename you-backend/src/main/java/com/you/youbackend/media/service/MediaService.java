@@ -1,6 +1,5 @@
 package com.you.youbackend.media.service;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.entity.MediaFile;
@@ -28,7 +27,6 @@ import com.you.youbackend.media.response.UploadStatusResponse;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.transaction.annotation.Transactional;
@@ -119,12 +117,12 @@ public class MediaService {
     public TestUploadResponse testUpload(TestUploadRequest request) {
         if (!request.getUrl().startsWith(uploadUrlPrefix)) {
             log.debug("测试上传被拒绝，reason=目标地址不属于当前存储桶");
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", "请使用当前 RustFS 桶的上传地址");
+            throw BusinessException.invalidArgument("请使用当前 RustFS 桶的上传地址");
         }
         MultipartFile file = request.getFile();
         if (file.isEmpty() || !StringUtils.hasText(file.getContentType())) {
             log.debug("测试上传被拒绝，reason=文件为空或缺少Content-Type，byteSize={}", file.getSize());
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", "请选择有内容且携带 Content-Type 的文件");
+            throw BusinessException.invalidArgument("请选择有内容且携带 Content-Type 的文件");
         }
 
         try {
@@ -137,7 +135,7 @@ public class MediaService {
             if (!response.getStatusCode().is2xxSuccessful()) {
                 log.error("测试上传失败，statusCode={}，byteSize={}",
                         response.getStatusCode().value(), file.getSize());
-                throw new BusinessException(HttpStatus.BAD_GATEWAY, "UPLOAD_FAILED", "RustFS 上传失败：" + response.getStatusCode());
+                throw BusinessException.badGateway("UPLOAD_FAILED", "RustFS 上传失败：" + response.getStatusCode());
             }
             log.info("测试上传成功，statusCode={}，byteSize={}",
                     response.getStatusCode().value(), file.getSize());
@@ -150,7 +148,7 @@ public class MediaService {
                     exception instanceof RestClientResponseException responseError
                             ? responseError.getStatusCode().value() : null,
                     file.getSize(), exception.getClass().getSimpleName());
-            throw new BusinessException(HttpStatus.BAD_GATEWAY, "UPLOAD_FAILED", "RustFS 上传失败：" + detail, exception);
+            throw BusinessException.badGateway("UPLOAD_FAILED", "RustFS 上传失败：" + detail, exception);
         }
     }
 
@@ -225,7 +223,6 @@ public class MediaService {
         UUID fileId = UUID.fromString(parts[2]);
 
         // 重复投递时复用已有记录。
-        // todo 重复投递按道理应该更新
         if (mediaFileMapper.selectById(fileId) != null) {
             log.debug("文件记录已存在，忽略重复登记，fileId={}", fileId);
             return;
@@ -321,10 +318,7 @@ public class MediaService {
                 reason = "文件不属于当前用户";
             }
             log.warn("图片文件校验失败，userId={}，fileId={}，reason={}", userId, fileId, reason);
-            throw new BusinessException(
-                    HttpStatus.BAD_REQUEST,
-                    "FILE_NOT_USABLE",
-                    "请选择已上传完成的本人图片");
+            throw BusinessException.badRequest("FILE_NOT_USABLE", "请选择已上传完成的本人图片");
         }
         return file;
     }
@@ -337,14 +331,7 @@ public class MediaService {
      * @return 文件上传就绪状态
      */
     public UploadStatusResponse getUploadStatus(UUID fileId, UUID userId) {
-        // TODO：将按 fileId、ownerUserId 查询有效文件是否存在的条件构造和计数判断移入 MediaFileMapper.existsOwnedFile(fileId, userId)。
-        // TODO：本方法仅调用 Mapper 获取存在性结果，再记录日志、组装 UploadStatusResponse；迁移完成后清理 Wrappers import。
-        Long count = mediaFileMapper.selectCount(
-                Wrappers.<MediaFile>lambdaQuery()
-                        .eq(MediaFile::getId, fileId)
-                        .eq(MediaFile::getOwnerUserId, userId));
-
-        boolean ready = count > 0;
+        boolean ready = mediaFileMapper.existsOwnedFile(fileId, userId);
         log.debug("查询上传就绪状态，userId={}，fileId={}，ready={}", userId, fileId, ready);
         return new UploadStatusResponse(fileId, ready);
     }

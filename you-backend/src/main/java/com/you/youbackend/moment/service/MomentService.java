@@ -13,7 +13,6 @@ import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.model.MomentLocation;
-import com.you.youbackend.moment.model.MomentMood;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.response.MomentFeedItem;
@@ -21,7 +20,6 @@ import com.you.youbackend.moment.response.MomentResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -36,11 +34,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-// TODO：流程业务复杂的方法，应该说明业务流程，副作用
-// TODO: 私有方法应该注明作用，入参出参，副作用，行为等
 @Log4j2
 @Service
 @RequiredArgsConstructor
@@ -56,57 +53,189 @@ public class MomentService {
     private final MediaService mediaService;
 
     /**
-     * 分页读取本人瞬间，并为每张卡片补充有效图片数和封面。
-     * TODO：拆分有效图片整理、单条卡片组装和分页结果组装，主方法保留查询流程编排；保留图片批量查询。
-     * 1. 将游标时间转换为数据库 UTC 时间，按发生时间、ID 倒序多查一条，判断是否存在下一页。
-     * 2. 批量查询图片，过滤失效文件，按展示顺序选择封面并组装摘要卡片。
-     * 3. 有下一页时，以本页最后一条记录生成结构化游标；空页或末页游标为 null。
-     *
-     * @param userId 当前登录用户 ID，查询范围仅限本人有效瞬间
-     * @param request 已由 MVC 校验的分页请求；游标为空表示首屏，limit 已补默认值
-     * @return 分页卡片及下一页游标；无记录时 items 为空列表，hasMore 为 false
+     * 分页浏览本人瞬间：按游标查询、批量加载有效图片、组装卡片和分页结果。
+     * 按发生时间和 ID 倒序，多查一条判断下一页，额外记录不加载图片。
+     * @param userId 当前登录用户 ID，查询仅限本人的有效瞬间
+     * @param request 已校验的分页请求，游标为空表示首屏
+     * @return 摘要列表及下一页游标；空页或末页游标为 null
      */
     @Transactional(readOnly = true)
     public ResultPage<MomentFeedItem, MomentFeedCursor> browseYours(
             UUID userId, PageRequest<MomentFeedCursor> request) {
-        int limit = request.limit();
-        MomentFeedCursor cursor = request.cursor();
-        LocalDateTime cursorTime = cursor == null ? null : toDatabaseMemoryTime(cursor.memoryTime());
-        UUID cursorId = cursor == null ? null : cursor.id();
-        // 多查一条判断是否还有下一页，图片只按实际返回的记录批量查询。
-        List<Moment> rows = momentMapper.selectFeed(userId, cursorTime, cursorId, limit + 1);
+        List<Moment> rows = queryFeedMoments(userId, request);
         if (rows.isEmpty()) {
             return new ResultPage<>(List.of(), null, false);
         }
-        boolean hasMore = rows.size() > limit;
-        List<Moment> page = rows.subList(0, Math.min(limit, rows.size()));
+        boolean hasMore = rows.size() > request.limit();
+        List<Moment> page = rows.subList(0, Math.min(request.limit(), rows.size()));
+        Map<UUID, List<String>> imageKeysByMoment = loadFeedImageKeys(userId, page);
+        List<MomentFeedItem> items = page.stream()
+                .map(moment -> toFeedItem(moment, imageKeysByMoment.getOrDefault(moment.getId(), List.of())))
+                .toList();
+        return toFeedPage(items, hasMore);
+    }
+
+    /**
+     * 发布客户端草稿，关联已直传并登记就绪的本人图片，返回完整详情。
+     *
+     * <p>1. 校验图文至少一种及图片不重复，整理标签、发生时间和地点，批量确认图片可用。
+     * 2. 保存瞬间主记录，再按提交顺序保存图片关联、保存去重后的标签。
+     * 3. 生成图片临时读取地址，组装详情并记录写入日志。
+     * 主记录和关联在同一事务中保存，任一步骤失败均回滚。</p>
+     *
+     * @param request 已由 MVC 完成 UUIDv7、字段格式及必填校验的发布请求
+     * @param userId 当前登录用户 ID，作为瞬间作者和图片归属校验依据
+     * @return 已保存的瞬间详情，图片顺序与提交顺序一致
+     * @throws BusinessException 图文内容不符合要求、图片不可用、发生时间超出范围，或瞬间 ID 已被使用
+     */
+    @Transactional
+    public MomentResponse createMoment(CreateMomentRequest request, UUID userId) {
+        List<UUID> fileIds = request.imageFileIds() == null ? List.of() : request.imageFileIds();
+        validateContent(request.body(), fileIds);
+        List<String> tags = prepareTags(request.tags());
+        MomentLocation location = normalizeLocation(request.location());
+        LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
+        Map<UUID, String> imageKeys = requireOwnedImageKeys(userId, fileIds);
+        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+
+        Moment moment = saveNewMoment(request, userId, memoryTime, location, savedAt);
+        saveNewImages(moment.getId(), fileIds, savedAt);
+        List<String> savedTags = saveNewTags(moment.getId(), tags, savedAt);
+
+        List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
+        log.info("已写入瞬间，momentId={}，userId={}，imageCount={}，tagCount={}",
+                moment.getId(), userId, images.size(), savedTags.size());
+        return toResponse(moment, images, savedTags);
+    }
+
+    /**
+     * 全量保存本人瞬间：校验归属和完整请求，更新主记录，再分别同步图片、标签关联，返回详情。
+     * 空数组移除全部对应关联，null 清空可空字段。关联保留软删除历史，媒体文件保留；失败整体回滚。
+     *
+     * @param id 待编辑瞬间 ID
+     * @param request 已由 MVC 校验必填字段的全量请求
+     * @param userId 当前登录用户 ID
+     * @return 更新后的完整详情，图片按本次提交顺序返回
+     * @throws BusinessException 瞬间不存在、非本人，或内容、图片不符合要求
+     */
+    @Transactional
+    public MomentResponse updateMoment(UUID id, UpdateMomentRequest request, UUID userId) {
+        Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
+        List<UUID> fileIds = request.imageFileIds();
+        validateContent(request.body(), fileIds);
+        List<String> tags = prepareTags(request.tags());
+        MomentLocation location = normalizeLocation(request.location());
+        LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
+        Map<UUID, String> imageKeys = requireOwnedImageKeys(userId, fileIds);
+        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+
+        updateMomentContent(moment, request, memoryTime, location, savedAt);
+        syncMomentImages(id, fileIds, savedAt);
+        syncMomentTags(id, tags, savedAt);
+
+        List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
+        List<String> savedTags = momentTagMapper.selectNames(id);
+        log.info("已修改瞬间，momentId={}，userId={}，imageCount={}，tagCount={}",
+                id, userId, images.size(), savedTags.size());
+        return toResponse(moment, images, savedTags);
+    }
+
+    /**
+     * 查看本人瞬间详情，供阅读和编辑回填使用。
+     * 先查询并校验作者归属，再加载有效图片和标签，最后组装详情；图片按展示顺序返回，失效图片跳过。
+     *
+     * @param id 瞬间 ID，查询由 MyBatis-Plus 自动排除软删除记录
+     * @param userId 当前登录用户 ID
+     * @return 完整详情，图片附带临时读取地址，时间统一为 UTC
+     * @throws BusinessException 瞬间不存在或不属于当前用户
+     */
+    @Transactional(readOnly = true)
+    public MomentResponse getMoment(UUID id, UUID userId) {
+        Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
+        List<MomentResponse.Image> images = loadMomentImages(id, userId);
+        List<String> tags = momentTagMapper.selectNames(id);
+        return toResponse(moment, images, tags);
+    }
+
+    /**
+     * 删除本人瞬间：查询并校验作者，已删除时直接返回；随后软删除主记录、图片和标签关联。
+     * 全部写入在同一事务内完成，媒体文件保留。
+     *
+     * @param id 瞬间 ID
+     * @param userId 当前登录用户 ID
+     * @throws BusinessException 瞬间不存在或不属于当前用户
+     */
+    @Transactional
+    public void deleteMoment(UUID id, UUID userId) {
+        Moment moment = requireOwnedMoment(momentMapper.selectIncludingDeleted(id), userId);
+        if (moment.getDeletedAt() != null) {
+            return;
+        }
+
+        LocalDateTime deletedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        momentMapper.softDelete(id, deletedAt);
+        momentImageMapper.removeAssociations(id, deletedAt);
+        momentTagMapper.removeAssociations(id, deletedAt);
+        log.info("已删除瞬间，momentId={}，userId={}", id, userId);
+    }
+
+    /**
+     * 将游标转换为数据库 UTC 时间，查询实际页大小加一条记录。
+     * @param userId 当前用户 ID
+     * @param request 已校验的分页请求
+     * @return 按发生时间、ID 倒序的摘要数据，额外记录供判断下一页
+     */
+    private List<Moment> queryFeedMoments(UUID userId, PageRequest<MomentFeedCursor> request) {
+        MomentFeedCursor cursor = request.cursor();
+        LocalDateTime cursorTime = (cursor == null) ? null : toDatabaseMemoryTime(cursor.memoryTime());
+        UUID cursorId = (cursor == null) ? null : cursor.id();
+        // 多查一条判断是否还有下一页，图片只按实际返回的记录批量查询。
+        return momentMapper.selectFeed(userId, cursorTime, cursorId, request.limit() + 1);
+    }
+
+    /**
+     * 批量读取本页图片关联及有效文件，按瞬间分组，保留展示顺序；首个 key 用作封面。
+     * @param userId 当前用户 ID，用于校验文件归属
+     * @param page 实际返回的非空瞬间列表，不含额外记录
+     * @return 瞬间 ID 到有序有效图片 key 列表的映射；无有效图片的瞬间不在映射中
+     */
+    private Map<UUID, List<String>> loadFeedImageKeys(UUID userId, List<Moment> page) {
         List<MomentImage> images = momentImageMapper.selectFeedImages(page.stream().map(Moment::getId).toList());
         var imageKeys = mediaService.findOwnedImageKeys(userId,
                 images.stream().map(MomentImage::getFileId).distinct().toList());
-        // 按展示顺序保留有效图片，首张作为封面，其余图片也计入总数。
-        var imagesByMoment = images.stream()
-                .filter(image -> imageKeys.containsKey(image.getFileId()))
-                .collect(Collectors.groupingBy(MomentImage::getMomentId));
+        return images.stream().filter(image -> imageKeys.containsKey(image.getFileId()))
+                .collect(Collectors.groupingBy(MomentImage::getMomentId,
+                        Collectors.mapping(image -> imageKeys.get(image.getFileId()), Collectors.toList())));
+    }
 
-        // TODO：将此处图片查找、封面签名、正文摘要和时间转换提取为职责明确的卡片组装方法，说明首张有效图片作为封面的顺序约定。
-        List<MomentFeedItem> items = page.stream().map(moment -> {
-            List<MomentImage> validImages = imagesByMoment.getOrDefault(moment.getId(), List.of());
-            String coverUrl = validImages.isEmpty() ? null
-                    : mediaService.createReadUrl(imageKeys.get(validImages.get(0).getFileId()));
-            return new MomentFeedItem(moment.getId(), moment.getTitle(), bodyPreview(moment.getBody()),
-                    coverUrl, validImages.size(), moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC));
-        }).toList();
-        // 下一页从本页最后一条之后开始，多查的那条留到下一页。
-        Moment last = page.get(page.size() - 1);
-        MomentFeedCursor nextCursor = hasMore
-                ? new MomentFeedCursor(last.getMemoryTime().toInstant(ZoneOffset.UTC), last.getId()) : null;
+    /**
+     * 组装摘要卡片，为首张有效图片签名，无有效图片时封面为 null、图片数为 0。
+     * @param moment 仅含 ID、标题、正文、心情和发生时间的摘要实体
+     * @param imageKeys 有效图片 key，按展示顺序排列，允许为空
+     * @return 卡片摘要；本方法不查库
+     */
+    private MomentFeedItem toFeedItem(Moment moment, List<String> imageKeys) {
+        String coverUrl = imageKeys.isEmpty() ? null : mediaService.createReadUrl(imageKeys.get(0));
+        return new MomentFeedItem(moment.getId(), moment.getTitle(), bodyPreview(moment.getBody()),
+                coverUrl, imageKeys.size(), moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC));
+    }
+
+    /**
+     * 以实际返回的最后一条卡片作为下一页边界，组装分页响应。
+     * @param items 按查询顺序排列的非空卡片列表
+     * @param hasMore 是否多查到了额外记录
+     * @return 分页结果，末页游标为 null；本方法不查库
+     */
+    private ResultPage<MomentFeedItem, MomentFeedCursor> toFeedPage(List<MomentFeedItem> items, boolean hasMore) {
+        MomentFeedItem last = items.get(items.size() - 1);
+        MomentFeedCursor nextCursor = hasMore ? new MomentFeedCursor(last.memoryTime(), last.id()) : null;
         return new ResultPage<>(items, nextCursor, hasMore);
     }
 
     /**
-     * 保留正文开头最多 100 个 Unicode 字符。
-     * TODO：补充入参和返回值注释：正文允许为 null，null 或空字符串返回 null，截取按 Unicode 码点计算并保留原有文本。
-     * TODO：将本私有方法移至公共业务方法之后，集中组织辅助实现。
+     * 截取正文开头最多 100 个 Unicode 码点，保留原有文本。
+     * @param body 正文，可空
+     * @return 正文摘要，null 或空字符串返回 null
      */
     private String bodyPreview(String body) {
         if (body == null || body.isEmpty()) {
@@ -117,157 +246,56 @@ public class MomentService {
     }
 
     /**
-     * 在同一事务中保存瞬间、图片和标签，并返回详情。
-     * TODO：补充 request、当前登录用户 ID 和详情返回值的说明，写清重复瞬间 ID 冲突及图片无效等失败条件。
-     * TODO：说明本接口承接客户端草稿发布；图片应已直传并登记，本接口负责校验和建立关联。
-     * 请求中的 UUIDv7 及时间格式已由 MVC 校验、转换，业务层直接使用 UUID 和 Instant。
-     * TODO：写清图文至少一种、图片可用性、标签与地点整理、关联保存、响应组装及失败回滚流程。
-     * TODO：将图片校验前置到数据库写入之前，主流程明确区分校验、保存和响应组装阶段。
-     */
-    @Transactional
-    public MomentResponse createMoment(CreateMomentRequest request, UUID userId) {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        UUID id = request.id();
-
-        List<UUID> fileIds = request.imageFileIds() == null ? List.of()
-                : request.imageFileIds();
-        validateContent(request.body(), fileIds);
-        List<String> tags = normalizeTags(request.tags());
-        MomentLocation location = normalizeLocation(request.location());
-        LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
-        LocalDateTime savedAt = LocalDateTime.ofInstant(now, ZoneOffset.UTC);
-
-        Moment moment = new Moment();
-        moment.setId(id);
-        moment.setAuthorUserId(userId);
-        moment.setCreatedAt(savedAt);
-        applyContent(moment, request.title(), request.body(), request.mood(), memoryTime, location, savedAt);
-
-        try {
-            // 主键同时覆盖并发提交和已软删除记录的 ID。
-            momentMapper.insert(moment);
-        } catch (DuplicateKeyException exception) {
-            throw new BusinessException(HttpStatus.CONFLICT, "MOMENT_ID_CONFLICT", "瞬间 ID 已被使用");
-        }
-
-        List<MomentResponse.Image> images = saveImages(id, userId, fileIds, savedAt);
-        List<String> savedTags = saveTags(id, tags, savedAt);
-        log.info("已写入瞬间，momentId={}，userId={}，imageCount={}，tagCount={}",
-                id, userId, images.size(), savedTags.size());
-
-        return toResponse(moment, images, savedTags, location);
-    }
-
-    /**
-     * 在同一事务内替换本人瞬间的内容及关联，保留原瞬间和历史关联的标识。
-     * TODO：补充本方法业务注释：说明瞬间 ID、全量更新请求、当前用户和详情返回值；交代记录锁定、作者校验、字段校验与整理、内容替换、图片和标签关联替换的执行步骤。
-     * TODO：写清 null 与空数组的清空语义、图片移除仅解除关联而保留文件、失败时整体回滚，以及本接口承接详情编辑后的保存请求。
-     */
-    @Transactional
-    public MomentResponse updateMoment(UUID id, UpdateMomentRequest request, UUID userId) {
-        Moment moment = requireOwnedMoment(momentMapper.selectForUpdate(id), userId);
-        List<UUID> fileIds = request.imageFileIds();
-        validateContent(request.body(), fileIds);
-        List<String> tags = normalizeTags(request.tags());
-        MomentLocation location = normalizeLocation(request.location());
-        LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
-        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
-
-        applyContent(moment, request.title(), request.body(), request.mood(), memoryTime, location, savedAt);
-        momentMapper.updateContent(moment);
-
-        // TODO：将图片、标签分别组织为含义明确的“替换关联”步骤，统一抽象层次，避免主方法直接展开标签逐项入库。
-        // TODO：明确是否需要保留历史关联 ID 和创建时间，再选择简单的恢复策略；先解除全部关联、再恢复保留项的过程需说明清楚。
-        // 先解除旧关联，再按提交顺序恢复或新增，移除的图片文件继续保留。
-        momentImageMapper.removeAssociations(id);
-        List<MomentResponse.Image> images = saveImages(id, userId, fileIds, savedAt);
-        momentTagMapper.removeAssociations(id);
-        for (String name : tags) {
-            momentTagMapper.saveAssociation(newTag(id, name, savedAt));
-        }
-        // TODO：补充修改业务 INFO 日志，记录 momentId、userId 及必要的图片数、标签数，遵循项目现有日志风格。
-        return toResponse(moment, images, momentTagMapper.selectNames(id), location);
-    }
-
-    /**
-     * 查询有效的本人瞬间，并签发当前可用的图片读取地址。
-     * TODO：补充本方法业务注释：说明用于阅读和编辑回填，入参为瞬间 ID 与当前用户 ID；写清归属检查、图片顺序、标签读取、地点与 UTC 时间转换、详情返回值、只读事务及不存在或非本人时的异常。
-     * TODO：整理为查询并确认归属、加载有效图片、加载标签、组装详情的清晰步骤，抽离图片响应和地点转换细节。
-     * TODO：读取时与列表统一跳过失效图片，保留文字和其他有效图片；发布、修改时仍严格校验提交的图片。
-     */
-    @Transactional(readOnly = true)
-    public MomentResponse getMoment(UUID id, UUID userId) {
-        Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
-        List<MomentResponse.Image> images = momentImageMapper.selectInDisplayOrder(id)
-                .stream().map(image -> new MomentResponse.Image(image.getFileId(),
-                        mediaService.createOwnedImageReadUrl(image.getFileId(), userId))).toList();
-        List<String> tags = momentTagMapper.selectNames(id);
-        MomentLocation location = moment.getLocationName() == null && moment.getLocationAddress() == null
-                && moment.getLatitude() == null && moment.getLongitude() == null ? null
-                : new MomentLocation(moment.getLatitude(), moment.getLongitude(),
-                        moment.getLocationName(), moment.getLocationAddress());
-        return toResponse(moment, images, tags, location);
-    }
-
-    /**
-     * 软删除本人瞬间并解除关联，已删除的本人瞬间可重复提交。
-     * TODO：补充本方法业务注释：说明瞬间 ID 和当前用户 ID；交代读取并锁定删除状态、作者校验、已删除时直接返回、软删除与解除图片和标签关联的步骤。
-     * TODO：写清无返回数据、保留原图片文件、事务内整体提交或回滚，以及记录不存在或非本人时的业务异常。
-     */
-    @Transactional
-    public void deleteMoment(UUID id, UUID userId) {
-        // TODO：结合一期需求简化删除查询和重复删除处理，并与修改流程统一评估锁；明确并发行为后调整，避免只删除一处锁导致关联交叉替换。
-        Moment moment = requireOwnedMoment(momentMapper.selectDeletionState(id), userId);
-        if (moment.getDeletedAt() != null) {
-            return;
-        }
-        // TODO：删除也属于修改，软删除时同步更新 updated_at；与关联解除统一 UTC 时间及审计字段处理方式。
-        momentMapper.deleteById(id);
-        momentImageMapper.removeAssociations(id);
-        momentTagMapper.removeAssociations(id);
-        // TODO：补充首次删除的 INFO 日志，记录 momentId、userId；重复删除可省略或使用 DEBUG。
-        // TODO 时光模块实现后，在同一事务中解除此瞬间的时光关联。
-    }
-
-    /**
-     * 校验瞬间仍然有效且归当前用户所有。
-     * TODO：修正注释与实现的差异：当前只检查记录非空和作者归属，未检查删除状态；明确调用方的查询过滤约定。
-     * TODO：说明参数是已查询的实体、成功返回原对象，以及不存在或非本人时的业务异常。
+     * 检查查询结果存在且归当前用户所有，成功时返回原实体。
+     *
+     * @param moment Mapper 查询结果，可空；是否过滤软删除由调用方的查询决定
+     * @param userId 当前登录用户 ID
+     * @return 原瞬间实体
+     * @throws BusinessException 记录不存在或作者与当前用户不一致
      */
     private Moment requireOwnedMoment(Moment moment, UUID userId) {
         if (moment == null) {
-            throw new BusinessException(HttpStatus.NOT_FOUND, "MOMENT_NOT_FOUND", "瞬间不存在");
+            throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在");
         }
         if (!userId.equals(moment.getAuthorUserId())) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "仅作者可以操作此瞬间");
+            throw BusinessException.forbidden("仅作者可以操作此瞬间");
         }
         return moment;
     }
 
     /**
-     * 应用发布和全量编辑共用的内容字段。
-     * TODO：补充各参数的含义与校验前提、地点为 null 时清空地点字段、空白标题转为 null、保存时间用于更新时间；明确无返回值且仅修改传入实体。
-     * TODO：改为能表达“填写实体可编辑字段”的明确名称，整理过长参数列表；结合创建、修改流程选择简单复用方式，允许少量直观重复。
+     * 填写并保存可编辑字段，同时更新传入实体，供响应组装复用。
+     *
+     * @param moment 已确认归属的有效瞬间
+     * @param request 已校验的完整编辑请求，空白标题转为 null
+     * @param memoryTime 已整理为 UTC 毫秒精度的发生时间
+     * @param location 已校验的地点，null 清空全部地点字段
+     * @param savedAt 本次修改时间，UTC
      */
-    private void applyContent(Moment moment, String title, String body, MomentMood mood, LocalDateTime memoryTime,
-                              MomentLocation location, LocalDateTime savedAt) {
-        moment.setTitle(StringUtils.hasText(title) ? title : null);
-        moment.setBody(body);
-        moment.setMood(mood);
+    private void updateMomentContent(Moment moment, UpdateMomentRequest request, LocalDateTime memoryTime,
+                                     MomentLocation location, LocalDateTime savedAt) {
+        moment.setTitle(StringUtils.hasText(request.title()) ? request.title() : null);
+        moment.setBody(request.body());
+        moment.setMood(request.mood());
         moment.setMemoryTime(memoryTime);
         moment.setUpdatedAt(savedAt);
-        moment.setLatitude(location == null ? null : location.latitude());
-        moment.setLongitude(location == null ? null : location.longitude());
-        moment.setLocationName(location == null ? null : location.name());
-        moment.setLocationAddress(location == null ? null : location.address());
+        fillLocation(moment, location);
+        momentMapper.updateContent(moment);
     }
 
     /**
-     * TODO：说明各输入数据的含义及返回的详情结构，统一从实体组装地点，移除额外传入的地点参数。
-     * TODO：地点转换放入本方法或独立辅助方法，避免调用方重复判断字段是否全部为空。
+     * 以数据库实体为准组装详情，地点四个字段全部为空时返回 null。
+     *
+     * @param moment 已保存或查询到的完整瞬间实体，时间字段为 UTC
+     * @param images 已生成读取地址且按展示顺序排列的图片列表，可为空列表
+     * @param tags 实际保存或查询到的标签名称，可为空列表
+     * @return 独立的详情响应，时间转换为 Instant；本方法不访问数据库或修改实体
      */
-    private MomentResponse toResponse(Moment moment, List<MomentResponse.Image> images,
-                                      List<String> tags, MomentLocation location) {
+    private MomentResponse toResponse(Moment moment, List<MomentResponse.Image> images, List<String> tags) {
+        MomentLocation location = moment.getLatitude() == null && moment.getLongitude() == null
+                && moment.getLocationName() == null && moment.getLocationAddress() == null ? null
+                : new MomentLocation(moment.getLatitude(), moment.getLongitude(),
+                        moment.getLocationName(), moment.getLocationAddress());
         return new MomentResponse(moment.getId(), moment.getTitle(), moment.getBody(),
                 images, tags, moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC), location,
                 moment.getCreatedAt().toInstant(ZoneOffset.UTC), moment.getUpdatedAt().toInstant(ZoneOffset.UTC));
@@ -275,26 +303,32 @@ public class MomentService {
 
     /**
      * 检查正文与图片是否满足发布要求。
-     * TODO：补充入参前提与异常说明：正文可空，fileIds 应为已解析且非 null 的列表；检查图文至少一种、正文 UTF-8 字节上限和图片重复，失败抛参数业务异常；无返回值，不修改入参。
+     *
+     * @param body 普通文本正文，可空，空白文本视为无有效正文
+     * @param fileIds 已解析的图片 ID 列表，非 null，允许为空列表
+     * @throws BusinessException 图文均为空、正文超过 UTF-8 字节上限或存在重复图片；本方法不修改入参
      */
     private void validateContent(String body, List<UUID> fileIds) {
         if (!StringUtils.hasText(body) && fileIds.isEmpty()) {
-            throw invalidArgument("请填写正文或添加图片");
+            throw BusinessException.invalidArgument("请填写正文或添加图片");
         }
         if (body != null && body.getBytes(StandardCharsets.UTF_8).length > MAX_BODY_BYTES) {
-            throw invalidArgument("正文超出可保存长度");
+            throw BusinessException.invalidArgument("正文超出可保存长度");
         }
         if (new HashSet<>(fileIds).size() != fileIds.size()) {
-            throw invalidArgument("同一图片不能重复添加");
+            throw BusinessException.invalidArgument("同一图片不能重复添加");
         }
     }
 
     /**
      * 清理标签空白、校验长度并去除重复项。
-     * TODO：补充参数和返回值约定：列表可为 null，元素应已通过非 null 校验；说明去首尾空白、过滤空白项、保留顺序、按码点校验长度及返回新列表的行为。
+     *
+     * @param tags 可空列表，元素已通过 MVC 非 null 校验
+     * @return 去首尾空白、过滤空白项并按首次出现顺序去除完全相同名称的新列表；null 转为空列表
+     * @throws BusinessException 标签超过长度限制；数据库排序规则下的等价项由 Mapper 进一步去重
      * TODO：统一标签等价和去重规则；Java distinct 与数据库不区分大小写、重音的排序规则存在差异，需明确保留的写法及创建、修改的一致行为。
      */
-    private List<String> normalizeTags(List<String> tags) {
+    private List<String> prepareTags(List<String> tags) {
         if (tags == null) {
             return List.of();
         }
@@ -302,8 +336,7 @@ public class MomentService {
                 .filter(StringUtils::hasText).distinct().toList();
         for (String tag : normalized) {
             if (tag.codePointCount(0, tag.length()) > MAX_TAG_LENGTH) {
-                // TODO：错误提示中的标签长度取自 MAX_TAG_LENGTH，保持提示与校验规则一致。
-                throw invalidArgument("标签不能超过 64 字符");
+                throw BusinessException.invalidArgument("标签不能超过 " + MAX_TAG_LENGTH + " 字符");
             }
         }
         return normalized;
@@ -322,10 +355,10 @@ public class MomentService {
             memoryTime = LocalDateTime.ofInstant(value, ZoneOffset.UTC)
                     .truncatedTo(ChronoUnit.MILLIS);
         } catch (DateTimeException exception) {
-            throw invalidArgument("发生时间超出可保存范围");
+            throw BusinessException.invalidArgument("发生时间超出可保存范围");
         }
         if (memoryTime.getYear() < 1000 || memoryTime.getYear() > 9999) {
-            throw invalidArgument("发生时间超出可保存范围");
+            throw BusinessException.invalidArgument("发生时间超出可保存范围");
         }
         return memoryTime;
     }
@@ -342,7 +375,7 @@ public class MomentService {
             return null;
         }
         if ((location.latitude() == null) != (location.longitude() == null)) {
-            throw invalidArgument("经度和纬度必须同时填写");
+            throw BusinessException.invalidArgument("经度和纬度必须同时填写");
         }
         if (location.latitude() == null) {
             return new MomentLocation(null, null, location.name(), location.address());
@@ -354,50 +387,217 @@ public class MomentService {
     }
 
     /**
-     * 验证图片归属，按提交顺序保存关联并生成访问地址。
-     * TODO：拆分图片校验、关联保存、读取地址签名和响应组装职责，方法名称与实际职责保持一致。
-     * TODO：说明 fileIds 的校验前提、关联展示顺序、数据库写入行为，以及返回图片响应的顺序。
+     * 构造并插入新瞬间，空白标题保存为 null；校验由调用方提前完成。
+     *
+     * @param request 已通过字段和业务校验的发布请求
+     * @param userId 当前作者 ID
+     * @param memoryTime 已转换为数据库精度的 UTC 发生时间
+     * @param location 已校验并整理坐标精度的地点，可空
+     * @param savedAt 本次写入的创建和修改时间，UTC
+     * @return 已插入的瞬间实体
+     * @throws BusinessException 瞬间 ID 已存在，包括已软删除的记录
      */
-    private List<MomentResponse.Image> saveImages(UUID momentId, UUID userId, List<UUID> fileIds,
-                                                   LocalDateTime savedAt) {
-        List<MomentResponse.Image> images = new ArrayList<>(fileIds.size());
-        for (UUID fileId : fileIds) {
-            String url = mediaService.createOwnedImageReadUrl(fileId, userId);
-            MomentImage image = new MomentImage();
-            image.setId(UuidCreator.getTimeOrderedEpoch());
-            image.setMomentId(momentId);
-            image.setFileId(fileId);
-            image.setSortOrder(images.size() + 1);
-            image.setCreatedAt(savedAt);
-            image.setUpdatedAt(savedAt);
-            momentImageMapper.saveAssociation(image);
-            images.add(new MomentResponse.Image(fileId, url));
+    private Moment saveNewMoment(CreateMomentRequest request, UUID userId, LocalDateTime memoryTime,
+                                 MomentLocation location, LocalDateTime savedAt) {
+        Moment moment = new Moment();
+        moment.setId(request.id());
+        moment.setAuthorUserId(userId);
+        moment.setTitle(StringUtils.hasText(request.title()) ? request.title() : null);
+        moment.setBody(request.body());
+        moment.setMood(request.mood());
+        moment.setMemoryTime(memoryTime);
+        fillLocation(moment, location);
+        moment.setCreatedAt(savedAt);
+        moment.setUpdatedAt(savedAt);
+        try {
+            momentMapper.insert(moment);
+        } catch (DuplicateKeyException exception) {
+            throw BusinessException.conflict("MOMENT_ID_CONFLICT", "瞬间 ID 已被使用", exception);
         }
-        return images;
+        return moment;
     }
 
     /**
-     * 保存标签，按数据库排序规则保留首次出现的名称。
-     * TODO：补充参数、写入行为和返回值注释：接收已整理的标签名称和保存时间，逐项写入关联，返回实际保存的名称列表，明确排序与等价标签处理约定。
-     * TODO：结合标签去重规则统一创建、修改的保存方式；需要保留数据库去重时，解释唯一约束冲突与保留首次写法的原因。
+     * 按提交顺序构造并插入图片关联，展示序号从 1 开始；写入当前发布事务。
+     *
+     * @param momentId 本次新建的瞬间 ID
+     * @param fileIds 已确认属于本人且可用的图片 ID，允许为空列表
+     * @param savedAt 本次关联的创建和修改时间，UTC
      */
-    private List<String> saveTags(UUID momentId, List<String> tags, LocalDateTime savedAt) {
+    private void saveNewImages(UUID momentId, List<UUID> fileIds, LocalDateTime savedAt) {
+        // TODO：先收集图片关联，再批量插入，减少逐张图片写库的请求次数。
+        for (int index = 0; index < fileIds.size(); index++) {
+            MomentImage image = new MomentImage();
+            image.setId(UuidCreator.getTimeOrderedEpoch());
+            image.setMomentId(momentId);
+            image.setFileId(fileIds.get(index));
+            image.setSortOrder(index + 1);
+            image.setCreatedAt(savedAt);
+            image.setUpdatedAt(savedAt);
+            momentImageMapper.insert(image);
+        }
+    }
+
+    /**
+     * 构造并保存新瞬间的标签，数据库判定等价的名称保留首次填写的写法。
+     *
+     * @param momentId 本次新建的瞬间 ID
+     * @param tags 已去空白、去重并校验长度的标签名称，允许为空列表
+     * @param savedAt 本次标签的创建和修改时间，UTC
+     * @return 实际插入的标签名称，按提交顺序排列
+     */
+    private List<String> saveNewTags(UUID momentId, List<String> tags, LocalDateTime savedAt) {
+        // TODO：在统一标签比较规则后，批量查重并插入，减少逐个标签查库、写库。
         List<String> savedTags = new ArrayList<>(tags.size());
         for (String name : tags) {
-            try {
-                momentTagMapper.insert(newTag(momentId, name, savedAt));
+            MomentTag tag = newTag(momentId, name, savedAt);
+            if (momentTagMapper.insertIfAbsent(tag)) {
                 savedTags.add(name);
-            } catch (DuplicateKeyException exception) {
-                // 标签唯一索引按数据库排序规则比较，保留首次出现的写法。
-                log.debug("忽略重复标签，momentId={}", momentId);
             }
         }
         return savedTags;
     }
 
     /**
+     * 将整理后的地点写入实体，地点为 null 时清空全部地点字段；本方法不访问数据库。
+     *
+     * @param moment 待填充的瞬间实体，本方法直接修改该对象
+     * @param location 已检查坐标成对且统一精度的地点，可空
+     */
+    private void fillLocation(Moment moment, MomentLocation location) {
+        moment.setLatitude(location == null ? null : location.latitude());
+        moment.setLongitude(location == null ? null : location.longitude());
+        moment.setLocationName(location == null ? null : location.name());
+        moment.setLocationAddress(location == null ? null : location.address());
+    }
+
+    /**
+     * 批量读取本人有效图片的对象键，并确认提交的每张图片均可使用，供写入前校验。
+     *
+     * @param userId 当前用户 ID
+     * @param fileIds 已校验不重复的图片 ID 列表，允许为空列表
+     * @return 文件 ID 到对象键的映射，供后续签名复用；空列表返回空映射
+     * @throws BusinessException 任一图片未登记、已删除、非本人上传或类型不支持
+     */
+    private Map<UUID, String> requireOwnedImageKeys(UUID userId, List<UUID> fileIds) {
+        Map<UUID, String> keys = mediaService.findOwnedImageKeys(userId, fileIds);
+        if (keys.size() != fileIds.size()) {
+            throw BusinessException.badRequest("FILE_NOT_USABLE", "请选择已上传完成的本人图片");
+        }
+        return keys;
+    }
+
+    /**
+     * 对比全部历史图片关联与目标列表：新增不存在的、恢复已删除的、调整保留项顺序、软删除移除项。
+     * @param momentId 当前有效瞬间 ID
+     * @param fileIds 已校验归属且不重复的目标图片 ID，空列表移除全部有效关联
+     * @param savedAt 本次修改时间，UTC；历史关联 ID 和创建时间保留
+     */
+    private void syncMomentImages(UUID momentId, List<UUID> fileIds, LocalDateTime savedAt) {
+        // TODO：将新增、恢复、调整顺序、移除项分类收集后批量执行，减少逐条写库。
+        List<MomentImage> existing = momentImageMapper.selectIncludingDeleted(momentId);
+        Map<UUID, MomentImage> byFileId = existing.stream()
+                .collect(Collectors.toMap(MomentImage::getFileId, image -> image));
+        for (int index = 0; index < fileIds.size(); index++) {
+            UUID fileId = fileIds.get(index);
+            int sortOrder = index + 1;
+            MomentImage image = byFileId.get(fileId);
+            if (image == null) {
+                image = new MomentImage();
+                image.setId(UuidCreator.getTimeOrderedEpoch());
+                image.setMomentId(momentId);
+                image.setFileId(fileId);
+                image.setSortOrder(sortOrder);
+                image.setCreatedAt(savedAt);
+                image.setUpdatedAt(savedAt);
+                momentImageMapper.insert(image);
+            } else if (image.getDeletedAt() != null) {
+                image.setSortOrder(sortOrder);
+                image.setUpdatedAt(savedAt);
+                momentImageMapper.restore(image);
+            } else if (image.getSortOrder() != sortOrder) {
+                momentImageMapper.updateOrder(image.getId(), sortOrder, savedAt);
+            }
+        }
+        var retained = new HashSet<>(fileIds);
+        for (MomentImage image : existing) {
+            if (image.getDeletedAt() == null && !retained.contains(image.getFileId())) {
+                momentImageMapper.softDelete(image.getId(), savedAt);
+            }
+        }
+    }
+
+    /**
+     * 按名称同步标签：新增、恢复、保留或软删除。名称匹配交给数据库，遵循唯一索引的比较规则。
+     *
+     * @param momentId 当前有效瞬间 ID
+     * @param names 已去空白、去重并校验长度的目标名称，空列表清空有效标签
+     * @param savedAt 本次修改时间，UTC；恢复时保留历史 ID 和创建时间
+     */
+    private void syncMomentTags(UUID momentId, List<String> names, LocalDateTime savedAt) {
+        // TODO：批量匹配名称并收集新增、恢复、移除项后批量写入，保持与唯一索引相同的比较规则。
+        List<MomentTag> existing = momentTagMapper.selectActive(momentId);
+        var retained = new HashSet<UUID>();
+        for (String name : names) {
+            MomentTag tag = momentTagMapper.selectIncludingDeletedByName(momentId, name);
+            if (tag == null) {
+                tag = newTag(momentId, name, savedAt);
+                momentTagMapper.insert(tag);
+            } else if (retained.contains(tag.getId())) {
+                // 本次提交中数据库判定等价的名称，保留第一次出现的写法。
+                continue;
+            } else if (tag.getDeletedAt() != null) {
+                tag.setTagName(name);
+                tag.setUpdatedAt(savedAt);
+                momentTagMapper.restore(tag);
+            }
+            retained.add(tag.getId());
+        }
+        for (MomentTag tag : existing) {
+            if (!retained.contains(tag.getId())) {
+                momentTagMapper.softDelete(tag.getId(), savedAt);
+            }
+        }
+    }
+
+    /**
+     * 加载详情图片：按展示顺序查询关联，批量取得有效文件的 key，再为有效图片生成读取地址。
+     * 已删除、未登记或不属于作者的文件被过滤，保留其余图片的原有顺序。
+     *
+     * @param momentId 已确认归属的有效瞬间 ID
+     * @param userId 瞬间作者 ID，用于查询本人可用图片
+     * @return 有序图片响应；无关联或所有文件均失效时返回空列表
+     */
+    private List<MomentResponse.Image> loadMomentImages(UUID momentId, UUID userId) {
+        List<UUID> fileIds = momentImageMapper.selectInDisplayOrder(momentId).stream()
+                .map(MomentImage::getFileId).toList();
+        if (fileIds.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, String> imageKeys = mediaService.findOwnedImageKeys(userId, fileIds);
+        List<UUID> validFileIds = fileIds.stream().filter(imageKeys::containsKey).toList();
+        return toImageResponses(validFileIds, imageKeys);
+    }
+
+    /**
+     * 为已校验图片生成响应，沿用提交顺序和批量查询得到的对象键，本方法不访问数据库。
+     *
+     * @param fileIds 有序图片 ID，允许为空列表
+     * @param imageKeys 每个图片 ID 对应的对象键，调用方已校验或过滤，保证键齐全
+     * @return 带临时读取地址的图片列表，空输入返回空列表
+     */
+    private List<MomentResponse.Image> toImageResponses(List<UUID> fileIds, Map<UUID, String> imageKeys) {
+        return fileIds.stream().map(fileId -> new MomentResponse.Image(
+                fileId, mediaService.createReadUrl(imageKeys.get(fileId)))).toList();
+    }
+
+    /**
      * 创建待保存的瞬间标签关联。
-     * TODO：补充 momentId、已整理的标签名称、UTC 保存时间和返回实体的说明；明确生成 UUIDv7 并填写审计字段，本方法只构造对象，实际入库由调用方完成。
+     *
+     * @param momentId 所属瞬间 ID
+     * @param name 已整理的标签名称
+     * @param savedAt 本次写入的 UTC 毫秒时间
+     * @return 填写 UUIDv7 及审计字段的标签实体；实际插入或恢复由调用方选择
      */
     private MomentTag newTag(UUID momentId, String name, LocalDateTime savedAt) {
         MomentTag tag = new MomentTag();
@@ -409,12 +609,5 @@ public class MomentService {
         return tag;
     }
 
-    /**
-     * 创建参数校验失败的业务异常。
-     * TODO：补充 message 为面向调用方的错误说明、返回固定状态码和错误码的异常对象；本方法只构造异常，由调用方抛出。
-     * TODO：将通用参数错误工厂方法移入 BusinessException，统一状态码和错误码，移除此处的重复包装。
-     */
-    private BusinessException invalidArgument(String message) {
-        return new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", message);
-    }
+
 }

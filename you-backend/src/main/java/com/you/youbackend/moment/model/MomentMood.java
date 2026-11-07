@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(description = "心情：HAPPY 开心、CALM 平静、RELAXED 松弛、SMITTEN 心动、" +
         "SURPRISED 惊喜、CAREFREE 自在、LOW 低落、ANXIOUS 焦虑")
-// TODO：前端适配心情枚举：接口统一传递英文枚举名称，中文名称和图标由前端映射展示。
 public enum MomentMood {
     /** 开心：愉悦与满足。 */
     HAPPY,

@@ -26,6 +26,16 @@ public interface MediaFileMapper extends BaseMapper<MediaFile> {
                 .in(MediaFile::getMimeType, mimeTypes));
     }
 
-    // TODO：新增 existsOwnedFile(UUID fileId, UUID userId)，承接 MediaService.getUploadStatus 中的查询条件与存在性判断。
-    // TODO：方法说明写清按文件 ID、所属用户查询，沿用全局软删除过滤，返回 boolean；业务日志和响应组装仍由 Service 负责。
+    /**
+     * 判断指定用户的有效文件记录是否存在，沿用 MyBatis-Plus 全局软删除过滤。
+     *
+     * @param fileId 文件 ID
+     * @param userId 文件所属用户 ID
+     * @return 已登记、未删除且属于该用户时返回 true，否则返回 false
+     */
+    default boolean existsOwnedFile(UUID fileId, UUID userId) {
+        return selectCount(Wrappers.<MediaFile>lambdaQuery()
+                .eq(MediaFile::getId, fileId)
+                .eq(MediaFile::getOwnerUserId, userId)) > 0;
+    }
 }
