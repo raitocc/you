@@ -2,6 +2,7 @@ package com.you.youbackend.moment.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
@@ -57,14 +58,23 @@ public class MomentService {
     /**
      * 分页读取本人瞬间，并为每张卡片补充有效图片数和封面。
      * TODO：拆分有效图片整理、单条卡片组装和分页结果组装，主方法保留查询流程编排；保留图片批量查询。
-     * TODO：补充本方法业务注释：说明 userId、游标和页大小约定，按发生时间与 ID 倒序查询、多取一条判断下一页、筛选有效图片、生成摘要和封面以及返回分页结果的流程。
-     * TODO：说明只读事务范围、空列表与末页的返回约定；结合统一分页模型调整入参和返回游标。
+     * 1. 将游标时间转换为数据库 UTC 时间，按发生时间、ID 倒序多查一条，判断是否存在下一页。
+     * 2. 批量查询图片，过滤失效文件，按展示顺序选择封面并组装摘要卡片。
+     * 3. 有下一页时，以本页最后一条记录生成结构化游标；空页或末页游标为 null。
+     *
+     * @param userId 当前登录用户 ID，查询范围仅限本人有效瞬间
+     * @param request 已由 MVC 校验的分页请求；游标为空表示首屏，limit 已补默认值
+     * @return 分页卡片及下一页游标；无记录时 items 为空列表，hasMore 为 false
      */
     @Transactional(readOnly = true)
-    public ResultPage<MomentFeedItem> browseYours(UUID userId, String cursor, int limit) {
-        MomentFeedCursor boundary = cursor == null ? null : MomentFeedCursor.decode(cursor);
+    public ResultPage<MomentFeedItem, MomentFeedCursor> browseYours(
+            UUID userId, PageRequest<MomentFeedCursor> request) {
+        int limit = request.limit();
+        MomentFeedCursor cursor = request.cursor();
+        LocalDateTime cursorTime = cursor == null ? null : toDatabaseMemoryTime(cursor.memoryTime());
+        UUID cursorId = cursor == null ? null : cursor.id();
         // 多查一条判断是否还有下一页，图片只按实际返回的记录批量查询。
-        List<Moment> rows = momentMapper.selectFeed(userId, boundary, limit + 1);
+        List<Moment> rows = momentMapper.selectFeed(userId, cursorTime, cursorId, limit + 1);
         if (rows.isEmpty()) {
             return new ResultPage<>(List.of(), null, false);
         }
@@ -88,7 +98,8 @@ public class MomentService {
         }).toList();
         // 下一页从本页最后一条之后开始，多查的那条留到下一页。
         Moment last = page.get(page.size() - 1);
-        String nextCursor = hasMore ? new MomentFeedCursor(last.getMemoryTime(), last.getId()).encode() : null;
+        MomentFeedCursor nextCursor = hasMore
+                ? new MomentFeedCursor(last.getMemoryTime().toInstant(ZoneOffset.UTC), last.getId()) : null;
         return new ResultPage<>(items, nextCursor, hasMore);
     }
 

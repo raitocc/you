@@ -3,11 +3,11 @@ package com.you.youbackend.moment.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.moment.entity.Moment;
-import com.you.youbackend.moment.model.MomentFeedCursor;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -57,18 +57,24 @@ public interface MomentMapper extends BaseMapper<Moment> {
 
     /**
      * 读取本人瞬间流中位于游标之后的卡片数据。
-     * TODO：说明按发生时间、ID 双字段倒序排列；游标为空查询首屏，rowCount 为实际页大小加一，用于判断下一页。
+     * 按发生时间、ID 双字段倒序排列，发生时间相同的记录按唯一 ID 确定顺序。
+     *
+     * @param userId 当前用户 ID，仅查询本人有效瞬间
+     * @param cursorTime 游标的 UTC 入库时间，null 表示首屏
+     * @param cursorId 游标记录 ID，由 Service 与 cursorTime 成对传入
+     * @param rowCount 实际页大小加一，额外一条用于判断下一页
+     * @return 仅填充卡片查询所需字段的瞬间列表
      * TODO：明确仅查询卡片所需字段；评估使用独立查询模型，避免部分字段填充的 Moment 被误当完整实体。
      */
-    default List<Moment> selectFeed(UUID userId, MomentFeedCursor cursor, int rowCount) {
+    default List<Moment> selectFeed(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
         var query = Wrappers.<Moment>lambdaQuery()
                 .select(Moment::getId, Moment::getTitle, Moment::getBody, Moment::getMood, Moment::getMemoryTime)
                 .eq(Moment::getAuthorUserId, userId);
-        // TODO：在复杂条件旁解释边界：时间更早，或时间相同且 ID 更小；该条件须与倒序排序保持一致。
-        if (cursor != null) {
-            query.and(boundary -> boundary.lt(Moment::getMemoryTime, cursor.memoryTime())
-                    .or(sameTime -> sameTime.eq(Moment::getMemoryTime, cursor.memoryTime())
-                            .lt(Moment::getId, cursor.id())));
+        // 倒序分页仅查询更早的时间，或相同时间下更小的 ID，排除上一页边界及其之前的记录。
+        if (cursorTime != null) {
+            query.and(boundary -> boundary.lt(Moment::getMemoryTime, cursorTime)
+                    .or(sameTime -> sameTime.eq(Moment::getMemoryTime, cursorTime)
+                            .lt(Moment::getId, cursorId)));
         }
         return selectList(query.orderByDesc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
     }

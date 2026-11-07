@@ -1,54 +1,30 @@
 package com.you.youbackend.moment.model;
 
-import com.you.youbackend.common.exception.BusinessException;
-import org.springframework.http.HttpStatus;
+import com.you.youbackend.common.validation.UUIDv7;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 
-import java.nio.charset.StandardCharsets;
-import java.time.DateTimeException;
-import java.time.LocalDateTime;
-import java.util.Base64;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
- * TODO：游标改为仅包含 Instant memoryTime、UUID id 的结构化数据，删除 encode/decode。
- * TODO：统一使用 PageRequest<C> 承载 cursor、limit，并由 ResultPage<T, C> 返回同类型游标。
- * 审查意见：当前将两个明确类型的字段塞进 String，再进行 Base64 编解码、分隔符拆分和手动解析，
- * 为本项目增加了无明确业务收益的转换、格式校验和异常分支，降低可读性及联调效率。
- * 应优先建立统一分页模型，直接传递结构化游标，避免围绕字符串参数堆叠自定义协议。
- * TODO：每次时间一模一样，查询得到的顺序是一模一样吗？
+ * 瞬间流的分页边界，保存上一页最后一条瞬间的发生时间和 ID。
+ *
+ * <p>瞬间按发生时间、ID 双字段倒序排列。发生时间相同时，唯一 ID 决定先后顺序；
+ * 在数据未变动时排序一致。客户端将 nextCursor 对象原样传回即可，无需编码或解码。
+ * 用户修改发生时间会改变排序位置，各次分页查询不提供跨请求的固定快照。</p>
+ *
+ * @param memoryTime 上一页最后一条瞬间的发生时间，UTC 时间点
+ * @param id 同一条瞬间的 UUIDv7，用于区分相同发生时间的记录
  */
-public record MomentFeedCursor(LocalDateTime memoryTime, UUID id) {
+@Schema(description = "瞬间流游标：上一页最后一条记录的发生时间和 ID")
+public record MomentFeedCursor(
+        @NotNull(message = "请提供游标发生时间")
+        @Schema(description = "上一页最后一条瞬间的发生时间", example = "2026-01-01T00:00:00Z")
+        Instant memoryTime,
 
-    /**
-     * 解析客户端原样传回的分页边界。
-     */
-    public static MomentFeedCursor decode(String cursor) {
-        try {
-            if (cursor.length() > 100) {
-                throw new IllegalArgumentException();
-            }
-            String value = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.US_ASCII);
-            String[] fields = value.split("\\|", -1);
-            if (fields.length != 2) {
-                throw new IllegalArgumentException();
-            }
-            LocalDateTime time = LocalDateTime.parse(fields[0]);
-            UUID id = UUID.fromString(fields[1]);
-            if (time.getYear() < 1000 || time.getYear() > 9999
-                    || time.getNano() % 1_000_000 != 0 || !id.toString().equals(fields[1])) {
-                throw new IllegalArgumentException();
-            }
-            return new MomentFeedCursor(time, id);
-        } catch (IllegalArgumentException | DateTimeException exception) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", "分页游标无效");
-        }
-    }
-
-    /**
-     * 将本页最后一条记录的排序键编码为游标。
-     */
-    public String encode() {
-        String value = memoryTime + "|" + id;
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.US_ASCII));
-    }
-}
+        @NotNull(message = "请提供游标瞬间 ID")
+        @UUIDv7(checkTimestamp = false)
+        @Schema(description = "上一页最后一条瞬间的 UUIDv7", format = "uuid")
+        UUID id
+) {}

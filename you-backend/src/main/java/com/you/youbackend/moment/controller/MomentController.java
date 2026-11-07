@@ -1,8 +1,10 @@
 package com.you.youbackend.moment.controller;
 
 import com.you.youbackend.common.validation.UUIDv7;
+import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.Result;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.response.MomentFeedItem;
@@ -16,8 +18,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -35,23 +35,19 @@ public class MomentController {
     private final MomentService momentService;
 
     /**
-     * 浏览当前用户发布的瞬间流。
-     * TODO：在 common/request 中定义 PageRequest<C>，统一 cursor、limit 及分页数量校验。
-     * TODO：本接口改用 PageRequest<MomentFeedCursor> 和 ResultPage<MomentFeedItem, MomentFeedCursor>，同步调整 Service 与前端。
-     * TODO：统一确定分页参数的 HTTP 传递方式；保留 GET 时使用 Query，使用 JSON 请求体时调整为 POST 查询。
+     * 浏览本人瞬间，首屏传空对象，后续提交上次返回的结构化游标。
+     * TODO：同步前端和 Apifox 接口契约：GET /moments/yours 改为 POST /moments/yours；
+     * 请求改为 JSON {cursor: {memoryTime, id}, limit}，响应 nextCursor 改为同结构对象，末页为 null。
      */
     @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentYours")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "分页参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
-    @GetMapping("/yours")
-    public Result<ResultPage<MomentFeedItem>> browseYours(
-            @RequestParam(name = "cursor", required = false) String cursor,
-            @RequestParam(name = "limit", defaultValue = "20")
-            @Min(value = 1, message = "每页数量至少为 1")
-            @Max(value = 100, message = "每页数量不能超过 100") int limit,
+    @PostMapping(path = "/yours", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Result<ResultPage<MomentFeedItem, MomentFeedCursor>> browseYours(
+            @Valid @RequestBody PageRequest<MomentFeedCursor> request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        return Result.ok(momentService.browseYours(userId, cursor, limit));
+        return Result.ok(momentService.browseYours(userId, request));
     }
 
     /**
