@@ -64,6 +64,7 @@ public class MomentService {
             UUID userId, PageRequest<MomentFeedCursor> request) {
         List<Moment> rows = queryFeedMoments(userId, request);
         if (rows.isEmpty()) {
+            log.debug("浏览本人瞬间，userId={}，limit={}，itemCount=0，hasMore=false", userId, request.limit());
             return new ResultPage<>(List.of(), null, false);
         }
         boolean hasMore = rows.size() > request.limit();
@@ -72,6 +73,8 @@ public class MomentService {
         List<MomentFeedItem> items = page.stream()
                 .map(moment -> toFeedItem(moment, imageKeysByMoment.getOrDefault(moment.getId(), List.of())))
                 .toList();
+        log.debug("浏览本人瞬间，userId={}，limit={}，itemCount={}，hasMore={}",
+                userId, request.limit(), items.size(), hasMore);
         return toFeedPage(items, hasMore);
     }
 
@@ -154,6 +157,8 @@ public class MomentService {
         Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
         List<MomentResponse.Image> images = loadMomentImages(id, userId);
         List<String> tags = momentTagMapper.selectNames(id);
+        log.debug("查询瞬间详情，momentId={}，userId={}，imageCount={}，tagCount={}",
+                id, userId, images.size(), tags.size());
         return toResponse(moment, images, tags);
     }
 
@@ -169,6 +174,7 @@ public class MomentService {
     public void deleteMoment(UUID id, UUID userId) {
         Moment moment = requireOwnedMoment(momentMapper.selectIncludingDeleted(id), userId);
         if (moment.getDeletedAt() != null) {
+            log.debug("瞬间已删除，跳过重复操作，momentId={}，userId={}", id, userId);
             return;
         }
 
@@ -255,9 +261,11 @@ public class MomentService {
      */
     private Moment requireOwnedMoment(Moment moment, UUID userId) {
         if (moment == null) {
+            log.debug("瞬间查询未命中，userId={}", userId);
             throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在");
         }
         if (!userId.equals(moment.getAuthorUserId())) {
+            log.warn("瞬间访问被拒绝，momentId={}，userId={}，reason=非本人瞬间", moment.getId(), userId);
             throw BusinessException.forbidden("仅作者可以操作此瞬间");
         }
         return moment;
@@ -310,12 +318,15 @@ public class MomentService {
      */
     private void validateContent(String body, List<UUID> fileIds) {
         if (!StringUtils.hasText(body) && fileIds.isEmpty()) {
+            log.debug("瞬间内容校验失败，reason=正文和图片均为空");
             throw BusinessException.invalidArgument("请填写正文或添加图片");
         }
         if (body != null && body.getBytes(StandardCharsets.UTF_8).length > MAX_BODY_BYTES) {
+            log.debug("瞬间内容校验失败，reason=正文超出字节上限，maxBytes={}", MAX_BODY_BYTES);
             throw BusinessException.invalidArgument("正文超出可保存长度");
         }
         if (new HashSet<>(fileIds).size() != fileIds.size()) {
+            log.debug("瞬间内容校验失败，reason=图片ID重复，imageCount={}", fileIds.size());
             throw BusinessException.invalidArgument("同一图片不能重复添加");
         }
     }
@@ -336,6 +347,7 @@ public class MomentService {
                 .filter(StringUtils::hasText).distinct().toList();
         for (String tag : normalized) {
             if (tag.codePointCount(0, tag.length()) > MAX_TAG_LENGTH) {
+                log.debug("瞬间标签校验失败，reason=标签超出长度上限，maxLength={}", MAX_TAG_LENGTH);
                 throw BusinessException.invalidArgument("标签不能超过 " + MAX_TAG_LENGTH + " 字符");
             }
         }
@@ -355,9 +367,11 @@ public class MomentService {
             memoryTime = LocalDateTime.ofInstant(value, ZoneOffset.UTC)
                     .truncatedTo(ChronoUnit.MILLIS);
         } catch (DateTimeException exception) {
+            log.debug("瞬间发生时间校验失败，reason=无法转换为数据库时间");
             throw BusinessException.invalidArgument("发生时间超出可保存范围");
         }
         if (memoryTime.getYear() < 1000 || memoryTime.getYear() > 9999) {
+            log.debug("瞬间发生时间校验失败，reason=超出数据库年份范围");
             throw BusinessException.invalidArgument("发生时间超出可保存范围");
         }
         return memoryTime;
@@ -375,6 +389,7 @@ public class MomentService {
             return null;
         }
         if ((location.latitude() == null) != (location.longitude() == null)) {
+            log.debug("瞬间地点校验失败，reason=经纬度未成对填写");
             throw BusinessException.invalidArgument("经度和纬度必须同时填写");
         }
         if (location.latitude() == null) {
@@ -412,6 +427,7 @@ public class MomentService {
         try {
             momentMapper.insert(moment);
         } catch (DuplicateKeyException exception) {
+            log.info("发布瞬间被拒绝，momentId={}，userId={}，reason=瞬间ID已被使用", request.id(), userId);
             throw BusinessException.conflict("MOMENT_ID_CONFLICT", "瞬间 ID 已被使用", exception);
         }
         return moment;
@@ -482,6 +498,8 @@ public class MomentService {
     private Map<UUID, String> requireOwnedImageKeys(UUID userId, List<UUID> fileIds) {
         Map<UUID, String> keys = mediaService.findOwnedImageKeys(userId, fileIds);
         if (keys.size() != fileIds.size()) {
+            log.warn("瞬间图片校验失败，userId={}，submittedCount={}，usableCount={}",
+                    userId, fileIds.size(), keys.size());
             throw BusinessException.badRequest("FILE_NOT_USABLE", "请选择已上传完成的本人图片");
         }
         return keys;
@@ -576,6 +594,10 @@ public class MomentService {
         }
         Map<UUID, String> imageKeys = mediaService.findOwnedImageKeys(userId, fileIds);
         List<UUID> validFileIds = fileIds.stream().filter(imageKeys::containsKey).toList();
+        if (validFileIds.size() != fileIds.size()) {
+            log.debug("详情跳过失效图片，momentId={}，userId={}，skippedCount={}",
+                    momentId, userId, fileIds.size() - validFileIds.size());
+        }
         return toImageResponses(validFileIds, imageKeys);
     }
 
