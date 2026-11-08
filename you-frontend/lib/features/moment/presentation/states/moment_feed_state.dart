@@ -2,7 +2,7 @@ import '../../models/moment.dart';
 
 typedef MomentFeedState = ({
   List<MomentFeedItem> items,
-  String? cursor,
+  MomentFeedCursor? cursor,
   bool hasMore,
   bool loadingMore,
   Object? moreError,

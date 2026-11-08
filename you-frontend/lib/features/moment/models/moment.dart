@@ -66,8 +66,11 @@ typedef MomentFeedItem = ({
   DateTime memoryTime,
 });
 
+/// 服务端分页边界，时间原样回传，避免重新格式化。
+typedef MomentFeedCursor = ({String memoryTime, String id});
+
 typedef MomentPageData = ({
   List<MomentFeedItem> items,
-  String? nextCursor,
+  MomentFeedCursor? nextCursor,
   bool hasMore,
 });

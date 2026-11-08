@@ -10,6 +10,8 @@ import '../../features/moment/presentation/pages/moment_page.dart';
 import '../../features/moment/presentation/pages/moment_detail_page.dart';
 import '../../features/moment/presentation/pages/moment_editor_page.dart';
 import '../../features/album/presentation/pages/album_page.dart';
+import '../../features/album/presentation/pages/album_editor_page.dart';
+import '../../features/album/presentation/pages/album_detail_page.dart';
 import '../../features/gathering/presentation/pages/gathering_page.dart';
 import '../../features/circle/presentation/pages/circle_page.dart';
 import '../shell/app_shell.dart';
@@ -123,9 +125,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) =>
             MomentDetailPage(id: state.pathParameters['id']!),
       ),
+      GoRoute(path: '/albums/new', builder: (_, _) => const AlbumEditorPage()),
+      GoRoute(
+        path: '/albums/:id',
+        builder: (_, state) => AlbumDetailPage(id: state.pathParameters['id']!),
+      ),
       for (final path in [
-        '/albums/new',
-        '/albums/:id',
         '/gatherings/new',
         '/gatherings/:id',
         '/circles/new',

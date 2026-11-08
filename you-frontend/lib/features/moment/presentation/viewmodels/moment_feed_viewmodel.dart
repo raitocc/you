@@ -57,7 +57,7 @@ class MomentFeedViewModel extends AsyncNotifier<MomentFeedState> {
     try {
       final page = await ref
           .read(momentRepositoryProvider)
-          .browseYours(current.cursor);
+          .browseYours(cursor: current.cursor);
       if (!isCurrent()) return;
       final seen = current.items.map((moment) => moment.id).toSet();
       state = AsyncData(

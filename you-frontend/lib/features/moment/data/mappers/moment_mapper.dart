@@ -74,7 +74,14 @@ MomentPageData momentPageFromJson(Map<String, dynamic> json) => (
       ),
     ),
   ),
-  nextCursor: json['nextCursor'] as String?,
+  nextCursor: switch (json['nextCursor']) {
+    null => null,
+    final Map<String, dynamic> cursor => (
+      memoryTime: cursor['memoryTime'] as String,
+      id: cursor['id'] as String,
+    ),
+    _ => throw const FormatException('Invalid moment feed cursor'),
+  },
   hasMore: json['hasMore'] as bool,
 );
 

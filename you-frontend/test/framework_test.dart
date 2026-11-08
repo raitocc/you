@@ -157,8 +157,9 @@ void main() {
           Object? data;
           if (path == '/users/me') {
             data = {'id': '1', 'username': 'user', 'nickname': 'User'};
-          } else if (path == '/moments/yours' && request.method == 'GET') {
+          } else if (path == '/moments/yours' && request.method == 'POST') {
             expect(request.queryParameters, isEmpty);
+            expect(request.data, isEmpty);
             data = {
               'items': [
                 if (moment != null)

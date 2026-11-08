@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_client.dart';
+import '../../models/moment.dart';
 
 final momentRemoteDataSourceProvider = Provider(
   (ref) => MomentRemoteDataSource(ref.watch(dioProvider)),
@@ -13,10 +14,19 @@ class MomentRemoteDataSource {
   final Dio _dio;
 
   /// 按游标查询本人发布的瞬间流。
-  Future<Map<String, dynamic>> browseYours(String? cursor) async => _data(
+  Future<Map<String, dynamic>> browseYours({
+    MomentFeedCursor? cursor,
+    int? limit,
+  }) async => _data(
     await _dio.get<dynamic>(
       '/moments/yours',
-      queryParameters: {'cursor': ?cursor},
+      queryParameters: <String, dynamic>{
+        if (cursor != null) ...{
+          'cursor.memoryTime': cursor.memoryTime,
+          'cursor.id': cursor.id,
+        },
+        'limit': ?limit,
+      },
     ),
   );
 

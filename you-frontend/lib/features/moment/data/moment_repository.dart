@@ -67,8 +67,12 @@ class MomentRepository {
       draft.withPending(createMomentPayload(draft));
 
   /// 读取本人瞬间卡片及分页信息。
-  Future<MomentPageData> browseYours([String? cursor]) async =>
-      momentPageFromJson(await _remote.browseYours(cursor));
+  Future<MomentPageData> browseYours({
+    MomentFeedCursor? cursor,
+    int? limit,
+  }) async => momentPageFromJson(
+    await _remote.browseYours(cursor: cursor, limit: limit),
+  );
 
   /// 查询本人瞬间，使用当前账号资料补充作者信息。
   Future<Moment> detail(String id) async {
