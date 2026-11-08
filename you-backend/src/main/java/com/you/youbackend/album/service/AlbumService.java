@@ -213,10 +213,13 @@ public class AlbumService {
      * @return 最多页大小加一条的完整时光实体
      */
     private List<Album> queryAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
-        // 首屏不附加边界，后续使用游标的排序位置，无需读取游标对应记录。
+        // 首屏和后续页各用一条固定查询，Service 只决定查询入口。
         AlbumListCursor cursor = request.cursor();
-        return albumMapper.selectPageRows(userId, cursor == null ? null : toCursorTime(cursor.createdAt()),
-                cursor == null ? null : cursor.id(), request.limit() + 1);
+        int rowCount = request.limit() + 1;
+        if (cursor == null) {
+            return albumMapper.selectFirstPage(userId, rowCount);
+        }
+        return albumMapper.selectNextPage(userId, toCursorTime(cursor.createdAt()), cursor.id(), rowCount);
     }
 
     /**
@@ -227,12 +230,14 @@ public class AlbumService {
      * @return 最多页大小加一条的完整瞬间实体
      */
     private List<Moment> queryTimeline(UUID albumId, UUID userId, PageRequest<AlbumMomentCursor> request) {
-        // 三字段游标成组传递，首屏全部为空，由 Mapper 应用一致的正序边界。
+        // 首屏不传边界；后续页将三个游标字段转换后传给固定查询。
         AlbumMomentCursor cursor = request.cursor();
-        return albumMomentMapper.selectTimeline(albumId, userId,
-                cursor == null ? null : toCursorTime(cursor.memoryTime()),
-                cursor == null ? null : toCursorTime(cursor.createdAt()),
-                cursor == null ? null : cursor.id(), request.limit() + 1);
+        int rowCount = request.limit() + 1;
+        if (cursor == null) {
+            return albumMomentMapper.selectFirstTimelinePage(albumId, userId, rowCount);
+        }
+        return albumMomentMapper.selectNextTimelinePage(albumId, userId,
+                toCursorTime(cursor.memoryTime()), toCursorTime(cursor.createdAt()), cursor.id(), rowCount);
     }
 
     /**

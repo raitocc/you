@@ -108,7 +108,7 @@ class AlbumPaginationTest {
         UUID cover = UUID.randomUUID();
         first.setCoverFileId(cover);
         extra.setCoverFileId(UUID.randomUUID());
-        when(albums.selectPageRows(user, null, null, 2)).thenReturn(List.of(first, extra));
+        when(albums.selectFirstPage(user, 2)).thenReturn(List.of(first, extra));
         when(associations.countValidMomentsByAlbum(List.of(id), user)).thenReturn(List.of());
         when(media.findOwnedImageKeys(user, List.of(cover))).thenReturn(Map.of());
         var result = service.browseAlbums(user, new PageRequest<>(null, 1));
@@ -121,7 +121,7 @@ class AlbumPaginationTest {
     @Test
     void emptyPageSkipsAllAssociationLoads() {
         // 没有实际返回记录时，不执行分组数量、封面或瞬间详情加载。
-        when(albums.selectPageRows(user, null, null, 21)).thenReturn(List.of());
+        when(albums.selectFirstPage(user, 21)).thenReturn(List.of());
         var result = service.browseAlbums(user, new PageRequest<>(null, null));
         assertTrue(result.items().isEmpty());
         assertNull(result.nextCursor());
@@ -139,8 +139,44 @@ class AlbumPaginationTest {
         when(albums.selectById(id)).thenReturn(album(id));
         assertThrows(BusinessException.class, () -> service.browseAlbumMoments(id, user,
                 new PageRequest<>(new AlbumMomentCursor(Instant.parse("2026-01-01T00:00:00Z"), Instant.MAX, id), 20)));
-        verify(albums, never()).selectPageRows(any(), any(), any(), anyInt());
+        verify(albums, never()).selectFirstPage(any(), anyInt());
+        verify(albums, never()).selectNextPage(any(), any(), any(), anyInt());
         verifyNoInteractions(associations);
+    }
+
+    @Test
+    void albumCursorUsesNextPageQueryWithUtcBoundary() {
+        // 有游标时只调用后续页查询，保留创建时间、ID 的原边界。
+        Instant createdAt = Instant.parse("2026-01-01T08:00:00+08:00");
+        LocalDateTime utc = LocalDateTime.parse("2026-01-01T00:00:00");
+        when(albums.selectNextPage(user, utc, id, 3)).thenReturn(List.of());
+
+        var result = service.browseAlbums(user, new PageRequest<>(new AlbumListCursor(createdAt, id), 2));
+
+        assertTrue(result.items().isEmpty());
+        verify(albums).selectNextPage(user, utc, id, 3);
+        verify(albums, never()).selectFirstPage(any(), anyInt());
+    }
+
+    @Test
+    void timelineSelectsFirstOrNextQueryWithoutChangingCursorFields() {
+        // 每次先校验时光归属；首屏无边界，后续页保留三个排序字段。
+        when(albums.selectById(id)).thenReturn(album(id));
+        when(associations.selectFirstTimelinePage(id, user, 3)).thenReturn(List.of());
+        service.browseAlbumMoments(id, user, new PageRequest<>(null, 2));
+        verify(associations).selectFirstTimelinePage(id, user, 3);
+        verify(associations, never()).selectNextTimelinePage(any(), any(), any(), any(), any(), anyInt());
+
+        Instant memoryTime = Instant.parse("2026-01-01T08:00:00+08:00");
+        Instant createdAt = Instant.parse("2026-01-02T08:00:00+08:00");
+        LocalDateTime memoryUtc = LocalDateTime.parse("2026-01-01T00:00:00");
+        LocalDateTime createdUtc = LocalDateTime.parse("2026-01-02T00:00:00");
+        when(associations.selectNextTimelinePage(id, user, memoryUtc, createdUtc, id, 3)).thenReturn(List.of());
+        service.browseAlbumMoments(id, user,
+                new PageRequest<>(new AlbumMomentCursor(memoryTime, createdAt, id), 2));
+        verify(associations).selectNextTimelinePage(id, user, memoryUtc, createdUtc, id, 3);
+        verify(associations, times(1)).selectFirstTimelinePage(any(), any(), anyInt());
+        verifyNoInteractions(details, media);
     }
 
     private Album album(UUID albumId) {
