@@ -125,6 +125,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) =>
             MomentDetailPage(id: state.pathParameters['id']!),
       ),
+      GoRoute(
+        path: '/albums/:id/edit',
+        builder: (_, state) => AlbumEditPage(id: state.pathParameters['id']!),
+      ),
       GoRoute(path: '/albums/new', builder: (_, _) => const AlbumEditorPage()),
       GoRoute(
         path: '/albums/:id',

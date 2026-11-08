@@ -1,6 +1,7 @@
 package com.you.youbackend.album.controller;
 
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.response.AlbumResponse;
 import com.you.youbackend.album.response.AlbumListItem;
 import com.you.youbackend.album.model.AlbumListCursor;
@@ -28,7 +29,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-/** 当前用户的时光创建与信息查询入口。 */
+/** 当前用户的时光创建、信息维护、删除与查询入口。 */
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "时光")
 @RestController
@@ -36,6 +37,38 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AlbumController {
     private final AlbumService albumService;
+
+    /** 全量修改本人时光展示信息，介绍和封面显式传 null 时清空。 */
+    @Operation(summary = "修改时光信息", operationId = "04_update_album")
+    @ApiResponse(responseCode = "200", description = "修改成功")
+    @ApiResponse(responseCode = "400", description = "时光 ID、名称、介绍或封面无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是时光所有者")
+    @ApiResponse(responseCode = "404", description = "时光不存在或已删除")
+    @PutMapping(value = "/{albumId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Result<AlbumResponse> updateAlbum(
+            @Parameter(description = "时光 UUID") @PathVariable UUID albumId,
+            @Valid @RequestBody UpdateAlbumRequest request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 使用认证上下文校验归属，委托业务层全量保存展示信息。
+        return Result.ok(albumService.updateAlbum(albumId, request, userId));
+    }
+
+    /** 删除本人时光和有效关联，保留原瞬间，重复删除本人记录返回成功。 */
+    @Operation(summary = "删除时光", operationId = "05_delete_album")
+    @ApiResponse(responseCode = "200", description = "删除成功，data 为 null")
+    @ApiResponse(responseCode = "400", description = "时光 ID 格式无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是时光所有者")
+    @ApiResponse(responseCode = "404", description = "时光不存在")
+    @DeleteMapping("/{albumId}")
+    public Result<Void> deleteAlbum(
+            @Parameter(description = "时光 UUID") @PathVariable UUID albumId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 归属检查、幂等判断及事务写入统一交给业务层。
+        albumService.deleteAlbum(albumId, userId);
+        return Result.ok(null);
+    }
 
     /** 浏览私有时光列表，通过 cursor.字段名 提交结构化游标，始终限定当前用户。 */
     @Operation(summary = "浏览自己的时光列表", operationId = "01_list_albums")

@@ -4,9 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../../core/network/api_client.dart';
 import '../viewmodels/album_viewmodels.dart';
+import '../../models/album.dart';
+import '../states/album_editor_state.dart';
+import '../widgets/album_cover.dart';
+import '../../../../shared/ui/page_state.dart';
 
 class AlbumEditorPage extends ConsumerStatefulWidget {
-  const AlbumEditorPage({super.key});
+  const AlbumEditorPage({super.key, this.album});
+  final Album? album;
   @override
   ConsumerState<AlbumEditorPage> createState() => _EditorState();
 }
@@ -15,11 +20,20 @@ class _EditorState extends ConsumerState<AlbumEditorPage> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController(), _description = TextEditingController();
   bool _picking = false;
+  bool _coverCleared = false;
+  NotifierProvider<AlbumEditorViewModel, AlbumEditorState> get _provider =>
+      widget.album == null
+      ? albumEditorProvider
+      : albumEditProvider(widget.album!);
   @override
   void initState() {
     super.initState();
+    _name.text = widget.album?.name ?? '';
+    _description.text = widget.album?.description ?? '';
     Future.microtask(() {
-      if (mounted) ref.read(albumEditorProvider.notifier).loadMoments();
+      if (mounted && widget.album == null) {
+        ref.read(_provider.notifier).loadMoments();
+      }
     });
   }
 
@@ -46,10 +60,10 @@ class _EditorState extends ConsumerState<AlbumEditorPage> {
             _ => 'application/octet-stream',
           };
       if (mounted) {
-        await ref.read(albumEditorProvider.notifier).cover(bytes, mime);
+        await ref.read(_provider.notifier).cover(bytes, mime);
       }
     } catch (e) {
-      if (mounted) ref.read(albumEditorProvider.notifier).reportError(e);
+      if (mounted) ref.read(_provider.notifier).reportError(e);
     } finally {
       if (mounted) setState(() => _picking = false);
     }
@@ -59,26 +73,39 @@ class _EditorState extends ConsumerState<AlbumEditorPage> {
     if (!_form.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     final album = await ref
-        .read(albumEditorProvider.notifier)
+        .read(_provider.notifier)
         .create(_name.text, _description.text);
-    if (album != null && mounted) context.replace('/albums/${album.id}');
+    if (album != null && mounted) {
+      if (widget.album != null) {
+        ref.invalidate(albumDetailProvider(album.id));
+        context.pop();
+      } else {
+        context.replace('/albums/${album.id}');
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(albumEditorProvider);
-    final vm = ref.read(albumEditorProvider.notifier);
+    final state = ref.watch(_provider);
+    final vm = ref.read(_provider.notifier);
     final busy = state.busy || _picking;
     return PopScope(
       canPop: !busy,
       child: Scaffold(
-        appBar: AppBar(title: const Text('手动创建时光')),
+        appBar: AppBar(title: Text(widget.album == null ? '手动创建时光' : '修改时光信息')),
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: FilledButton(
               onPressed: busy ? null : _submit,
-              child: Text(busy ? '正在保存…' : '创建时光'),
+              child: Text(
+                busy
+                    ? '正在保存…'
+                    : widget.album == null
+                    ? '创建时光'
+                    : '保存修改',
+              ),
             ),
           ),
         ),
@@ -88,12 +115,18 @@ class _EditorState extends ConsumerState<AlbumEditorPage> {
             padding: const EdgeInsets.all(18),
             children: [
               Text(
-                '给回忆，一个归处。',
+                widget.album == null ? '给回忆，一个归处。' : '留住这段时光。',
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
               const SizedBox(height: 12),
-              const Text('从一个名字开始，把想珍藏的瞬间放在一起。'),
+              Text(
+                widget.album == null ? '从一个名字开始，把想珍藏的瞬间放在一起。' : '更新名称、介绍与封面。',
+              ),
               const SizedBox(height: 24),
+              if (state.cover == null &&
+                  !_coverCleared &&
+                  widget.album?.coverUrl != null)
+                AlbumCover(url: widget.album!.coverUrl, height: 180),
               if (state.cover != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(24),
@@ -109,11 +142,23 @@ class _EditorState extends ConsumerState<AlbumEditorPage> {
                   OutlinedButton.icon(
                     onPressed: busy ? null : _pick,
                     icon: const Icon(Icons.image_outlined),
-                    label: Text(state.cover == null ? '选择封面（可选）' : '更换封面'),
+                    label: Text(
+                      state.cover == null &&
+                              (_coverCleared ||
+                                  widget.album?.coverFileId == null)
+                          ? '选择封面（可选）'
+                          : '更换封面',
+                    ),
                   ),
-                  if (state.cover != null)
+                  if (state.cover != null ||
+                      (!_coverCleared && widget.album?.coverFileId != null))
                     TextButton(
-                      onPressed: busy ? null : vm.clearCover,
+                      onPressed: busy
+                          ? null
+                          : () {
+                              vm.clearCover();
+                              setState(() => _coverCleared = true);
+                            },
                       child: const Text('移除封面'),
                     ),
                 ],
@@ -145,46 +190,50 @@ class _EditorState extends ConsumerState<AlbumEditorPage> {
                 validator: (v) =>
                     (v ?? '').runes.length > 5000 ? '介绍不能超过 5000 字符' : null,
               ),
-              const SizedBox(height: 32),
-              Text(
-                '放入瞬间 · 已选 ${state.selected.length}',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              const Text('可暂时留空，以后再慢慢整理。'),
-              const SizedBox(height: 12),
-              for (final item in state.items)
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: state.selected.contains(item.id),
-                  onChanged: busy ? null : (_) => vm.toggle(item.id),
-                  title: Text(
-                    item.title ?? item.preview ?? '图片瞬间',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+              if (widget.album == null) ...[
+                const SizedBox(height: 32),
+                Text(
+                  '放入瞬间 · 已选 ${state.selected.length}',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                const Text('可暂时留空，以后再慢慢整理。'),
+                const SizedBox(height: 12),
+                for (final item in state.items)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: state.selected.contains(item.id),
+                    onChanged: busy ? null : (_) => vm.toggle(item.id),
+                    title: Text(
+                      item.title ?? item.preview ?? '图片瞬间',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              if (state.items.isEmpty &&
-                  !state.loading &&
-                  state.momentsError == null)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Text('还没有可以放入的瞬间，可以先创建空时光。'),
-                ),
-              if (state.loading)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: CircularProgressIndicator(),
+                if (state.items.isEmpty &&
+                    !state.loading &&
+                    state.momentsError == null)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text('还没有可以放入的瞬间，可以先创建空时光。'),
                   ),
-                ),
-              if (state.momentsError != null)
-                Text(errorMessage(state.momentsError)),
-              if (state.hasMore && !state.loading)
-                TextButton(
-                  onPressed: busy ? null : vm.loadMoments,
-                  child: Text(state.momentsError == null ? '加载更多瞬间' : '重新加载瞬间'),
-                ),
+                if (state.loading)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                if (state.momentsError != null)
+                  Text(errorMessage(state.momentsError)),
+                if (state.hasMore && !state.loading)
+                  TextButton(
+                    onPressed: busy ? null : vm.loadMoments,
+                    child: Text(
+                      state.momentsError == null ? '加载更多瞬间' : '重新加载瞬间',
+                    ),
+                  ),
+              ],
               if (state.error != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -204,4 +253,24 @@ class _EditorState extends ConsumerState<AlbumEditorPage> {
       ),
     );
   }
+}
+
+class AlbumEditPage extends ConsumerWidget {
+  const AlbumEditPage({super.key, required this.id});
+  final String id;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => ref
+      .watch(albumDetailProvider(id))
+      .when(
+        loading: () => const Scaffold(body: LoadingState()),
+        error: (error, _) => Scaffold(
+          appBar: AppBar(title: const Text('修改时光信息')),
+          body: PageState(
+            title: '暂时无法加载时光',
+            message: errorMessage(error),
+            onRetry: () => ref.invalidate(albumDetailProvider(id)),
+          ),
+        ),
+        data: (album) => AlbumEditorPage(key: ValueKey(album), album: album),
+      );
 }

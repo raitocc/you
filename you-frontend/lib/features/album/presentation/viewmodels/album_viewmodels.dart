@@ -18,6 +18,9 @@ class RecentAlbums extends Notifier<List<Album>> {
     return [];
   }
 
+  void remove(String id) =>
+      state = state.where((album) => album.id != id).toList();
+
   void remember(Album album) =>
       state = [album, ...state.where((a) => a.id != album.id)];
 }
@@ -39,11 +42,18 @@ final albumEditorProvider =
       AlbumEditorViewModel.new,
     );
 
+final albumEditProvider = NotifierProvider.autoDispose
+    .family<AlbumEditorViewModel, AlbumEditorState, Album>(
+      (album) => AlbumEditorViewModel(album),
+    );
+
 class AlbumEditorViewModel extends Notifier<AlbumEditorState> {
+  AlbumEditorViewModel([this.initial]);
+  final Album? initial;
   @override
   AlbumEditorState build() {
     ref.watch(sessionProvider);
-    return const AlbumEditorState();
+    return AlbumEditorState(coverId: initial?.coverFileId);
   }
 
   Future<void> loadMoments() async {
@@ -106,14 +116,20 @@ class AlbumEditorViewModel extends Notifier<AlbumEditorState> {
     final token = ref.read(sessionProvider).asData?.value;
     state = state.copy(busy: true);
     try {
-      final album = await ref
-          .read(albumRepositoryProvider)
-          .create(
-            name: name,
-            description: description,
-            coverFileId: state.coverId,
-            momentIds: state.selected.toList(),
-          );
+      final repository = ref.read(albumRepositoryProvider);
+      final album = initial != null
+          ? await repository.update(
+              initial!.id,
+              name: name,
+              description: description,
+              coverFileId: state.coverId,
+            )
+          : await repository.create(
+              name: name,
+              description: description,
+              coverFileId: state.coverId,
+              momentIds: state.selected.toList(),
+            );
       if (!ref.mounted || ref.read(sessionProvider).asData?.value != token) {
         return null;
       }
@@ -125,6 +141,41 @@ class AlbumEditorViewModel extends Notifier<AlbumEditorState> {
         state = state.copy(busy: false, error: e);
       }
       return null;
+    }
+  }
+}
+
+final albumDeleteProvider = NotifierProvider.autoDispose
+    .family<AlbumDeleteViewModel, ({bool busy, Object? error}), String>(
+      AlbumDeleteViewModel.new,
+    );
+
+class AlbumDeleteViewModel extends Notifier<({bool busy, Object? error})> {
+  AlbumDeleteViewModel(this.id);
+  final String id;
+  @override
+  ({bool busy, Object? error}) build() {
+    ref.watch(sessionProvider);
+    return (busy: false, error: null);
+  }
+
+  Future<bool> delete() async {
+    if (state.busy) return false;
+    final token = ref.read(sessionProvider).asData?.value;
+    state = (busy: true, error: null);
+    try {
+      await ref.read(albumRepositoryProvider).delete(id);
+      if (!ref.mounted || ref.read(sessionProvider).asData?.value != token) {
+        return false;
+      }
+      ref.read(recentAlbumsProvider.notifier).remove(id);
+      state = (busy: false, error: null);
+      return true;
+    } catch (error) {
+      if (ref.mounted && ref.read(sessionProvider).asData?.value == token) {
+        state = (busy: false, error: error);
+      }
+      return false;
     }
   }
 }

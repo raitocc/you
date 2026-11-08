@@ -16,6 +16,40 @@ class AlbumDetailPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final provider = albumDetailProvider(id);
     final value = ref.watch(provider);
+    final deletion = ref.watch(albumDeleteProvider(id));
+    Future<void> delete() async {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('删除这段时光？'),
+          content: const Text('删除后无法恢复，时光中的原瞬间会保留。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('删除时光'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+      final deleted = await ref.read(albumDeleteProvider(id).notifier).delete();
+      if (!context.mounted) return;
+      if (deleted) {
+        context.go('/albums');
+      } else {
+        final error = ref.read(albumDeleteProvider(id)).error;
+        if (error != null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(errorMessage(error))));
+        }
+      }
+    }
+
     Future<void> refresh() async {
       ref.invalidate(albumTimelineProvider(id));
       ref.invalidate(provider);
@@ -30,6 +64,39 @@ class AlbumDetailPage extends ConsumerWidget {
         title: const Text('时光信息'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: '设置封面',
+            onPressed: value.asData == null || deletion.busy
+                ? null
+                : () => context.push('/albums/$id/edit'),
+            icon: const Icon(Icons.image_outlined),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '管理时光',
+            enabled: value.asData != null && !deletion.busy,
+            onSelected: (action) {
+              if (action == 'edit') {
+                context.push('/albums/$id/edit');
+              } else {
+                delete();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'edit', child: Text('修改时光信息')),
+              PopupMenuItem(value: 'delete', child: Text('删除时光')),
+            ],
+          ),
+          if (deletion.busy)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+        ],
       ),
       body: value.when(
         loading: () => const LoadingState(),

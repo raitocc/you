@@ -7,6 +7,7 @@ import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.service.MediaService;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.ByteBuffer;
@@ -34,7 +36,7 @@ import static org.mockito.Mockito.*;
 class AlbumDatabaseTest {
     @Autowired private AlbumService service;
     @Autowired private AlbumMapper albums;
-    @Autowired private AlbumMomentMapper associations;
+    @MockitoSpyBean private AlbumMomentMapper associations;
     @Autowired private MomentMapper moments;
     @Autowired private JdbcTemplate jdbc;
     @MockitoBean private MediaService media;
@@ -98,6 +100,76 @@ class AlbumDatabaseTest {
             // 仅清理本测试随机 ID 对应数据，即便断言失败也不留下测试记录。
             jdbc.update("DELETE FROM album_moment WHERE moment_id = ?", bytes(moment.getId()));
             jdbc.update("DELETE FROM album WHERE owner_user_id = ?", bytes(user));
+            jdbc.update("DELETE FROM moment WHERE id = ?", bytes(moment.getId()));
+        }
+    }
+
+    @Test
+    @Transactional
+    void clearsFieldsAndDeletesOnlyThisAlbumsAssociations() {
+        UUID user = UUID.randomUUID();
+        Moment moment = saveMoment(user);
+        var first = service.createAlbum(new CreateAlbumRequest("第一个", "介绍", null, List.of(moment.getId())), user);
+        var second = service.createAlbum(new CreateAlbumRequest("第二个", null, null, List.of(moment.getId())), user);
+        // 直接设置已有封面，随后通过真实 Mapper 验证 null 确实落库。
+        jdbc.update("UPDATE album SET cover_file_id = ? WHERE id = ?", bytes(UUID.randomUUID()), bytes(first.id()));
+        service.updateAlbum(first.id(), new UpdateAlbumRequest("新名称", null, null), user);
+        var saved = albums.selectById(first.id());
+        assertNull(saved.getDescription());
+        assertNull(saved.getCoverFileId());
+        assertEquals(first.createdAt(), saved.getCreatedAt().toInstant(ZoneOffset.UTC));
+        service.deleteAlbum(first.id(), user);
+        var deleted = albums.selectIncludingDeleted(first.id());
+        assertNotNull(deleted.getDeletedAt());
+        service.deleteAlbum(first.id(), user);
+        assertEquals(deleted.getDeletedAt(), albums.selectIncludingDeleted(first.id()).getDeletedAt());
+        assertThrows(BusinessException.class, () -> service.getAlbum(first.id(), user));
+        assertEquals(0, associations.countValidMoments(first.id(), user));
+        assertEquals(1, service.getAlbum(second.id(), user).momentCount());
+        assertNotNull(moments.selectById(moment.getId()));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM album_moment WHERE album_id = ? AND deleted_at = ? AND updated_at = ?",
+                Integer.class, bytes(first.id()), deleted.getDeletedAt(), deleted.getDeletedAt()));
+    }
+
+    @Test
+    void rollsBackUpdateWhenResponseSigningFails() {
+        UUID user = UUID.randomUUID(), cover = UUID.randomUUID();
+        var album = service.createAlbum(new CreateAlbumRequest("原名称", "原介绍", null, List.of()), user);
+        when(media.findOwnedImageKeys(user, List.of(cover))).thenReturn(Map.of(cover, "key"));
+        when(media.createReadUrl("key")).thenThrow(new IllegalStateException("模拟签名失败"));
+        try {
+            assertThrows(IllegalStateException.class, () -> service.updateAlbum(album.id(),
+                    new UpdateAlbumRequest("新名称", null, cover), user));
+            var saved = albums.selectById(album.id());
+            assertEquals("原名称", saved.getName());
+            assertEquals("原介绍", saved.getDescription());
+            assertNull(saved.getCoverFileId());
+            assertEquals(album.updatedAt(), saved.getUpdatedAt().toInstant(ZoneOffset.UTC));
+        } finally {
+            // 仅清理本测试创建的时光。
+            jdbc.update("DELETE FROM album WHERE id = ?", bytes(album.id()));
+        }
+    }
+
+    @Test
+    void rollsBackDeletionWhenAssociationRemovalFails() {
+        UUID user = UUID.randomUUID();
+        Moment moment = saveMoment(user);
+        var album = service.createAlbum(new CreateAlbumRequest("删除回滚", null, null,
+                List.of(moment.getId())), user);
+        doThrow(new IllegalStateException("模拟关联移除失败")).when(associations)
+                .removeAssociations(eq(album.id()), any(LocalDateTime.class));
+        try {
+            assertThrows(IllegalStateException.class, () -> service.deleteAlbum(album.id(), user));
+            assertNull(albums.selectIncludingDeleted(album.id()).getDeletedAt());
+            assertEquals(album.updatedAt(), albums.selectById(album.id()).getUpdatedAt().toInstant(ZoneOffset.UTC));
+            assertEquals(1, service.getAlbum(album.id(), user).momentCount());
+            assertNotNull(moments.selectById(moment.getId()));
+        } finally {
+            // 清理当前测试创建的关联、时光和瞬间，不影响其他记录。
+            jdbc.update("DELETE FROM album_moment WHERE album_id = ?", bytes(album.id()));
+            jdbc.update("DELETE FROM album WHERE id = ?", bytes(album.id()));
             jdbc.update("DELETE FROM moment WHERE id = ?", bytes(moment.getId()));
         }
     }

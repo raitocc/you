@@ -1207,3 +1207,33 @@ Authorization: Bearer <accessToken>
 | --- | --- | --- |
 | 400 | — | fileId 不是合法 UUID，由框架处理路径参数转换错误 |
 | 401 | UNAUTHORIZED | 登录凭证缺失、无效或已过期 |
+
+
+## 时光信息维护
+
+以下接口使用 Bearer JWT 认证，路径中的 `albumId` 为时光 UUID。
+
+### 修改时光信息
+
+`PUT /albums/{albumId}` 全量提交三个展示字段，瞬间增减由独立接口处理。
+
+| 字段 | 类型 | 必填 | 规则 |
+| --- | --- | --- | --- |
+| name | string | 是 | 去首尾空白后 1～128 个 Unicode 码点，允许重名 |
+| description | string 或 null | 是 | 最多 5000 个 Unicode 码点，null 清空 |
+| coverFileId | UUID 或 null | 是 | 本人已上传就绪且未删除的图片，null 清空 |
+
+成功返回 HTTP 200，统一响应的 data 使用 AlbumResponse，包含 id、name、description、coverFileId、coverUrl、organizeMode、momentCount、createdAt、updatedAt。修改后更新 UTC 修改时间，保留创建时间及整理设置；momentCount 统计有效关联中的本人有效瞬间，封面 URL 按现有媒体规则签名。
+
+### 删除时光
+
+`DELETE /albums/{albumId}` 校验归属后，在同一事务内软删除时光及其尚有效的瞬间关联，保留原瞬间、媒体文件和其他时光的关联。本人重复删除已删除时光返回成功，保留原删除时间。成功返回 HTTP 200，响应为 `{"code":"SUCCESS","message":"操作成功","data":null}`。删除后详情及瞬间分页入口返回 404。
+
+### 错误响应
+
+| HTTP 状态码 | 场景 |
+| --- | --- |
+| 400 | UUID 格式错误、修改字段缺失、名称或介绍不合法、指定封面不可用 |
+| 401 | 登录凭证缺失、无效或已失效 |
+| 403 | 当前用户不是时光所有者，重复删除也须校验归属 |
+| 404 | 时光不存在；修改或访问已删除时光；本人重复删除除外 |

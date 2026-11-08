@@ -7,6 +7,7 @@ import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.response.AlbumResponse;
 import com.you.youbackend.album.response.AlbumListItem;
 import com.you.youbackend.album.model.AlbumListCursor;
@@ -36,7 +37,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/** 时光创建、访问权限和信息查询。 */
+/** 时光创建、信息维护、删除及访问权限查询。 */
 @Log4j2
 @Service
 @RequiredArgsConstructor
@@ -46,6 +47,47 @@ public class AlbumService {
     private final MomentMapper momentMapper;
     private final MediaService mediaService;
     private final MomentService momentService;
+
+    /**
+     * 全量修改本人时光展示信息，在同一事务内校验封面、保存并组装响应，不改变瞬间关联。
+     * @param albumId 时光 ID，不存在或已删除返回 404，非本人返回 403
+     * @param request 已完成必填、名称及介绍长度校验的请求，null 清空可空字段
+     * @param userId 当前登录用户 ID
+     * @return 保存后的完整信息，包含有效瞬间数及封面签名 URL
+     */
+    @Transactional
+    public AlbumResponse updateAlbum(UUID albumId, UpdateAlbumRequest request, UUID userId) {
+        // 1. 先确认有效时光归属，再校验明确提交的封面为本人已就绪图片。
+        Album album = requireOwnedAlbum(albumMapper.selectById(albumId), userId);
+        String coverKey = requireCoverKey(request.coverFileId(), userId);
+        // 2. 只保存可编辑展示字段，可空字段显式清空，不调整瞬间关联。
+        updateAlbumContent(album, request);
+        // 3. 读取当前有效瞬间数量，签名失败时由事务回滚本次信息修改。
+        long count = albumMomentMapper.countValidMoments(albumId, userId);
+        AlbumResponse response = toResponse(album, coverKey, count);
+        log.info("已写入时光信息修改，albumId={}，userId={}", albumId, userId);
+        return response;
+    }
+
+    /**
+     * 删除本人时光及其有效关联，两类写入共同提交或回滚，保留原瞬间和媒体。
+     * @param albumId 时光 ID，不存在返回 404，本人已删除记录直接成功
+     * @param userId 当前登录用户 ID，非所有者返回 403
+     */
+    @Transactional
+    public void deleteAlbum(UUID albumId, UUID userId) {
+        // 1. 包含软删除记录查询，先校验归属再判断幂等，避免他人记录被当作成功。
+        Album album = requireOwnedAlbum(albumMapper.selectIncludingDeleted(albumId), userId);
+        if (album.getDeletedAt() != null) {
+            log.debug("时光已删除，跳过重复操作，albumId={}，userId={}", albumId, userId);
+            return;
+        }
+        // 2. 使用同一时间标记主记录与尚有效的关联，详情查询随后通过软删除过滤拒绝访问。
+        LocalDateTime deletedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        albumMapper.softDelete(albumId, deletedAt);
+        albumMomentMapper.removeAssociations(albumId, deletedAt);
+        log.info("已写入时光删除及关联移除，albumId={}，userId={}", albumId, userId);
+    }
 
     /**
      * 分页浏览本人时光：按创建时间、ID 倒序读取，批量统计数量和加载封面，空时光正常返回。
@@ -148,6 +190,23 @@ public class AlbumService {
     }
 
     /**
+     * 保存已校验的可编辑字段，不覆盖其他时光设置。
+     * @param album 已确认归属的有效完整实体
+     * @param request 已完成字段及封面校验的全量请求
+     */
+    private void updateAlbumContent(Album album, UpdateAlbumRequest request) {
+        // 1. 将全量提交的最终内容写入实体，并统一使用 UTC 毫秒修改时间。
+        album.setName(request.name());
+        album.setDescription(request.description());
+        album.setCoverFileId(request.coverFileId());
+        album.setUpdatedAt(LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS));
+        // 2. 若校验后时光被并发删除，拒绝返回未实际保存的成功响应。
+        if (albumMapper.updateContent(album) == 0) {
+            throw BusinessException.notFound("ALBUM_NOT_FOUND", "时光不存在或已删除");
+        }
+    }
+
+    /**
      * 查询本人时光页，将游标时间转换为数据库 UTC 毫秒时间。
      * @param userId 当前用户 ID
      * @param request 已通过字段校验的分页请求
@@ -235,7 +294,7 @@ public class AlbumService {
      * @return 有效封面的对象键；无封面为 null
      */
     private String requireCoverKey(UUID fileId, UUID userId) {
-        // 先查询有效封面；仅在用户明确指定了不可用文件时拒绝创建。
+        // 先查询有效封面；仅在用户明确指定了不可用文件时拒绝本次写入。
         String key = findCoverKey(fileId, userId);
         if (fileId != null && key == null) {
             log.warn("时光封面校验失败，fileId={}，userId={}，reason=非本人有效图片", fileId, userId);
@@ -318,20 +377,20 @@ public class AlbumService {
     }
 
     /**
-     * 检查时光存在及归属，不存在先于权限不足返回。
-     * @param album 已过滤软删除的查询结果，可空
+     * 检查记录存在及归属；访问和修改由查询过滤软删除，删除入口单独判断幂等。
+     * @param album 查询结果，可空；删除入口允许传入软删除记录
      * @param userId 当前用户 ID
      * @return 原时光实体
      */
     private Album requireOwnedAlbum(Album album, UUID userId) {
-        // 1. 不存在或已删除的时光统一按资源不存在处理。
+        // 1. 查询无结果时按资源不存在处理，常规查询已过滤软删除记录。
         if (album == null) {
             throw BusinessException.notFound("ALBUM_NOT_FOUND", "时光不存在或已删除");
         }
         // 2. 时光存在时继续校验所有者，拒绝访问他人时光。
         if (!userId.equals(album.getOwnerUserId())) {
             log.warn("时光访问被拒绝，albumId={}，userId={}，reason=非本人时光", album.getId(), userId);
-            throw BusinessException.forbidden("仅所有者可以查看此时光");
+            throw BusinessException.forbidden("仅所有者可以操作此时光");
         }
         return album;
     }

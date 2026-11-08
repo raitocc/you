@@ -69,6 +69,30 @@ class AlbumRepository {
     throw const AppException('UPLOAD_NOT_READY', '封面尚未就绪，请稍后重新选择');
   }
 
+  Future<void> delete(String id) => _remote.delete(id);
+
+  Future<Album> update(
+    String id, {
+    required String name,
+    required String? description,
+    required String? coverFileId,
+  }) async {
+    final clean = name.trim();
+    if (clean.isEmpty || clean.runes.length > 128) {
+      throw const AppException('INVALID_NAME', '请填写 1～128 字符的时光名称');
+    }
+    if ((description?.runes.length ?? 0) > 5000) {
+      throw const AppException('INVALID_DESCRIPTION', '介绍不能超过 5000 字符');
+    }
+    return albumFromJson(
+      await _remote.update(id, {
+        'name': clean,
+        'description': description == '' ? null : description,
+        'coverFileId': coverFileId,
+      }),
+    );
+  }
+
   Future<Album> create({
     required String name,
     required String description,

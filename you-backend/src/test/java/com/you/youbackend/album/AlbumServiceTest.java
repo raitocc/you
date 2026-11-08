@@ -6,6 +6,7 @@ import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.service.MediaService;
@@ -109,6 +110,64 @@ class AlbumServiceTest {
         assertNull(result.coverUrl());
         assertEquals(2, result.momentCount());
         verify(media, never()).createReadUrl(anyString());
+    }
+
+    @Test
+    void updatesOnlyDisplayInformationAndClearsNullableFields() {
+        UUID id = UUID.randomUUID();
+        Album album = album(id);
+        album.setDescription("旧介绍");
+        album.setCoverFileId(UUID.randomUUID());
+        when(albums.selectById(id)).thenReturn(album);
+        when(albums.updateContent(any())).thenReturn(1);
+        when(associations.countValidMoments(id, userId)).thenReturn(3L);
+        var result = service.updateAlbum(id, new UpdateAlbumRequest("  新名称  ", null, null), userId);
+        assertEquals("新名称", result.name());
+        assertNull(result.description());
+        assertNull(result.coverFileId());
+        assertEquals(3, result.momentCount());
+        assertEquals(album.getCreatedAt().toInstant(java.time.ZoneOffset.UTC), result.createdAt());
+        verifyNoInteractions(moments, media);
+        verify(associations, never()).removeAssociations(any(), any());
+    }
+
+    @Test
+    void rejectsUpdateBeforeWritingWhenOwnerOrCoverIsInvalid() {
+        UUID id = UUID.randomUUID(), cover = UUID.randomUUID();
+        var request = new UpdateAlbumRequest("名称", null, cover);
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(BusinessException.class,
+                () -> service.updateAlbum(id, request, userId)).getStatus());
+        Album album = album(id);
+        album.setOwnerUserId(UUID.randomUUID());
+        when(albums.selectById(id)).thenReturn(album);
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(BusinessException.class,
+                () -> service.updateAlbum(id, request, userId)).getStatus());
+        album.setOwnerUserId(userId);
+        when(media.findOwnedImageKeys(userId, List.of(cover))).thenReturn(Map.of());
+        assertEquals("FILE_NOT_USABLE", assertThrows(BusinessException.class,
+                () -> service.updateAlbum(id, request, userId)).getCode());
+        verify(albums, never()).updateContent(any());
+    }
+
+    @Test
+    void deletesWithOneTimestampAndChecksOwnershipBeforeIdempotency() {
+        UUID id = UUID.randomUUID();
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(BusinessException.class,
+                () -> service.deleteAlbum(id, userId)).getStatus());
+        Album album = album(id);
+        when(albums.selectIncludingDeleted(id)).thenReturn(album);
+        service.deleteAlbum(id, userId);
+        var time = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(albums).softDelete(eq(id), time.capture());
+        verify(associations).removeAssociations(id, time.getValue());
+        clearInvocations(albums, associations);
+        album.setDeletedAt(time.getValue());
+        service.deleteAlbum(id, userId);
+        verify(albums, never()).softDelete(any(), any());
+        verifyNoInteractions(associations, moments, media);
+        album.setOwnerUserId(UUID.randomUUID());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(BusinessException.class,
+                () -> service.deleteAlbum(id, userId)).getStatus());
     }
 
     private Album album(UUID id) {

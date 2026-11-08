@@ -2,6 +2,7 @@ package com.you.youbackend.album;
 
 import com.you.youbackend.album.controller.AlbumController;
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
 import com.you.youbackend.user.filter.JwtAuthFilter;
@@ -66,6 +67,36 @@ class AlbumValidationTest {
                 .andExpect(status().isOk());
         verify(service).getAlbum(id, userId);
         mvc.perform(get("/albums/bad").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId))
+                .andExpect(status().isBadRequest());
+        verifyNoMoreInteractions(service);
+    }
+    @Test
+    void updateRequiresEveryFieldButAcceptsExplicitNulls() throws Exception {
+        UUID id = UUID.randomUUID();
+        for (String body : List.of("{}", "{\"name\":\"名称\",\"description\":null}",
+                "{\"name\":\"名称\",\"coverFileId\":null}",
+                "{\"name\":\" \",\"description\":null,\"coverFileId\":null}",
+                "{\"name\":\"名称\",\"description\":null,\"coverFileId\":\"bad\"}",
+                "{\"name\":\"名称\",\"description\":\"" + "😀".repeat(5001) + "\",\"coverFileId\":null}")) {
+            mvc.perform(put("/albums/{albumId}", id).requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        }
+        verifyNoInteractions(service);
+        mvc.perform(put("/albums/{albumId}", id).requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"  名称  \",\"description\":null,\"coverFileId\":null}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("code").value("SUCCESS"));
+        verify(service).updateAlbum(id, new UpdateAlbumRequest("名称", null, null), userId);
+    }
+
+    @Test
+    void deletionReturns200AndNullDataAndRejectsInvalidId() throws Exception {
+        UUID id = UUID.randomUUID();
+        mvc.perform(delete("/albums/{albumId}", id).requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId))
+                .andExpect(status().isOk()).andExpect(jsonPath("code").value("SUCCESS"))
+                .andExpect(content().json("{\"code\":\"SUCCESS\",\"message\":\"操作成功\",\"data\":null}"));
+        verify(service).deleteAlbum(id, userId);
+        mvc.perform(delete("/albums/bad").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId))
                 .andExpect(status().isBadRequest());
         verifyNoMoreInteractions(service);
     }

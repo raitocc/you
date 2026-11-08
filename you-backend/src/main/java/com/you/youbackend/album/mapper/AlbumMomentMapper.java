@@ -1,6 +1,7 @@
 package com.you.youbackend.album.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.album.entity.AlbumMoment;
 import com.you.youbackend.album.model.AlbumMomentCount;
 import com.you.youbackend.moment.entity.Moment;
@@ -16,6 +17,17 @@ import java.time.LocalDateTime;
 /** 时光瞬间关联的批量写入和有效数量查询。 */
 @Mapper
 public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
+    /**
+     * 批量解除指定时光的全部有效关联，原瞬间和其他时光的关联保留。
+     * @param albumId 已校验归属的时光 ID
+     * @param deletedAt 与主记录一致的 UTC 毫秒时间
+     */
+    default void removeAssociations(UUID albumId, LocalDateTime deletedAt) {
+        // MP 过滤已删除关联，保留历史移出时间，不访问原瞬间和媒体表。
+        update(Wrappers.<AlbumMoment>lambdaUpdate().eq(AlbumMoment::getAlbumId, albumId)
+                .set(AlbumMoment::getDeletedAt, deletedAt).set(AlbumMoment::getUpdatedAt, deletedAt));
+    }
+
     /**
      * 批量统计本页时光中的有效本人瞬间，自定义 SQL 显式过滤两张表的软删除。
      * @param albumIds 已确认属于本人的本页非空时光 ID 集合
