@@ -92,31 +92,63 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
     List<AlbumMomentCount> countValidMomentsByAlbum(@Param("albumIds") List<UUID> albumIds, @Param("userId") UUID userId);
 
     /**
-     * 读取时光线的完整瞬间实体，按发生时间、发布时间、ID 正序，多查一条供分页判断。
-     * @param albumId 已校验存在且属于当前用户的时光 ID
-     * @param userId 当前用户 ID，仅返回本人有效瞬间及有效关联
-     * @param memoryTime 游标发生时间，首屏为 null
-     * @param createdAt 与发生时间、ID 成组提供的游标发布时间
-     * @param id 游标瞬间 ID
-     * @param rowCount 已校验页大小加一
-     * @return 有序完整瞬间实体，图片和标签另行批量加载
+     * 查询时光线首屏，通过有效关联加载本人有效瞬间。
+     * @param albumId 已由 Service 校验存在且属于当前用户的时光 ID
+     * @param userId 当前用户 ID
+     * @param rowCount 已校验页大小加一，用于判断下一页
+     * @return 按发生时间、发布时间、ID 正序排列的完整瞬间，图片和标签另行加载
      */
     @Select("""
-            <script>
-            SELECT m.* FROM album_moment am JOIN moment m ON m.id = am.moment_id
-            WHERE am.album_id = #{albumId} AND am.deleted_at IS NULL
-              AND m.deleted_at IS NULL AND m.author_user_id = #{userId}
-            <if test="memoryTime != null">
-              AND (m.memory_time &gt; #{memoryTime}
-                OR (m.memory_time = #{memoryTime} AND m.created_at &gt; #{createdAt})
-                OR (m.memory_time = #{memoryTime} AND m.created_at = #{createdAt} AND m.id &gt; #{id}))
-            </if>
-            ORDER BY m.memory_time ASC, m.created_at ASC, m.id ASC LIMIT #{rowCount}
-            </script>
+            SELECT m.id, m.author_user_id, m.title, m.body, m.mood,
+                   m.memory_time, m.latitude, m.longitude,
+                   m.location_name, m.location_address,
+                   m.created_at, m.updated_at, m.deleted_at
+            FROM album_moment am
+            JOIN moment m ON m.id = am.moment_id
+            WHERE am.album_id = #{albumId}
+              AND am.deleted_at IS NULL
+              AND m.deleted_at IS NULL
+              AND m.author_user_id = #{userId}
+            ORDER BY m.memory_time ASC, m.created_at ASC, m.id ASC
+            LIMIT #{rowCount}
             """)
-    List<Moment> selectTimeline(@Param("albumId") UUID albumId, @Param("userId") UUID userId,
-                              @Param("memoryTime") LocalDateTime memoryTime, @Param("createdAt") LocalDateTime createdAt,
-                              @Param("id") UUID id, @Param("rowCount") int rowCount);
+    List<Moment> selectFirstTimelinePage(@Param("albumId") UUID albumId, @Param("userId") UUID userId,
+                                         @Param("rowCount") int rowCount);
+
+    /**
+     * 查询时光线后续页，排序与首屏一致。
+     * 边界依次比较发生时间、发布时间、ID，读取排序位置严格大于游标的记录。
+     * @param albumId 已由 Service 校验存在且属于当前用户的时光 ID
+     * @param userId 当前用户 ID
+     * @param memoryTime 游标发生时间，非空，UTC 毫秒精度
+     * @param createdAt 游标发布时间，与发生时间和 ID 成组提供
+     * @param id 游标瞬间 ID
+     * @param rowCount 已校验页大小加一
+     * @return 有序完整瞬间实体，图片和标签另行加载
+     */
+    @Select("""
+            SELECT m.id, m.author_user_id, m.title, m.body, m.mood,
+                   m.memory_time, m.latitude, m.longitude,
+                   m.location_name, m.location_address,
+                   m.created_at, m.updated_at, m.deleted_at
+            FROM album_moment am
+            JOIN moment m ON m.id = am.moment_id
+            WHERE am.album_id = #{albumId}
+              AND am.deleted_at IS NULL
+              AND m.deleted_at IS NULL
+              AND m.author_user_id = #{userId}
+              AND (
+                  m.memory_time > #{memoryTime}
+                  OR (m.memory_time = #{memoryTime} AND m.created_at > #{createdAt})
+                  OR (m.memory_time = #{memoryTime} AND m.created_at = #{createdAt} AND m.id > #{id})
+              )
+            ORDER BY m.memory_time ASC, m.created_at ASC, m.id ASC
+            LIMIT #{rowCount}
+            """)
+    List<Moment> selectNextTimelinePage(@Param("albumId") UUID albumId, @Param("userId") UUID userId,
+                                        @Param("memoryTime") LocalDateTime memoryTime,
+                                        @Param("createdAt") LocalDateTime createdAt,
+                                        @Param("id") UUID id, @Param("rowCount") int rowCount);
 
     /**
      * 一条 SQL 插入本次新建时光的关联，参与调用方事务，不恢复或忽略冲突。
