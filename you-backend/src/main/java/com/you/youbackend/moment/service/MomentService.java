@@ -124,6 +124,8 @@ public class MomentService {
      */
     @Transactional
     public MomentResponse createMoment(CreateMomentRequest request, UUID userId) {
+        // TODO（同行一期）：为 CreateMomentRequest 增加可选 UUIDv7 gatheringId；省略或 null 保持私人发布。
+        // 提供时校验目标同行有效且本人为有效成员，并在本发布事务内保存关联；与 Apifox 发布接口同步联调。
         List<UUID> fileIds = request.imageFileIds() == null ? List.of() : request.imageFileIds();
         validateContent(request.body(), fileIds);
         List<String> tags = prepareTags(request.tags());
