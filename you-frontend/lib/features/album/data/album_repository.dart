@@ -69,6 +69,19 @@ class AlbumRepository {
     throw const AppException('UPLOAD_NOT_READY', '封面尚未就绪，请稍后重新选择');
   }
 
+  Future<Album> addMoments(String id, List<String> momentIds) async =>
+      albumFromJson(await _remote.addMoments(id, _selectedIds(momentIds)));
+
+  Future<Album> removeMoments(String id, List<String> momentIds) async =>
+      albumFromJson(await _remote.removeMoments(id, _selectedIds(momentIds)));
+
+  List<String> _selectedIds(List<String> ids) {
+    if (ids.isEmpty || ids.any((id) => id.trim().isEmpty)) {
+      throw const AppException('INVALID_MOMENTS', '请至少选择一个有效瞬间');
+    }
+    return ids.toSet().toList(growable: false);
+  }
+
   Future<void> delete(String id) => _remote.delete(id);
 
   Future<Album> update(

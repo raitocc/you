@@ -64,6 +64,30 @@ class AlbumRemoteDataSource {
     unwrap(await _dio.delete<dynamic>('/albums/${Uri.encodeComponent(id)}'));
   }
 
+  Future<Map<String, dynamic>> addMoments(
+    String id,
+    List<String> momentIds,
+  ) async =>
+      unwrap(
+            await _dio.post<dynamic>(
+              '/albums/${Uri.encodeComponent(id)}/moments',
+              data: {'momentIds': momentIds},
+            ),
+          )
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> removeMoments(
+    String id,
+    List<String> momentIds,
+  ) async =>
+      unwrap(
+            await _dio.post<dynamic>(
+              '/albums/${Uri.encodeComponent(id)}/moments/remove',
+              data: {'momentIds': momentIds},
+            ),
+          )
+          as Map<String, dynamic>;
+
   Future<Map<String, dynamic>> create(Map<String, dynamic> payload) async =>
       unwrap(await _dio.post<dynamic>('/albums', data: payload))
           as Map<String, dynamic>;

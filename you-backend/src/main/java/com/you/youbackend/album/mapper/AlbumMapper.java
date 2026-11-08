@@ -14,6 +14,18 @@ import java.util.UUID;
 @Mapper
 public interface AlbumMapper extends BaseMapper<Album> {
     /**
+     * 关联调整后仅刷新时光修改时间，保留其他字段，沿用软删除过滤。
+     * @param id 已校验归属的有效时光 ID
+     * @param updatedAt 本次统一 UTC 毫秒时间
+     * @return 更新行数
+     */
+    default int touch(UUID id, LocalDateTime updatedAt) {
+        // 关联变化只影响修改时间，不覆盖名称、介绍或封面。
+        return update(Wrappers.<Album>lambdaUpdate().eq(Album::getId, id)
+                .set(Album::getUpdatedAt, updatedAt));
+    }
+
+    /**
      * 删除专用查询，包含已软删除记录，以便校验归属并识别本人重复删除。
      * @param id 时光 ID
      * @return 完整实体，不存在返回 null

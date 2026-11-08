@@ -7,6 +7,8 @@ import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.AddAlbumMomentsRequest;
+import com.you.youbackend.album.request.RemoveAlbumMomentsRequest;
 import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.response.AlbumResponse;
 import com.you.youbackend.album.response.AlbumListItem;
@@ -47,6 +49,49 @@ public class AlbumService {
     private final MomentMapper momentMapper;
     private final MediaService mediaService;
     private final MomentService momentService;
+
+    /**
+     * 整批校验后新增、保留或恢复关联，关联及修改时间在同一事务中保存。
+     * @param albumId 有效时光 ID，不存在返回 404，非本人返回 403
+     * @param request 已通过非空及 UUID 校验的请求
+     * @param userId 当前用户 ID，任一瞬间非本人或无效则整批返回 400
+     * @return 最新时光信息及有效瞬间数量
+     */
+    @Transactional
+    public AlbumResponse addAlbumMoments(UUID albumId, AddAlbumMomentsRequest request, UUID userId) {
+        // 1. 普通查询校验时光归属，去重后整批校验本人有效瞬间，通过前不写入。
+        Album album = requireOwnedAlbum(albumMapper.selectById(albumId), userId);
+        List<UUID> ids = request.momentIds().stream().distinct().toList();
+        validateOwnedMoments(ids, userId);
+        // 2. 使用统一时间新增或恢复关联，已有效关联保持原样。
+        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        addOrRestoreAssociations(albumId, ids, savedAt);
+        // 3. 刷新时光修改时间及完整响应，失败时全部回滚。
+        AlbumResponse response = finishAssociationChange(album, userId, savedAt);
+        log.info("已写入时光瞬间添加，albumId={}，userId={}，submittedCount={}", albumId, userId, ids.size());
+        return response;
+    }
+
+    /**
+     * 批量移出当前时光关联，原瞬间及其他时光关系保留，允许移出全部。
+     * @param albumId 有效时光 ID，不存在返回 404，非本人返回 403
+     * @param request 已通过非空及 UUID 校验的请求，未加入和已移出项视为完成
+     * @param userId 当前登录用户 ID
+     * @return 最新时光信息，关联移出与修改时间共同提交或回滚
+     */
+    @Transactional
+    public AlbumResponse removeAlbumMoments(UUID albumId, RemoveAlbumMomentsRequest request, UUID userId) {
+        // 1. 校验时光归属并合并重复 ID，不要求原瞬间仍有效或属于本人。
+        Album album = requireOwnedAlbum(albumMapper.selectById(albumId), userId);
+        List<UUID> ids = request.momentIds().stream().distinct().toList();
+        // 2. 仅移出当前时光的匹配有效关联，已移出和不存在项自然跳过。
+        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        albumMomentMapper.removeSelectedAssociations(albumId, ids, savedAt);
+        // 3. 即使全部已完成也刷新时光修改时间，重新统计有效数量。
+        AlbumResponse response = finishAssociationChange(album, userId, savedAt);
+        log.info("已写入时光瞬间移出，albumId={}，userId={}，submittedCount={}", albumId, userId, ids.size());
+        return response;
+    }
 
     /**
      * 全量修改本人时光展示信息，在同一事务内校验封面、保存并组装响应，不改变瞬间关联。
@@ -187,6 +232,44 @@ public class AlbumService {
         log.debug("查询时光信息，albumId={}，userId={}，momentCount={}", albumId, userId, momentCount);
         // 3. 组装详情；封面失效时保留文件 ID，签名 URL 返回 null。
         return toResponse(album, coverKey, momentCount);
+    }
+
+    /**
+     * 批量分类并保存关联，保留历史记录身份和已有效关联的审计字段。
+     * @param albumId 本人有效时光 ID
+     * @param ids 非空、去重且已校验的瞬间 ID
+     * @param savedAt 本次统一 UTC 毫秒时间
+     */
+    private void addOrRestoreAssociations(UUID albumId, List<UUID> ids, LocalDateTime savedAt) {
+        // 1. 包含历史关联批量读取，按瞬间 ID 识别已有关系，避免逐项查询。
+        Map<UUID, AlbumMoment> existing = albumMomentMapper.selectIncludingDeleted(albumId, ids).stream()
+                .collect(Collectors.toMap(AlbumMoment::getMomentId, row -> row));
+        List<UUID> added = ids.stream().filter(id -> !existing.containsKey(id)).toList();
+        List<UUID> restored = ids.stream().filter(id -> existing.containsKey(id)
+                && existing.get(id).getDeletedAt() != null).toList();
+        // 2. 新关系复用批量构造及插入，历史关系清空移出时间，有效关系不写入。
+        saveMomentAssociations(albumId, added, savedAt);
+        if (!restored.isEmpty()) {
+            albumMomentMapper.restoreAssociations(albumId, restored, savedAt);
+        }
+    }
+
+    /**
+     * 保存关联调整后的修改时间并加载最新信息，不重复查询时光主记录。
+     * @param album 已确认归属的完整时光实体
+     * @param userId 当前所有者 ID
+     * @param savedAt 与关联变更一致的 UTC 时间
+     * @return 数量重新统计、封面失效时 URL 降级为 null 的完整响应
+     */
+    private AlbumResponse finishAssociationChange(Album album, UUID userId, LocalDateTime savedAt) {
+        // 1. 只更新时间；若时光已不可更新，抛出异常回滚关联变更。
+        if (albumMapper.touch(album.getId(), savedAt) == 0) {
+            throw BusinessException.notFound("ALBUM_NOT_FOUND", "时光不存在或已删除");
+        }
+        album.setUpdatedAt(savedAt);
+        // 2. 按有效本人瞬间统计，并沿用现有封面降级与签名规则。
+        long count = albumMomentMapper.countValidMoments(album.getId(), userId);
+        return toResponse(album, findCoverKey(album.getCoverFileId(), userId), count);
     }
 
     /**

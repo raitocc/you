@@ -6,6 +6,8 @@ import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.AddAlbumMomentsRequest;
+import com.you.youbackend.album.request.RemoveAlbumMomentsRequest;
 import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.common.exception.BusinessException;
@@ -168,6 +170,73 @@ class AlbumServiceTest {
         album.setOwnerUserId(UUID.randomUUID());
         assertEquals(HttpStatus.FORBIDDEN, assertThrows(BusinessException.class,
                 () -> service.deleteAlbum(id, userId)).getStatus());
+    }
+
+    @Test
+    void addsNewRestoresHistoricalAndPreservesActiveAssociations() {
+        UUID id = UUID.randomUUID(), active = UUID.randomUUID(), restored = UUID.randomUUID(), added = UUID.randomUUID();
+        Album album = album(id);
+        when(albums.selectById(id)).thenReturn(album);
+        when(albums.touch(eq(id), any())).thenReturn(1);
+        var ids = List.of(active, restored, added);
+        when(moments.selectOwnedIds(userId, ids)).thenReturn(ids);
+        AlbumMoment activeRow = new AlbumMoment(), removedRow = new AlbumMoment();
+        activeRow.setMomentId(active);
+        removedRow.setMomentId(restored);
+        removedRow.setDeletedAt(album.getCreatedAt());
+        when(associations.selectIncludingDeleted(id, ids)).thenReturn(List.of(activeRow, removedRow));
+        when(associations.countValidMoments(id, userId)).thenReturn(3L);
+        var result = service.addAlbumMoments(id, new AddAlbumMomentsRequest(List.of(active, restored, added, added)), userId);
+        assertEquals(3, result.momentCount());
+        var rows = ArgumentCaptor.forClass(List.class);
+        verify(associations).insertAssociations(rows.capture());
+        AlbumMoment inserted = (AlbumMoment) rows.getValue().get(0);
+        assertEquals(1, rows.getValue().size());
+        assertEquals(added, inserted.getMomentId());
+        verify(associations).restoreAssociations(id, List.of(restored), inserted.getCreatedAt());
+        verify(albums).touch(id, inserted.getCreatedAt());
+        verifyNoInteractions(media);
+    }
+
+    @Test
+    void rejectsWholeAdditionBeforeWritingIfAnyMomentIsInvalid() {
+        UUID id = UUID.randomUUID(), first = UUID.randomUUID(), invalid = UUID.randomUUID();
+        when(albums.selectById(id)).thenReturn(album(id));
+        when(moments.selectOwnedIds(userId, List.of(first, invalid))).thenReturn(List.of(first));
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(BusinessException.class, () -> service.addAlbumMoments(
+                id, new AddAlbumMomentsRequest(List.of(first, invalid)), userId)).getStatus());
+        verifyNoInteractions(associations, media);
+        verify(albums, never()).touch(any(), any());
+    }
+
+    @Test
+    void removalDoesNotValidateOriginalMomentsAndDeduplicatesIds() {
+        UUID id = UUID.randomUUID(), unknown = UUID.randomUUID();
+        when(albums.selectById(id)).thenReturn(album(id));
+        when(albums.touch(eq(id), any())).thenReturn(1);
+        var response = service.removeAlbumMoments(id, new RemoveAlbumMomentsRequest(List.of(unknown, unknown)), userId);
+        assertEquals(0, response.momentCount());
+        verify(associations).removeSelectedAssociations(eq(id), eq(List.of(unknown)), any());
+        verifyNoInteractions(moments, media);
+    }
+
+    @Test
+    void bothAssociationOperationsRejectMissingOrForeignAlbumsBeforeResourceAccess() {
+        UUID id = UUID.randomUUID(), moment = UUID.randomUUID();
+        var add = new AddAlbumMomentsRequest(List.of(moment));
+        var remove = new RemoveAlbumMomentsRequest(List.of(moment));
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(BusinessException.class,
+                () -> service.addAlbumMoments(id, add, userId)).getStatus());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(BusinessException.class,
+                () -> service.removeAlbumMoments(id, remove, userId)).getStatus());
+        Album foreign = album(id);
+        foreign.setOwnerUserId(UUID.randomUUID());
+        when(albums.selectById(id)).thenReturn(foreign);
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(BusinessException.class,
+                () -> service.addAlbumMoments(id, add, userId)).getStatus());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(BusinessException.class,
+                () -> service.removeAlbumMoments(id, remove, userId)).getStatus());
+        verifyNoInteractions(moments, associations, media);
     }
 
     private Album album(UUID id) {

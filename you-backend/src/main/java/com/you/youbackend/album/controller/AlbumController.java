@@ -1,6 +1,8 @@
 package com.you.youbackend.album.controller;
 
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.AddAlbumMomentsRequest;
+import com.you.youbackend.album.request.RemoveAlbumMomentsRequest;
 import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.response.AlbumResponse;
 import com.you.youbackend.album.response.AlbumListItem;
@@ -37,6 +39,38 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AlbumController {
     private final AlbumService albumService;
+
+    /** 批量添加本人时光中的瞬间，关联和时光修改时间在同一事务中保存。 */
+    @Operation(summary = "批量添加瞬间", operationId = "07_add_album_moments")
+    @ApiResponse(responseCode = "200", description = "操作成功，返回最新时光信息")
+    @ApiResponse(responseCode = "400", description = "时光 ID 或瞬间参数无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是时光所有者")
+    @ApiResponse(responseCode = "404", description = "时光不存在或已删除")
+    @PostMapping(value = "/{albumId}/moments", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Result<AlbumResponse> addAlbumMoments(
+            @Parameter(description = "时光 UUID") @PathVariable UUID albumId,
+            @Valid @RequestBody AddAlbumMomentsRequest request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 从认证上下文取得用户，委托业务层校验权限并完成批量关联维护。
+        return Result.ok(albumService.addAlbumMoments(albumId, request, userId));
+    }
+
+    /** 批量移出本人时光中的瞬间，关联和时光修改时间在同一事务中保存。 */
+    @Operation(summary = "批量移出瞬间", operationId = "08_remove_album_moments")
+    @ApiResponse(responseCode = "200", description = "操作成功，返回最新时光信息")
+    @ApiResponse(responseCode = "400", description = "时光 ID 或瞬间参数无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是时光所有者")
+    @ApiResponse(responseCode = "404", description = "时光不存在或已删除")
+    @PostMapping(value = "/{albumId}/moments/remove", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Result<AlbumResponse> removeAlbumMoments(
+            @Parameter(description = "时光 UUID") @PathVariable UUID albumId,
+            @Valid @RequestBody RemoveAlbumMomentsRequest request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 从认证上下文取得用户，委托业务层校验权限并完成批量关联维护。
+        return Result.ok(albumService.removeAlbumMoments(albumId, request, userId));
+    }
 
     /** 全量修改本人时光展示信息，介绍和封面显式传 null 时清空。 */
     @Operation(summary = "修改时光信息", operationId = "04_update_album")

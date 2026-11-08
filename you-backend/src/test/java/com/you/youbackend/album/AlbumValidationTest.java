@@ -2,6 +2,8 @@ package com.you.youbackend.album;
 
 import com.you.youbackend.album.controller.AlbumController;
 import com.you.youbackend.album.request.CreateAlbumRequest;
+import com.you.youbackend.album.request.AddAlbumMomentsRequest;
+import com.you.youbackend.album.request.RemoveAlbumMomentsRequest;
 import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
@@ -99,5 +101,29 @@ class AlbumValidationTest {
         mvc.perform(delete("/albums/bad").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId))
                 .andExpect(status().isBadRequest());
         verifyNoMoreInteractions(service);
+    }
+    @Test
+    void validatesBothBatchRequestsAndBindsUuidArrays() throws Exception {
+        UUID id = UUID.randomUUID(), moment = UUID.randomUUID();
+        for (String suffix : List.of("", "/remove")) {
+            String url = "/albums/" + id + "/moments" + suffix;
+            for (String body : List.of("{}", "{\"momentIds\":null}", "{\"momentIds\":[]}",
+                    "{\"momentIds\":[null]}", "{\"momentIds\":[\"bad\"]}")) {
+                mvc.perform(post(url).requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
+                        .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+            }
+            mvc.perform(post("/albums/bad/moments" + suffix).requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"momentIds\":[\"" + moment + "\"]}"))
+                    .andExpect(status().isBadRequest());
+        }
+        verifyNoInteractions(service);
+        for (String suffix : List.of("", "/remove")) {
+            mvc.perform(post("/albums/" + id + "/moments" + suffix)
+                    .requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"momentIds\":[\"" + moment + "\"]}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("code").value("SUCCESS"));
+        }
+        verify(service).addAlbumMoments(id, new AddAlbumMomentsRequest(List.of(moment)), userId);
+        verify(service).removeAlbumMoments(id, new RemoveAlbumMomentsRequest(List.of(moment)), userId);
     }
 }

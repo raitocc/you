@@ -6,6 +6,7 @@ import com.you.youbackend.album.entity.AlbumMoment;
 import com.you.youbackend.album.model.AlbumMomentCount;
 import com.you.youbackend.moment.entity.Moment;
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -17,6 +18,50 @@ import java.time.LocalDateTime;
 /** 时光瞬间关联的批量写入和有效数量查询。 */
 @Mapper
 public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
+    /**
+     * 批量读取候选关联，包含已移出记录，用于区分新增、保留与恢复。
+     * @param albumId 本人有效时光 ID
+     * @param momentIds 非空且已去重的瞬间 ID
+     * @return 完整历史及有效关联
+     */
+    @Select("""
+            <script>
+            SELECT * FROM album_moment WHERE album_id = #{albumId} AND moment_id IN
+            <foreach collection="momentIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<AlbumMoment> selectIncludingDeleted(@Param("albumId") UUID albumId,
+                                            @Param("momentIds") List<UUID> momentIds);
+
+    /**
+     * 恢复当前时光中的历史关联，保留原 ID 和创建时间；自定义 SQL 绕过逻辑删除过滤。
+     * @param albumId 本人有效时光 ID
+     * @param momentIds 非空的待恢复瞬间 ID
+     * @param savedAt 本次统一 UTC 时间
+     */
+    @Update("""
+            <script>
+            UPDATE album_moment SET deleted_at = NULL, updated_at = #{savedAt}
+            WHERE album_id = #{albumId} AND deleted_at IS NOT NULL AND moment_id IN
+            <foreach collection="momentIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    void restoreAssociations(@Param("albumId") UUID albumId, @Param("momentIds") List<UUID> momentIds,
+                             @Param("savedAt") LocalDateTime savedAt);
+
+    /**
+     * 移出当前时光内指定的有效关联，未加入及已移出项跳过。
+     * @param albumId 本人有效时光 ID
+     * @param momentIds 非空且已去重的瞬间 ID
+     * @param savedAt 本次统一 UTC 时间
+     */
+    default void removeSelectedAssociations(UUID albumId, List<UUID> momentIds, LocalDateTime savedAt) {
+        // 仅更新当前时光中的有效关联，保留原瞬间及其他时光关系。
+        update(Wrappers.<AlbumMoment>lambdaUpdate().eq(AlbumMoment::getAlbumId, albumId)
+                .in(AlbumMoment::getMomentId, momentIds)
+                .set(AlbumMoment::getDeletedAt, savedAt).set(AlbumMoment::getUpdatedAt, savedAt));
+    }
+
     /**
      * 批量解除指定时光的全部有效关联，原瞬间和其他时光的关联保留。
      * @param albumId 已校验归属的时光 ID

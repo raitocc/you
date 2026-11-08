@@ -6,6 +6,7 @@ import '../../../../core/network/api_client.dart';
 import '../../../../shared/ui/page_state.dart';
 import '../viewmodels/album_viewmodels.dart';
 import '../widgets/album_cover.dart';
+import '../widgets/album_moments_sheet.dart';
 import '../../../moment/presentation/widgets/moment_card.dart';
 import '../../../moment/models/moment_mood.dart';
 
@@ -78,11 +79,19 @@ class AlbumDetailPage extends ConsumerWidget {
             onSelected: (action) {
               if (action == 'edit') {
                 context.push('/albums/$id/edit');
+              } else if (action == 'add' || action == 'remove') {
+                showAlbumMomentsSheet(
+                  context,
+                  id: id,
+                  removing: action == 'remove',
+                );
               } else {
                 delete();
               }
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'add', child: Text('批量添加瞬间')),
+              PopupMenuItem(value: 'remove', child: Text('批量移出瞬间')),
               PopupMenuItem(value: 'edit', child: Text('修改时光信息')),
               PopupMenuItem(value: 'delete', child: Text('删除时光')),
             ],
