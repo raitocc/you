@@ -18,6 +18,19 @@ import java.time.LocalDateTime;
 @Mapper
 public interface MomentTagMapper extends BaseMapper<MomentTag> {
     /**
+     * 批量读取本页瞬间的有效标签，只投影分组所需字段，保持每条瞬间内的标签顺序稳定。
+     * @param momentIds 本页实际返回的非空瞬间 ID 集合
+     * @return 仅含 momentId、tagName 的投影，不能作为完整实体继续持久化
+     */
+    default List<MomentTag> selectPageTags(List<UUID> momentIds) {
+        // 一次读取本页全部有效标签，按瞬间分组并沿用详情的创建时间、ID 顺序。
+        return selectList(Wrappers.<MomentTag>lambdaQuery()
+                .select(MomentTag::getMomentId, MomentTag::getTagName)
+                .in(MomentTag::getMomentId, momentIds)
+                .orderByAsc(MomentTag::getMomentId, MomentTag::getCreatedAt, MomentTag::getId));
+    }
+
+    /**
      * 软删除瞬间的有效标签关联，同步更新修改时间，保留历史记录。
      *
      * @param momentId 瞬间 ID

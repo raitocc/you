@@ -16,8 +16,8 @@ import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.http.MediaType;
+import com.you.youbackend.common.request.PageQueryArgumentResolver;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -31,10 +31,10 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** 验证 JSON 泛型游标绑定、分页参数约束及多查一条生成下一页边界的行为。 */
+/** 验证 GET 泛型游标绑定、分页参数约束及多查一条生成下一页边界的行为。 */
 class MomentPaginationTest {
     private final UUID userId = UUID.randomUUID();
     private final UUID momentId = UUID.fromString("019a0000-0000-7000-8000-000000000001");
@@ -45,59 +45,54 @@ class MomentPaginationTest {
     @BeforeEach
     void setup() {
         mvc = MockMvcBuilders.standaloneSetup(new MomentController(service))
-                .setControllerAdvice(new GlobalExceptionHandler()).build();
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .setCustomArgumentResolvers(new PageQueryArgumentResolver(new JsonMapper())).build();
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void firstPageDefaultsLimitAndReturnsEmptyPage() throws Exception {
+        // 首屏不提供查询参数，解析器构造无游标、默认数量的分页请求。
         when(service.browseYours(eq(userId), any())).thenReturn(new ResultPage<>(List.of(), null, false));
-        mvc.perform(post("/moments/yours").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
-                .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("data.items").isEmpty())
-                .andExpect(jsonPath("data.hasMore").value(false));
-        ArgumentCaptor<PageRequest<MomentFeedCursor>> capture = ArgumentCaptor.forClass(PageRequest.class);
-        verify(service).browseYours(eq(userId), capture.capture());
-        assertNull(capture.getValue().cursor());
-        assertEquals(PageRequest.DEFAULT_LIMIT, capture.getValue().limit());
+        mvc.perform(get("/moments/yours").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId))
+                .andExpect(status().isOk()).andExpect(jsonPath("data.items").isEmpty());
+        verify(service).browseYours(userId, new PageRequest<>(null, 20));
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void bindsConcreteCursorAndReturnsStructuredNextCursor() throws Exception {
+        // 查询参数构造真正的泛型游标，带时区时间转换为 UTC。
         var cursor = new MomentFeedCursor(time, momentId);
         when(service.browseYours(eq(userId), any())).thenReturn(new ResultPage<>(List.of(), cursor, true));
-        mvc.perform(post("/moments/yours").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
-                .contentType(MediaType.APPLICATION_JSON).content("""
-                    {"cursor":{"memoryTime":"2026-01-01T08:00:00+08:00","id":"%s"},"limit":10}
-                    """.formatted(momentId)))
+        mvc.perform(get("/moments/yours").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
+                .param("cursor.memoryTime", "2026-01-01T08:00:00+08:00")
+                .param("cursor.id", momentId.toString()).param("limit", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("data.nextCursor.memoryTime").value(time.toString()))
-                .andExpect(jsonPath("data.nextCursor.id").value(momentId.toString()))
-                .andExpect(jsonPath("data.hasMore").value(true));
-        ArgumentCaptor<PageRequest<MomentFeedCursor>> capture = ArgumentCaptor.forClass(PageRequest.class);
-        verify(service).browseYours(eq(userId), capture.capture());
-        assertEquals(cursor, capture.getValue().cursor());
-        assertEquals(10, capture.getValue().limit());
+                .andExpect(jsonPath("data.nextCursor.id").value(momentId.toString()));
+        verify(service).browseYours(userId, new PageRequest<>(cursor, 10));
     }
 
     @Test
     void rejectsInvalidPageSizeAndIncompleteCursor() throws Exception {
-        for (String body : new String[]{"{\"limit\":0}", "{\"limit\":101}",
-                "{\"cursor\":{}}", "{\"cursor\":{\"memoryTime\":\"2026-01-01T00:00:00Z\"}}",
-                "{\"cursor\":{\"memoryTime\":\"2026-01-01T00:00:00Z\",\"id\":\"" + UUID.randomUUID() + "\"}}"}) {
-            mvc.perform(post("/moments/yours").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
-                    .contentType(MediaType.APPLICATION_JSON).content(body))
+        // 分页范围、内层必填字段和 UUIDv7 约束在进入业务层之前执行。
+        for (String limit : List.of("0", "101", "bad")) {
+            mvc.perform(get("/moments/yours").param("limit", limit))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("INVALID_ARGUMENT"));
+        }
+        mvc.perform(get("/moments/yours").param("cursor.memoryTime", time.toString()))
+                .andExpect(status().isBadRequest());
+        for (String invalid : List.of("bad", UUID.randomUUID().toString())) {
+            mvc.perform(get("/moments/yours").param("cursor.memoryTime", time.toString()).param("cursor.id", invalid))
+                    .andExpect(status().isBadRequest());
         }
         verifyNoInteractions(service);
     }
 
     @Test
     void rejectsOldStringCursor() throws Exception {
-        mvc.perform(post("/moments/yours").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"cursor\":\"old-base64-cursor\"}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("INVALID_REQUEST_BODY"));
+        // 字符串游标不应被忽略后错误地退回首屏。
+        mvc.perform(get("/moments/yours").param("cursor", "old-base64-cursor"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("INVALID_ARGUMENT"));
         verifyNoInteractions(service);
     }
 

@@ -8,6 +8,15 @@ import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
 import com.you.youbackend.album.response.AlbumResponse;
+import com.you.youbackend.album.response.AlbumListItem;
+import com.you.youbackend.album.model.AlbumListCursor;
+import com.you.youbackend.album.model.AlbumMomentCursor;
+import com.you.youbackend.album.model.AlbumMomentCount;
+import com.you.youbackend.common.request.PageRequest;
+import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.moment.entity.Moment;
+import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.mapper.MomentMapper;
@@ -17,10 +26,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.DateTimeException;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /** 时光创建、访问权限和信息查询。 */
 @Log4j2
@@ -31,6 +45,61 @@ public class AlbumService {
     private final AlbumMomentMapper albumMomentMapper;
     private final MomentMapper momentMapper;
     private final MediaService mediaService;
+    private final MomentService momentService;
+
+    /**
+     * 分页浏览本人时光：按创建时间、ID 倒序读取，批量统计数量和加载封面，空时光正常返回。
+     * @param userId 当前登录用户 ID
+     * @param request 已校验分页请求，游标为 null 时读取首屏
+     * @return 卡片及结构化游标，末页和空页的 nextCursor 为 null
+     */
+    @Transactional(readOnly = true)
+    public ResultPage<AlbumListItem, AlbumListCursor> browseAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
+        // 1. 按结构化边界读取页大小加一条时光，额外记录只用于判断下一页。
+        List<Album> rows = queryAlbums(userId, request);
+        if (rows.isEmpty()) {
+            log.debug("浏览本人时光，userId={}，itemCount=0，hasMore=false", userId);
+            return new ResultPage<>(List.of(), null, false);
+        }
+        boolean hasMore = rows.size() > request.limit();
+        List<Album> page = rows.subList(0, Math.min(rows.size(), request.limit()));
+        // 2. 仅为实际返回的本页时光批量统计有效瞬间和查询封面文件。
+        List<AlbumListItem> items = loadAlbumItems(page, userId);
+        // 3. 用最后一条实际返回记录生成下一页位置，空时光和失效封面不影响分页。
+        Album last = page.get(page.size() - 1);
+        AlbumListCursor next = hasMore ? new AlbumListCursor(last.getCreatedAt().toInstant(ZoneOffset.UTC), last.getId()) : null;
+        log.debug("浏览本人时光，userId={}，itemCount={}，hasMore={}", userId, items.size(), hasMore);
+        return new ResultPage<>(items, next, hasMore);
+    }
+
+    /**
+     * 浏览本人时光线：先校验时光归属，再按发生时间、发布时间、ID 正序分页，批量加载详情。
+     * @param albumId 时光 ID，不存在或已删除返回 404，非本人返回 403
+     * @param userId 当前登录用户 ID
+     * @param request 已校验的分页请求，结构化游标为 null 时从最早瞬间开始
+     * @return 与当前瞬间详情一致的响应和下一页游标，排除失效关联及无效瞬间
+     */
+    @Transactional(readOnly = true)
+    public ResultPage<MomentResponse, AlbumMomentCursor> browseAlbumMoments(
+            UUID albumId, UUID userId, PageRequest<AlbumMomentCursor> request) {
+        // 1. 每次分页均检查时光存在和归属，通过后才能查询关联瞬间。
+        requireOwnedAlbum(albumMapper.selectById(albumId), userId);
+        List<Moment> rows = queryTimeline(albumId, userId, request);
+        if (rows.isEmpty()) {
+            log.debug("浏览时光瞬间，albumId={}，userId={}，itemCount=0，hasMore=false", albumId, userId);
+            return new ResultPage<>(List.of(), null, false);
+        }
+        // 2. 裁剪用于判断下一页的额外记录，批量加载实际页的完整图片及标签。
+        boolean hasMore = rows.size() > request.limit();
+        List<Moment> page = rows.subList(0, Math.min(rows.size(), request.limit()));
+        List<MomentResponse> items = momentService.loadOwnedResponses(page, userId);
+        // 3. 三个排序字段共同确定位置，同一发生时间、发布时间的瞬间也不重不漏。
+        Moment last = page.get(page.size() - 1);
+        AlbumMomentCursor next = hasMore ? new AlbumMomentCursor(last.getMemoryTime().toInstant(ZoneOffset.UTC),
+                last.getCreatedAt().toInstant(ZoneOffset.UTC), last.getId()) : null;
+        log.debug("浏览时光瞬间，albumId={}，userId={}，itemCount={}，hasMore={}", albumId, userId, items.size(), hasMore);
+        return new ResultPage<>(items, next, hasMore);
+    }
 
     /**
      * 手动创建时光：整理瞬间 ID，校验封面及所有瞬间，再保存主记录和批量关联，返回信息。
@@ -76,6 +145,87 @@ public class AlbumService {
         log.debug("查询时光信息，albumId={}，userId={}，momentCount={}", albumId, userId, momentCount);
         // 3. 组装详情；封面失效时保留文件 ID，签名 URL 返回 null。
         return toResponse(album, coverKey, momentCount);
+    }
+
+    /**
+     * 查询本人时光页，将游标时间转换为数据库 UTC 毫秒时间。
+     * @param userId 当前用户 ID
+     * @param request 已通过字段校验的分页请求
+     * @return 最多页大小加一条的完整时光实体
+     */
+    private List<Album> queryAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
+        // 首屏不附加边界，后续使用游标的排序位置，无需读取游标对应记录。
+        AlbumListCursor cursor = request.cursor();
+        return albumMapper.selectPageRows(userId, cursor == null ? null : toCursorTime(cursor.createdAt()),
+                cursor == null ? null : cursor.id(), request.limit() + 1);
+    }
+
+    /**
+     * 查询有效时光线页，转换成组时间边界。
+     * @param albumId 已校验存在及归属的时光 ID
+     * @param userId 当前用户 ID
+     * @param request 已通过字段校验的分页请求
+     * @return 最多页大小加一条的完整瞬间实体
+     */
+    private List<Moment> queryTimeline(UUID albumId, UUID userId, PageRequest<AlbumMomentCursor> request) {
+        // 三字段游标成组传递，首屏全部为空，由 Mapper 应用一致的正序边界。
+        AlbumMomentCursor cursor = request.cursor();
+        return albumMomentMapper.selectTimeline(albumId, userId,
+                cursor == null ? null : toCursorTime(cursor.memoryTime()),
+                cursor == null ? null : toCursorTime(cursor.createdAt()),
+                cursor == null ? null : cursor.id(), request.limit() + 1);
+    }
+
+    /**
+     * 转换游标时间，超出 MySQL DATETIME 年份范围返回 400。
+     * @param value 已由请求边界解析且保证非空的时间点
+     * @return UTC 毫秒精度的数据库时间
+     */
+    private LocalDateTime toCursorTime(Instant value) {
+        // 先验证数据库可表示范围，避免客户端构造极端时间触发数据库异常。
+        try {
+            LocalDateTime time = LocalDateTime.ofInstant(value, ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+            if (time.getYear() >= 1000 && time.getYear() <= 9999) {
+                return time;
+            }
+        } catch (DateTimeException exception) {
+            throw BusinessException.invalidArgument("游标时间超出可查询范围");
+        }
+        throw BusinessException.invalidArgument("游标时间超出可查询范围");
+    }
+
+    /**
+     * 批量加载本页卡片所需数量和封面，保持原分页顺序。
+     * @param page 实际返回的非空完整时光列表，已按当前用户筛选
+     * @param userId 当前所有者 ID
+     * @return 空时光数量补 0、失效封面 URL 为 null 的卡片列表
+     */
+    private List<AlbumListItem> loadAlbumItems(List<Album> page, UUID userId) {
+        // 1. 一次统计本页全部有效本人瞬间数量，避免逐个时光查库。
+        Map<UUID, Long> counts = albumMomentMapper.countValidMomentsByAlbum(
+                page.stream().map(Album::getId).toList(), userId).stream()
+                .collect(Collectors.toMap(AlbumMomentCount::albumId, AlbumMomentCount::momentCount));
+        // 2. 合并非空封面 ID 后批量校验文件，未就绪、非本人和已删除文件不会返回对象键。
+        Map<UUID, String> coverKeys = mediaService.findOwnedImageKeys(userId,
+                page.stream().map(Album::getCoverFileId).filter(Objects::nonNull).distinct().toList());
+        // 3. 按原顺序组装卡片；没有统计行的空时光补 0。
+        return page.stream().map(album -> toListItem(album,
+                album.getCoverFileId() == null ? null : coverKeys.get(album.getCoverFileId()),
+                counts.getOrDefault(album.getId(), 0L))).toList();
+    }
+
+    /**
+     * 组装本页时光卡片，不访问数据库。
+     * @param album 本人有效时光的完整实体
+     * @param coverKey 已校验的封面对象键，无封面或失效时为空
+     * @param momentCount 有效本人瞬间数量，统计缺失由调用方补 0
+     * @return 附带封面签名 URL 和 UTC 时间的卡片
+     */
+    private AlbumListItem toListItem(Album album, String coverKey, long momentCount) {
+        // 有效封面按当前媒体规则签名，无封面或失效时返回 null，时间统一转换为 UTC。
+        String coverUrl = coverKey == null ? null : mediaService.createReadUrl(coverKey);
+        return new AlbumListItem(album.getId(), album.getName(), coverUrl, momentCount, album.getOrganizeMode(),
+                album.getCreatedAt().toInstant(ZoneOffset.UTC), album.getUpdatedAt().toInstant(ZoneOffset.UTC));
     }
 
     /**

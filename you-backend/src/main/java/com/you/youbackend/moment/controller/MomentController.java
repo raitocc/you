@@ -2,6 +2,7 @@ package com.you.youbackend.moment.controller;
 
 import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.common.request.PageRequest;
+import com.you.youbackend.common.request.PageQuery;
 import com.you.youbackend.common.response.Result;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.moment.model.MomentFeedCursor;
@@ -13,6 +14,8 @@ import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -35,18 +38,25 @@ public class MomentController {
     private final MomentService momentService;
 
     /**
-     * 浏览本人瞬间，首屏传空对象，后续提交上次返回的结构化游标。
-     * TODO：同步前端和 Apifox 接口契约：GET /moments/yours 改为 POST /moments/yours；
-     * 请求改为 JSON {cursor: {memoryTime, id}, limit}，响应 nextCursor 改为同结构对象，末页为 null。
+     * 浏览本人瞬间，首屏省略游标，后续将 nextCursor 展开为 cursor.字段名 查询参数。
      */
     @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentYours")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "分页参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
-    @PostMapping(path = "/yours", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Parameters({
+            @Parameter(name = "limit", in = ParameterIn.QUERY, description = "每页数量，默认 20",
+                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
+            @Parameter(name = "cursor.memoryTime", in = ParameterIn.QUERY, description = "上一页最后一条记录的发生时间；首屏省略",
+                    schema = @Schema(type = "string", format = "date-time")),
+            @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "与游标时间成组提供的 UUIDv7；首屏省略",
+                    schema = @Schema(type = "string", format = "uuid"))
+    })
+    @GetMapping("/yours")
     public Result<ResultPage<MomentFeedItem, MomentFeedCursor>> browseYours(
-            @Valid @RequestBody PageRequest<MomentFeedCursor> request,
+            @Parameter(hidden = true) @PageQuery PageRequest<MomentFeedCursor> request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 参数解析器已完成分页转换和校验，委托业务层读取当前用户的瞬间流。
         return Result.ok(momentService.browseYours(userId, request));
     }
 

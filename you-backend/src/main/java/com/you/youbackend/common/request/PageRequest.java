@@ -8,8 +8,8 @@ import jakarta.validation.constraints.Min;
 /**
  * 通用游标分页请求，C 为各业务自己的游标类型。
  *
- * <p>首屏省略 cursor 或传 null；后续将上次响应的 nextCursor 对象原样传回。
- * Controller 通过 @Valid 触发 limit 校验，并级联校验具体游标中的字段。</p>
+ * <p>GET 首屏省略游标；后续将 nextCursor 展开为 cursor.字段名 查询参数。
+ * Controller 通过 @PageQuery 完成具体泛型绑定、limit 校验和游标字段级联校验。</p>
  *
  * @param cursor 分页边界，null 表示首屏
  * @param limit 每页数量，省略或传 null 时使用默认值 20，范围 1～100
@@ -29,7 +29,7 @@ public record PageRequest<C>(
     public static final int DEFAULT_LIMIT = 20;
     public static final int MAX_LIMIT = 100;
 
-    /** JSON 未提供数量或显式传 null 时，在构造请求对象时统一补上默认值。 */
+    /** 未提供数量时，在构造请求对象时统一补上默认值。 */
     public PageRequest {
         limit = (limit == null) ? DEFAULT_LIMIT : limit;
     }

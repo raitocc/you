@@ -53,6 +53,37 @@ public class MomentService {
     private final MediaService mediaService;
 
     /**
+     * 为业务列表批量加载本人瞬间的图片和标签，复用详情响应及其图片失效处理规则。
+     * 原有 getMoment 是单条详情入口，逐条调用会重复查询瞬间主记录、图片、标签。loadOwnedResponses 直接使用已经查出的主记录，只批量补齐关联数据。
+     * @param page 调用方已筛选本人且未删除的完整瞬间实体，列表顺序即响应顺序，允许为空
+     * @param userId 当前用户 ID，作为媒体文件归属查询依据
+     * @return 与输入顺序一致的完整详情列表；不逐条查询瞬间详情
+     */
+    @Transactional(readOnly = true)
+    public List<MomentResponse> loadOwnedResponses(List<Moment> page, UUID userId) {
+        // 1. 调用方已在查询中限定本人有效瞬间，空页不访问关联表。
+        if (page.isEmpty()) {
+            return List.of();
+        }
+        // 2. 批量加载图片关联和有效媒体对象键，保留每条瞬间的图片展示顺序。
+        List<UUID> ids = page.stream().map(Moment::getId).toList();
+        List<MomentImage> images = momentImageMapper.selectFeedImages(ids);
+        Map<UUID, String> imageKeys = mediaService.findOwnedImageKeys(userId,
+                images.stream().map(MomentImage::getFileId).distinct().toList());
+        Map<UUID, List<UUID>> fileIdsByMoment = images.stream()
+                .filter(image -> imageKeys.containsKey(image.getFileId()))
+                .collect(Collectors.groupingBy(MomentImage::getMomentId,
+                        Collectors.mapping(MomentImage::getFileId, Collectors.toList())));
+        // 3. 批量加载标签并按瞬间分组，使用与单条详情相同的转换方法组装响应。
+        Map<UUID, List<String>> tagsByMoment = momentTagMapper.selectPageTags(ids).stream()
+                .collect(Collectors.groupingBy(MomentTag::getMomentId,
+                        Collectors.mapping(MomentTag::getTagName, Collectors.toList())));
+        return page.stream().map(moment -> toResponse(moment,
+                toImageResponses(fileIdsByMoment.getOrDefault(moment.getId(), List.of()), imageKeys),
+                tagsByMoment.getOrDefault(moment.getId(), List.of()))).toList();
+    }
+
+    /**
      * 分页浏览本人瞬间：按游标查询、批量加载有效图片、组装卡片和分页结果。
      * 按发生时间和 ID 倒序，多查一条判断下一页，额外记录不加载图片。
      * @param userId 当前登录用户 ID，查询仅限本人的有效瞬间

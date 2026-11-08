@@ -10,6 +10,7 @@ import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.mapper.MomentMapper;
+import com.you.youbackend.moment.service.MomentService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
@@ -29,7 +30,7 @@ class AlbumServiceTest {
     private final AlbumMomentMapper associations = mock(AlbumMomentMapper.class);
     private final MomentMapper moments = mock(MomentMapper.class);
     private final MediaService media = mock(MediaService.class);
-    private final AlbumService service = new AlbumService(albums, associations, moments, media);
+    private final AlbumService service = new AlbumService(albums, associations, moments, media, mock(MomentService.class));
     private final UUID userId = UUID.randomUUID();
 
     @Test
