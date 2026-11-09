@@ -185,6 +185,20 @@ public class MediaService {
     }
 
     /**
+     * 批量生成文件读取地址，调用方负责确认每个文件的业务读取资格。
+     * @param fileIds 已授权展示的文件 ID 集合，允许为空
+     * @return 有效文件 ID 到签名 URL 的映射，文件失效时省略该项
+     */
+    public Map<UUID, String> getReadUrls(Collection<UUID> fileIds) {
+        // 一次读取对象键后本地计算签名，空集合直接返回。
+        if (fileIds.isEmpty()) {
+            return Map.of();
+        }
+        return mediaFileMapper.selectStorageKeys(fileIds).stream()
+                .collect(Collectors.toMap(MediaFile::getId, file -> createReadUrl(file.getStorageKey())));
+    }
+
+    /**
      * 处理 RustFS 上传事件，检查并登记文件元数据。
      */
     @Transactional

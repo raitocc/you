@@ -10,6 +10,7 @@ import com.you.youbackend.user.request.LoginRequest;
 import com.you.youbackend.user.request.RegisterRequest;
 import com.you.youbackend.user.request.UpdateProfileRequest;
 import com.you.youbackend.user.response.LoginResponse;
+import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.response.UserResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -23,6 +24,10 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -141,6 +146,46 @@ public class UserService {
         }
 
         return toUserResponse(user);
+    }
+
+    /**
+     * 查询有效用户的公开资料，供同行等业务展示成员身份。
+     * @param userId 用户 ID，调用方负责判断具体业务中的访问资格
+     * @return 用户 ID、昵称及头像临时签名 URL
+     * @throws BusinessException 账号不存在或已注销时返回 401
+     */
+    public PublicUserResponse getPublicUser(UUID userId) {
+        // 1. 复用有效用户查询，软删除记录由全局配置过滤。
+        AppUser user = findUserById(userId);
+        if (user == null) {
+            log.warn("读取用户公开资料被拒绝，userId={}，reason=账号不存在或已删除", userId);
+            throw BusinessException.unauthorized("账号不存在或已注销，请重新登录");
+        }
+        // 2. 头像为公开资料，沿用媒体读取签名；响应只包含展示所需字段。
+        String avatarUrl = user.getAvatarFileId() == null
+                ? null
+                : mediaService.getReadUrl(user.getAvatarFileId());
+        return new PublicUserResponse(user.getId(), user.getNickname(), avatarUrl);
+    }
+
+    /**
+     * 批量加载公开资料与头像，供同行候选等列表展示。
+     * @param userIds 待展示的用户 ID 集合，允许为空
+     * @return 以用户 ID 为键的公开资料映射，未查得的用户省略
+     */
+    public Map<UUID, PublicUserResponse> getPublicUsers(Collection<UUID> userIds) {
+        // 1. 批量查询展示字段，空列表直接结束。
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        var profiles = userMapper.selectPublicProfiles(userIds);
+        // 2. 头像来自用户公开资料，批量读取文件后本地签名，避免逐项查库。
+        var avatarIds = profiles.stream().map(AppUser::getAvatarFileId)
+                .filter(Objects::nonNull).distinct().toList();
+        Map<UUID, String> avatarUrls = mediaService.getReadUrls(avatarIds);
+        return profiles.stream().collect(Collectors.toMap(AppUser::getId,
+                user -> new PublicUserResponse(user.getId(), user.getNickname(),
+                        user.getAvatarFileId() == null ? null : avatarUrls.get(user.getAvatarFileId()))));
     }
 
     /**

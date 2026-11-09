@@ -17,6 +17,17 @@ import java.util.UUID;
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
     /**
+     * 统计当前仍关联到同行的有效瞬间，供同行信息展示使用。
+     * @param gatheringId 已确认有效且当前用户可访问的同行 ID
+     * @return 未删除的关联瞬间数量
+     */
+    @Select("""
+            SELECT COUNT(*) FROM moment
+            WHERE gathering_id = #{gatheringId} AND deleted_at IS NULL
+            """)
+    long countByGathering(@Param("gatheringId") UUID gatheringId);
+
+    /**
      * 批量读取本人未删除瞬间的 ID，用于关联创建前校验；只投影 ID，不返回不完整实体。
      * @param userId 当前用户 ID
      * @param ids 非空且已去重的候选瞬间 ID
