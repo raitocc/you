@@ -30,7 +30,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
-/** 同行创建、邀请码加入预览与成员加入流程。 */
+/** 同行创建、成员加入与瞬间关联资格校验。 */
 @Log4j2
 @Service
 @RequiredArgsConstructor
@@ -118,6 +118,31 @@ public class GatheringService {
         ensureMembership(gathering.getId(), userId);
         // 3. 使用已加载的同行组装响应，成员写入与响应加载共同成功或回滚。
         return loadGatheringResponse(gathering);
+    }
+
+    /**
+     * 校验用户能否向指定同行关联本人瞬间，由发布等业务在写入前调用。
+     * @param gatheringId 请求中已提供的同行 ID
+     * @param userId 当前登录用户 ID
+     * @throws BusinessException 同行不存在或已解散返回 404，已结束返回 400，非有效成员返回 403
+     */
+    public void validateMomentAssociation(UUID gatheringId, UUID userId) {
+        // 1. 查询有效同行，已解散记录由全局软删除配置过滤。
+        Gathering gathering = gatheringMapper.selectById(gatheringId);
+        if (gathering == null) {
+            log.debug("关联瞬间被拒绝，gatheringId={}，userId={}，reason=同行不存在或已解散", gatheringId, userId);
+            throw BusinessException.notFound("GATHERING_NOT_FOUND", "同行不存在或已解散");
+        }
+        // 2. 同行结束后保留原有内容，停止新增关联。
+        if (gathering.getStatus() == GatheringStatus.ENDED) {
+            log.debug("关联瞬间被拒绝，gatheringId={}，userId={}，reason=同行已结束", gatheringId, userId);
+            throw BusinessException.badRequest("GATHERING_ENDED", "同行已结束，无法添加瞬间");
+        }
+        // 3. 发布资格取决于有效成员关系，邀请开关仅控制新成员加入。
+        if (!gatheringMemberMapper.isActiveMember(gatheringId, userId)) {
+            log.warn("关联瞬间被拒绝，gatheringId={}，userId={}，reason=非有效成员", gatheringId, userId);
+            throw BusinessException.forbidden("只有同行有效成员可以添加瞬间");
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ import org.springframework.security.crypto.password.Pbkdf2PasswordEncoder;
 @Configuration
 public class PasswordConfig {
 
+    // TODO 解决登录耗时 2 秒的问题
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new Pbkdf2PasswordEncoder(

@@ -13,6 +13,13 @@ import com.you.youbackend.moment.model.MomentLocation;
 import com.you.youbackend.moment.model.MomentMood;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.service.MomentService;
+import com.you.youbackend.gathering.service.GatheringService;
+import com.you.youbackend.gathering.entity.Gathering;
+import com.you.youbackend.gathering.mapper.GatheringMapper;
+import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
+import com.you.youbackend.gathering.model.GatheringStatus;
+import com.you.youbackend.user.service.UserService;
+import org.springframework.http.HttpStatus;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
@@ -35,7 +42,10 @@ class MomentCreationTest {
     private final MomentImageMapper images = mock(MomentImageMapper.class);
     private final MomentTagMapper tags = mock(MomentTagMapper.class);
     private final MediaService media = mock(MediaService.class);
-    private final MomentService service = new MomentService(moments, images, tags, media);
+    private final GatheringMapper gatherings = mock(GatheringMapper.class);
+    private final GatheringMemberMapper members = mock(GatheringMemberMapper.class);
+    private final GatheringService gatheringService = new GatheringService(gatherings, members, mock(UserService.class), moments);
+    private final MomentService service = new MomentService(moments, images, tags, media, gatheringService);
     private final UUID userId = UUID.randomUUID();
     private final UUID momentId = UuidCreator.getTimeOrderedEpoch();
     private final Instant time = Instant.parse("2026-01-01T00:00:00.123456Z");
@@ -50,7 +60,7 @@ class MomentCreationTest {
         when(tags.insertIfAbsent(any())).thenAnswer(call -> !((MomentTag) call.getArgument(0)).getTagName().equals("cat"));
         var request = new CreateMomentRequest(momentId, "   ", "正文", ids,
                 List.of(" 旅行 ", "旅行", "CAT", "cat", " "), MomentMood.HAPPY, time,
-                new MomentLocation(new BigDecimal("31.123456789"), new BigDecimal("121.987654321"), "上海", null));
+                new MomentLocation(new BigDecimal("31.123456789"), new BigDecimal("121.987654321"), "上海", null), null);
 
         var response = service.createMoment(request, userId);
 
@@ -85,7 +95,8 @@ class MomentCreationTest {
         assertTrue(response.images().isEmpty());
         assertTrue(response.tags().isEmpty());
         assertNull(response.location());
-        verifyNoInteractions(images, tags);
+        verifyNoInteractions(images, tags, gatherings, members);
+        verify(moments).insert(argThat((Moment moment) -> moment.getGatheringId() == null));
         verify(media, never()).createReadUrl(anyString());
     }
 
@@ -118,7 +129,8 @@ class MomentCreationTest {
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.createMoment(request("正文", null, time, null), userId));
         assertEquals("MOMENT_ID_CONFLICT", error.getCode());
-        verifyNoInteractions(images, tags);
+        verifyNoInteractions(images, tags, gatherings, members);
+        verify(moments).insert(argThat((Moment moment) -> moment.getGatheringId() == null));
         verify(media, never()).createReadUrl(anyString());
     }
 
@@ -133,7 +145,47 @@ class MomentCreationTest {
         verifyNoInteractions(moments, images, tags, media);
     }
 
+    @Test
+    void publishesToOngoingGatheringEvenWhenInvitationsAreClosed() {
+        UUID gatheringId = UuidCreator.getTimeOrderedEpoch();
+        Gathering gathering = new Gathering();
+        gathering.setId(gatheringId);
+        gathering.setStatus(GatheringStatus.ONGOING);
+        gathering.setInviteEnabled(false);
+        when(gatherings.selectById(gatheringId)).thenReturn(gathering);
+        when(members.isActiveMember(gatheringId, userId)).thenReturn(true);
+        when(media.findOwnedImageKeys(userId, List.of())).thenReturn(Map.of());
+
+        service.createMoment(gatheringRequest(gatheringId), userId);
+
+        verify(moments).insert(argThat((Moment moment) -> gatheringId.equals(moment.getGatheringId())));
+    }
+
+    @Test
+    void rejectsMissingEndedAndNonmemberGatheringsBeforePublishing() {
+        UUID gatheringId = UuidCreator.getTimeOrderedEpoch();
+        var request = gatheringRequest(gatheringId);
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(BusinessException.class,
+                () -> service.createMoment(request, userId)).getStatus());
+        Gathering gathering = new Gathering();
+        gathering.setId(gatheringId);
+        gathering.setStatus(GatheringStatus.ENDED);
+        when(gatherings.selectById(gatheringId)).thenReturn(gathering);
+        assertEquals("GATHERING_ENDED", assertThrows(BusinessException.class,
+                () -> service.createMoment(request, userId)).getCode());
+        verifyNoInteractions(members);
+        gathering.setStatus(GatheringStatus.ONGOING);
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(BusinessException.class,
+                () -> service.createMoment(request, userId)).getStatus());
+        verifyNoInteractions(moments, images, tags, media);
+    }
+
+    /** 构造关联同行的纯文本发布请求。 */
+    private CreateMomentRequest gatheringRequest(UUID gatheringId) {
+        return new CreateMomentRequest(momentId, null, "正文", null, null, null, time, null, gatheringId);
+    }
+
     private CreateMomentRequest request(String body, List<UUID> ids, Instant memoryTime, MomentLocation location) {
-        return new CreateMomentRequest(momentId, null, body, ids, null, null, memoryTime, location);
+        return new CreateMomentRequest(momentId, null, body, ids, null, null, memoryTime, location, null);
     }
 }

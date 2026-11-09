@@ -131,6 +131,27 @@ class MomentValidationTest {
         verifyNoInteractions(service);
     }
 
+    @Test
+    void acceptsOptionalGatheringIdAndRejectsWrongUuidVersion() throws Exception {
+        String base = json(momentId.toString(), "2026-01-01T00:00:00Z").strip();
+        String prefix = base.substring(0, base.length() - 1) + ",\"gatheringId\":";
+        for (String value : new String[]{"null", "\"" + momentId + "\""}) {
+            mvc.perform(post("/moments").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
+                            .contentType(MediaType.APPLICATION_JSON).content(prefix + value + "}"))
+                    .andExpect(status().isCreated());
+        }
+        var requests = ArgumentCaptor.forClass(CreateMomentRequest.class);
+        verify(service, times(2)).createMoment(requests.capture(), eq(userId));
+        assertNull(requests.getAllValues().get(0).gatheringId());
+        assertEquals(momentId, requests.getAllValues().get(1).gatheringId());
+        clearInvocations(service);
+        mvc.perform(post("/moments").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(prefix + "\"" + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(service);
+    }
+
     private static UUID v7(Instant time) {
         return new UUID((time.toEpochMilli() << 16) | 0x7000L, 0x8000000000000000L);
     }

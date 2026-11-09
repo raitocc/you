@@ -27,6 +27,9 @@ public class Moment {
     /** 作者用户 ID，关联 app_user.id，发布后保持不变。 */
     private UUID authorUserId;
 
+    /** 当前关联的同行 ID，可空；一条瞬间最多属于一个同行。 */
+    private UUID gatheringId;
+
     /** 标题，可空。 */
     private String title;
 

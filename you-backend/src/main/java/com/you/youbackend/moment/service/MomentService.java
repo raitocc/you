@@ -2,6 +2,7 @@ package com.you.youbackend.moment.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.media.service.MediaService;
@@ -51,6 +52,7 @@ public class MomentService {
     private final MomentImageMapper momentImageMapper;
     private final MomentTagMapper momentTagMapper;
     private final MediaService mediaService;
+    private final GatheringService gatheringService;
 
     /**
      * 为业务列表批量加载本人瞬间的图片和标签，复用详情响应及其图片失效处理规则。
@@ -113,21 +115,23 @@ public class MomentService {
      * 发布客户端草稿，关联已直传并登记就绪的本人图片，返回完整详情。
      *
      * <p>1. 校验图文至少一种及图片不重复，整理标签、发生时间和地点，批量确认图片可用。
-     * 2. 保存瞬间主记录，再按提交顺序保存图片关联、保存去重后的标签。
+     * 2. 提供同行 ID 时校验同行进行中且本人为有效成员，随主记录保存关联，再保存图片及标签。
      * 3. 生成图片临时读取地址，组装详情并记录写入日志。
      * 主记录和关联在同一事务中保存，任一步骤失败均回滚。</p>
      *
      * @param request 已由 MVC 完成 UUIDv7、字段格式及必填校验的发布请求
      * @param userId 当前登录用户 ID，作为瞬间作者和图片归属校验依据
      * @return 已保存的瞬间详情，图片顺序与提交顺序一致
-     * @throws BusinessException 图文内容不符合要求、图片不可用、发生时间超出范围，或瞬间 ID 已被使用
+     * @throws BusinessException 图文内容不符合要求、图片不可用、发生时间超出范围，或瞬间 ID 已被使用，或目标同行不可关联
      */
     @Transactional
     public MomentResponse createMoment(CreateMomentRequest request, UUID userId) {
-        // TODO（同行一期）：为 CreateMomentRequest 增加可选 UUIDv7 gatheringId；省略或 null 保持私人发布。
-        // 提供时校验目标同行有效且本人为有效成员，并在本发布事务内保存关联；与 Apifox 发布接口同步联调。
         List<UUID> fileIds = request.imageFileIds() == null ? List.of() : request.imageFileIds();
         validateContent(request.body(), fileIds);
+        // 提供目标同行时先确认关联资格，校验通过后再执行发布写入。
+        if (request.gatheringId() != null) {
+            gatheringService.validateMomentAssociation(request.gatheringId(), userId);
+        }
         List<String> tags = prepareTags(request.tags());
         MomentLocation location = normalizeLocation(request.location());
         LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
@@ -139,8 +143,8 @@ public class MomentService {
         List<String> savedTags = saveNewTags(moment.getId(), tags, savedAt);
 
         List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
-        log.info("已写入瞬间，momentId={}，userId={}，imageCount={}，tagCount={}",
-                moment.getId(), userId, images.size(), savedTags.size());
+        log.info("已写入瞬间，momentId={}，userId={}，gatheringId={}，imageCount={}，tagCount={}",
+                moment.getId(), userId, moment.getGatheringId(), images.size(), savedTags.size());
         return toResponse(moment, images, savedTags);
     }
 
@@ -450,6 +454,7 @@ public class MomentService {
         Moment moment = new Moment();
         moment.setId(request.id());
         moment.setAuthorUserId(userId);
+        moment.setGatheringId(request.gatheringId());
         moment.setTitle(StringUtils.hasText(request.title()) ? request.title() : null);
         moment.setBody(request.body());
         moment.setMood(request.mood());

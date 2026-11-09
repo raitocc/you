@@ -24,6 +24,7 @@ import java.util.UUID;
  * @param mood 心情，省略或 null 表示未设置
  * @param memoryTime 经历实际发生时间，接收带时区的 ISO 8601 时间，保存为 UTC 毫秒时间
  * @param location 地点，省略或 null 表示未设置
+ * @param gatheringId 可选同行 UUIDv7，仅允许关联本人已加入且进行中的同行
  */
 @Schema(description = "发布瞬间请求，正文与图片至少提供一种")
 public record CreateMomentRequest(
@@ -56,5 +57,11 @@ public record CreateMomentRequest(
 
         @Schema(description = "地点，省略或 null 表示未设置", nullable = true)
         @Valid
-        MomentLocation location
+        MomentLocation location,
+
+        @Schema(description = "可选同行 UUIDv7；须为本人已加入且进行中的有效同行，省略或 null 保持私人发布",
+                format = "uuid", nullable = true)
+        @UUIDv7(checkTimestamp = false)
+        UUID gatheringId
+
 ) {}

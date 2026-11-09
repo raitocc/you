@@ -49,7 +49,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @return 瞬间实体，不存在时为 null
      */
     @Select("""
-            SELECT id, author_user_id, title, body, mood, memory_time,
+            SELECT id, author_user_id, gathering_id, title, body, mood, memory_time,
                 latitude, longitude, location_name, location_address,
                 created_at, updated_at, deleted_at
             FROM moment WHERE id = #{id}
