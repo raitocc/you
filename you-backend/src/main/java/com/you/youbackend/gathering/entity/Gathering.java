@@ -30,10 +30,12 @@ public class Gathering {
     private String description;
     /** 同行状态：1 进行中，2 已结束。 */
     private GatheringStatus status;
-    /** 是否允许通过邀请码加入，创建时开启。 */
+    /** 是否允许通过长期邀请码和面对面短码加入，创建时开启。 */
     private Boolean inviteEnabled;
     /** 系统生成的唯一长期邀请码，与面对面临时短码独立。 */
     private String inviteCode;
+    /** 首次开启的四位面对面短码；null 表示从未开启，开启后永久保留。 */
+    private String faceCode;
     /** 解散时间，UTC；null 表示有效。 */
     private LocalDateTime deletedAt;
 }

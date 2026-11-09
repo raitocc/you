@@ -4,7 +4,10 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.gathering.entity.Gathering;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -13,14 +16,33 @@ import java.util.UUID;
 @Mapper
 public interface GatheringMapper extends BaseMapper<Gathering> {
     /**
-     * 批量读取仍有效且开放邀请的同行，用于附近候选过滤。
-     * @param ids 非空且去重的候选同行 ID
-     * @return 完整同行实体，进行中和已结束采用相同加入规则
+     * 首次登记面对面短码，永久保留已有值。
+     * @param gatheringId 已确认存在且当前用户有开启权限的同行 ID
+     * @param faceCode 已校验的四位短码
+     * @param updatedAt 本次 UTC 毫秒修改时间
+     * @return 成功首次登记返回 1，已有短码或记录失效返回 0
      */
-    default List<Gathering> selectJoinableByIds(Collection<UUID> ids) {
-        // 一次过滤附近候选，已解散记录由全局逻辑删除配置过滤。
-        return selectList(Wrappers.<Gathering>lambdaQuery()
-                .in(Gathering::getId, ids).eq(Gathering::getInviteEnabled, true));
+    @Update("""
+            UPDATE gathering SET face_code = #{faceCode}, updated_at = #{updatedAt}
+            WHERE id = #{gatheringId} AND face_code IS NULL AND deleted_at IS NULL
+            """)
+    int setFaceCodeIfAbsent(@Param("gatheringId") UUID gatheringId, @Param("faceCode") String faceCode,
+                           @Param("updatedAt") LocalDateTime updatedAt);
+
+    /**
+     * 从 GEO 候选中筛出仍有效的面对面邀请。
+     * @param ids 非空的附近同行 ID 集合
+     * @param faceCode 用户输入的短码，必须与数据库永久记录一致
+     * @param createdAfter 当前时间减 10 分钟，创建时间须严格晚于此边界
+     * @return 邀请开启、短码一致且未过期的完整同行，软删除由全局配置过滤
+     */
+    default List<Gathering> selectFaceToFaceCandidates(
+            Collection<UUID> ids, String faceCode, LocalDateTime createdAfter) {
+        // 位置来自 GEO，实际短码与有效期统一按数据库记录判断。
+        return selectList(Wrappers.<Gathering>lambdaQuery().in(Gathering::getId, ids)
+                .eq(Gathering::getFaceCode, faceCode)
+                .eq(Gathering::getInviteEnabled, true)
+                .gt(Gathering::getCreatedAt, createdAfter));
     }
 
     /**

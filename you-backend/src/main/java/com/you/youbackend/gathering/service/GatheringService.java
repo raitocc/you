@@ -7,9 +7,11 @@ import com.you.youbackend.gathering.entity.GatheringMember;
 import com.you.youbackend.gathering.mapper.GatheringMapper;
 import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
 import com.you.youbackend.gathering.model.GatheringStatus;
+import com.you.youbackend.gathering.model.FaceToFaceRules;
 import com.you.youbackend.gathering.request.CreateGatheringRequest;
 import com.you.youbackend.gathering.request.GatheringJoinPreviewRequest;
 import com.you.youbackend.gathering.request.JoinGatheringRequest;
+import com.you.youbackend.gathering.request.JoinFaceToFaceRequest;
 import com.you.youbackend.gathering.response.GatheringJoinPreviewResponse;
 import com.you.youbackend.gathering.response.GatheringResponse;
 import com.you.youbackend.moment.mapper.MomentMapper;
@@ -23,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
@@ -100,22 +103,40 @@ public class GatheringService {
     }
 
     /**
-     * 面对面入口校验完成后加入指定同行，与邀请码加入共用成员维护及响应组装。
-     * @param gatheringId 调用方已校验临时入口、短码和距离的同行 ID
+     * 凭同行 ID 和短码确认加入，全部校验与成员写入在一个数据库事务内完成。
+     * <p>流程：查询并校验目标 → 新增、恢复或沿用成员关系 → 组装当前同行信息。
+     * 附近预览只帮助发现目标，本方法直接根据数据库短码、邀请开关和创建时间判断加入资格。
+     * @param request 已校验的同行 ID 与四位短码
      * @param userId 统一认证过滤器提供的用户 ID
      * @return 加入后的同行信息，重复加入保持原关系
      */
     @Transactional
-    public GatheringResponse joinFromFaceToFace(UUID gatheringId, UUID userId) {
-        // 1. 重新读取同行与邀请开关，确认目标当前仍可加入。
-        Gathering gathering = gatheringMapper.selectById(gatheringId);
-        if (gathering == null || !Boolean.TRUE.equals(gathering.getInviteEnabled())) {
-            log.debug("面对面加入目标已失效，gatheringId={}，userId={}，reason=同行已解散或邀请已关闭", gatheringId, userId);
-            throw BusinessException.notFound("GATHERING_INVITATION_UNAVAILABLE", "同行已解散或邀请已关闭");
-        }
-        // 2. 复用成员新增、恢复及最新数量响应，写入由当前事务统一管理。
-        ensureMembership(gatheringId, userId);
+    public GatheringResponse joinFromFaceToFace(JoinFaceToFaceRequest request, UUID userId) {
+        // 1. 一次查询校验目标，确认短码一致且邀请仍在有效时间内。
+        Gathering gathering = requireFaceToFaceGathering(request.gatheringId(), request.faceCode());
+        // 2. 复用成员新增与恢复规则，已有有效成员关系保持原样。
+        ensureMembership(gathering.getId(), userId);
+        // 3. 使用已加载的同行组装响应，成员写入与响应加载共同成功或回滚。
         return loadGatheringResponse(gathering);
+    }
+
+    /**
+     * 从数据库校验面对面加入资格。
+     * @param gatheringId 用户选择的同行 ID
+     * @param faceCode 用户提交的四位短码
+     * @return 短码匹配、邀请开启且创建未满 10 分钟的同行
+     */
+    private Gathering requireFaceToFaceGathering(UUID gatheringId, String faceCode) {
+        // 同行软删除由 Mapper 过滤，短码永久保存但仅在创建后 10 分钟内可用于加入。
+        Gathering gathering = gatheringMapper.selectById(gatheringId);
+        Instant now = Instant.now();
+        if (gathering == null || !Boolean.TRUE.equals(gathering.getInviteEnabled())
+                || !faceCode.equals(gathering.getFaceCode())
+                || !gathering.getCreatedAt().toInstant(ZoneOffset.UTC).plus(FaceToFaceRules.WINDOW).isAfter(now)) {
+            log.debug("面对面加入校验失败，gatheringId={}，reason=同行失效、邀请关闭、短码不匹配或已过期", gatheringId);
+            throw BusinessException.notFound("FACE_TO_FACE_INVITATION_UNAVAILABLE", "同行不可加入、短码不匹配或邀请已过期");
+        }
+        return gathering;
     }
 
     /**

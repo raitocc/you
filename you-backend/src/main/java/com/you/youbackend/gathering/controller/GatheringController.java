@@ -6,7 +6,7 @@ import com.you.youbackend.gathering.request.OpenFaceToFaceRequest;
 import com.you.youbackend.gathering.request.FaceToFacePreviewRequest;
 import com.you.youbackend.gathering.request.JoinFaceToFaceRequest;
 import com.you.youbackend.gathering.response.FaceToFaceOpenResponse;
-import com.you.youbackend.gathering.response.FaceToFaceGatheringItem;
+import com.you.youbackend.gathering.response.FaceToFaceCandidateResponse;
 import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
 import com.you.youbackend.gathering.request.CreateGatheringRequest;
 import com.you.youbackend.gathering.request.GatheringJoinPreviewRequest;
@@ -47,18 +47,19 @@ public class GatheringController {
 
     /** 创建者为创建后 10 分钟内的同行开启面对面入口。 */
     @Operation(summary = "开启面对面短码加入", operationId = "04_open_face_to_face",
-            description = "提交四位数字短码及当前位置。截止时间固定为同行创建后 10 分钟，重复开启复用原入口。")
-    @ApiResponse(responseCode = "200", description = "返回实际生效的短码与截止时间")
+            description = "创建者提交四位数字短码及发起位置。每个同行只允许成功开启一次，短码永久保存，邀请在同行创建后 10 分钟截止。")
+    @ApiResponse(responseCode = "200", description = "返回首次登记的短码与截止时间")
     @ApiResponse(responseCode = "400", description = "短码或坐标无效、邀请关闭或创建窗口已结束")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
     @ApiResponse(responseCode = "403", description = "当前用户不是创建者")
     @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
+    @ApiResponse(responseCode = "409", description = "该同行已开启过面对面邀请")
     @PostMapping(value = "/{gatheringId}/face-to-face", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Result<FaceToFaceOpenResponse> openFaceToFace(
             @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
             @Valid @RequestBody OpenFaceToFaceRequest request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        // 开启权限、时间窗口及 Redis 入口写入由面对面业务层处理。
+        // 业务层首次登记数据库短码，并将发起位置写入 GEO。
         return Result.ok(faceToFaceService.open(gatheringId, request, userId));
     }
 
@@ -69,26 +70,26 @@ public class GatheringController {
     @ApiResponse(responseCode = "400", description = "短码或坐标无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
     @GetMapping("/face-to-face/join-preview")
-    public Result<List<FaceToFaceGatheringItem>> previewFaceToFace(
+    public Result<List<FaceToFaceCandidateResponse>> previewFaceToFace(
             @Valid @ModelAttribute @ParameterObject FaceToFacePreviewRequest request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         // 查询阶段只返回附近候选，成员关系在确认加入时建立。
         return Result.ok(faceToFaceService.preview(request, userId));
     }
 
-    /** 用户选择目标后，通过短码和当前坐标确认加入。 */
+    /** 用户选择目标后，凭同行 ID 和短码确认加入。 */
     @Operation(summary = "通过面对面短码确认加入", operationId = "06_join_face_to_face",
-            description = "提交候选中的同行 ID、短码及当前位置，重新校验 100 米距离、入口期限与邀请开关，再建立或恢复成员关系。")
+            description = "提交同行 ID 和短码，按数据库记录校验短码、创建后 10 分钟有效期及邀请开关，再建立或恢复成员关系。")
     @ApiResponse(responseCode = "200", description = "加入成功或已是有效成员，返回同行信息")
-    @ApiResponse(responseCode = "400", description = "同行 ID、短码或坐标无效")
+    @ApiResponse(responseCode = "400", description = "同行 ID 或短码无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
-    @ApiResponse(responseCode = "404", description = "入口过期、超出范围、短码不匹配或目标同行不可加入")
+    @ApiResponse(responseCode = "404", description = "邀请过期、短码不匹配或目标同行不可加入")
     @PostMapping(value = "/face-to-face/join", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Result<GatheringResponse> joinFaceToFace(
             @Valid @RequestBody JoinFaceToFaceRequest request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         // 按用户选中的同行确认加入，复用现有成员维护规则。
-        return Result.ok(faceToFaceService.join(request, userId));
+        return Result.ok(gatheringService.joinFromFaceToFace(request, userId));
     }
 
     /** 根据长期邀请码展示加入目标，返回当前成员标记，供前端选择进入或确认加入。 */
