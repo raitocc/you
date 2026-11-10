@@ -30,6 +30,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.List;
+import com.you.youbackend.gathering.request.AddGatheringMomentsRequest;
+import com.you.youbackend.gathering.request.RemoveGatheringMomentsRequest;
+import com.you.youbackend.moment.mapper.MomentMapper;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,6 +47,7 @@ class GatheringDatabaseTest {
     @MockitoSpyBean private GatheringMemberMapper members;
     @Autowired private UserMapper users;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private MomentMapper moments;
     @MockitoBean private MediaService media;
 
     @Test
@@ -255,6 +260,73 @@ class GatheringDatabaseTest {
         assertEquals(created.inviteCode(), saved.getInviteCode());
         assertEquals(created.createdAt(), saved.getCreatedAt().toInstant(ZoneOffset.UTC));
         assertEquals(2, service.getGathering(created.id(), guest.getId()).memberCount());
+    }
+
+    @Test
+    @Transactional
+    void batchAssociationIsIdempotentAndRemovalKeepsOtherGatheringAndContent() {
+        // 以真实 SQL 验证三种关联状态，重复请求保持修改时间，取消仅影响指定同行。
+        AppUser owner = saveUser();
+        var target = service.createGathering(new CreateGatheringRequest("目标", null), owner.getId());
+        var other = service.createGathering(new CreateGatheringRequest("其他", null), owner.getId());
+        UUID pending = saveMoment(owner.getId(), null);
+        UUID existing = saveMoment(owner.getId(), target.id());
+        UUID elsewhere = saveMoment(owner.getId(), other.id());
+        LocalDateTime originalTime = moments.selectById(existing).getUpdatedAt();
+        service.addMoments(target.id(), new AddGatheringMomentsRequest(List.of(pending, existing, pending)), owner.getId());
+        assertEquals(target.id(), moments.selectById(pending).getGatheringId());
+        assertEquals(originalTime, moments.selectById(existing).getUpdatedAt());
+        LocalDateTime linkedAt = moments.selectById(pending).getUpdatedAt();
+        service.addMoments(target.id(), new AddGatheringMomentsRequest(List.of(pending, existing)), owner.getId());
+        assertEquals(linkedAt, moments.selectById(pending).getUpdatedAt());
+        var savedTarget = gatherings.selectById(target.id());
+        savedTarget.setStatus(GatheringStatus.ENDED);
+        gatherings.updateById(savedTarget);
+        service.removeMoments(target.id(), new RemoveGatheringMomentsRequest(List.of(pending, existing, elsewhere)), owner.getId());
+        assertNull(moments.selectById(pending).getGatheringId());
+        assertNull(moments.selectById(existing).getGatheringId());
+        assertEquals(other.id(), moments.selectById(elsewhere).getGatheringId());
+        assertEquals("原始内容", moments.selectById(pending).getBody());
+        LocalDateTime removedAt = moments.selectById(pending).getUpdatedAt();
+        service.removeMoments(target.id(), new RemoveGatheringMomentsRequest(List.of(pending, elsewhere)), owner.getId());
+        assertEquals(removedAt, moments.selectById(pending).getUpdatedAt());
+    }
+
+    @Test
+    @Transactional
+    void batchAssociationRejectsConflictsAndInvalidOwnershipWithoutPartialWrites() {
+        // 所有拒绝发生在写入之前：其他同行、其他作者、已删除及不存在记录均使整批失败。
+        AppUser owner = saveUser(), stranger = saveUser();
+        var target = service.createGathering(new CreateGatheringRequest("目标", null), owner.getId());
+        var other = service.createGathering(new CreateGatheringRequest("其他", null), owner.getId());
+        UUID pending = saveMoment(owner.getId(), null);
+        UUID elsewhere = saveMoment(owner.getId(), other.id());
+        var conflict = assertThrows(BusinessException.class, () -> service.addMoments(target.id(),
+                new AddGatheringMomentsRequest(List.of(pending, elsewhere)), owner.getId()));
+        assertEquals("MOMENT_ALREADY_ASSOCIATED", conflict.getCode());
+        assertNull(moments.selectById(pending).getGatheringId());
+        UUID foreign = saveMoment(stranger.getId(), null);
+        UUID deleted = saveMoment(owner.getId(), null);
+        moments.deleteById(deleted);
+        for (UUID invalid : List.of(foreign, deleted, UuidCreator.getTimeOrderedEpoch())) {
+            assertEquals(HttpStatus.BAD_REQUEST, assertThrows(BusinessException.class, () -> service.addMoments(target.id(),
+                    new AddGatheringMomentsRequest(List.of(pending, invalid)), owner.getId())).getStatus());
+            assertEquals(HttpStatus.BAD_REQUEST, assertThrows(BusinessException.class, () -> service.removeMoments(target.id(),
+                    new RemoveGatheringMomentsRequest(List.of(elsewhere, invalid)), owner.getId())).getStatus());
+        }
+        assertNull(moments.selectById(pending).getGatheringId());
+        assertEquals(other.id(), moments.selectById(elsewhere).getGatheringId());
+    }
+
+    /** 准备固定审计时间的瞬间，便于验证重复操作与正文保留。 */
+    private UUID saveMoment(UUID author, UUID gatheringId) {
+        UUID id = UuidCreator.getTimeOrderedEpoch();
+        LocalDateTime time = LocalDateTime.of(2026, 1, 1, 0, 0);
+        jdbc.update("""
+                INSERT INTO moment (id, author_user_id, gathering_id, body, memory_time, created_at, updated_at)
+                VALUES (?, ?, ?, '原始内容', ?, ?, ?)
+                """, bytes(id), bytes(author), gatheringId == null ? null : bytes(gatheringId), time, time, time);
+        return id;
     }
 
     /** 读取测试中的有效成员关系，便于比较恢复前后的审计字段。 */

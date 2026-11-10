@@ -13,14 +13,17 @@ import com.you.youbackend.gathering.model.GatheringCount;
 import com.you.youbackend.gathering.model.GatheringListCursor;
 import com.you.youbackend.gathering.model.GatheringMemberCursor;
 import com.you.youbackend.gathering.model.GatheringStatus;
+import com.you.youbackend.gathering.request.AddGatheringMomentsRequest;
 import com.you.youbackend.gathering.request.CreateGatheringRequest;
 import com.you.youbackend.gathering.request.GatheringJoinPreviewRequest;
 import com.you.youbackend.gathering.request.JoinFaceToFaceRequest;
 import com.you.youbackend.gathering.request.JoinGatheringRequest;
+import com.you.youbackend.gathering.request.RemoveGatheringMomentsRequest;
 import com.you.youbackend.gathering.request.UpdateGatheringRequest;
 import com.you.youbackend.gathering.response.GatheringJoinPreviewResponse;
 import com.you.youbackend.gathering.response.GatheringResponse;
 import com.you.youbackend.gathering.response.GatheringSummaryResponse;
+import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
@@ -57,6 +60,58 @@ public class GatheringService {
     private final GatheringMemberMapper gatheringMemberMapper;
     private final UserService userService;
     private final MomentMapper momentMapper;
+
+    /**
+     * 批量关联本人瞬间，整批校验与写入共同提交或回滚。
+     * @param gatheringId 进行中的目标同行 ID
+     * @param request 已通过列表及 UUIDv7 校验的请求
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void addMoments(UUID gatheringId, AddGatheringMomentsRequest request, UUID userId) {
+        // 1. 复用发布时的关联资格校验，批量加载去重后的本人有效瞬间。
+        validateMomentAssociation(gatheringId, userId);
+        List<Moment> moments = requireOwnedMoments(request.momentIds(), userId);
+        // 2. 任何其他同行关联均使整批失败，已关联当前同行的按成功处理。
+        validateNoOtherGathering(moments, gatheringId);
+        List<UUID> pendingIds = moments.stream().filter(moment -> moment.getGatheringId() == null)
+                .map(Moment::getId).toList();
+        if (pendingIds.isEmpty()) {
+            log.debug("瞬间已全部关联当前同行，gatheringId={}，userId={}，count={}", gatheringId, userId, moments.size());
+            return;
+        }
+        // 3. 只更新新增关联；条件更新与行数检查共同保证不会覆盖其他请求建立的关联。
+        LocalDateTime updatedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        int changed = momentMapper.associateGathering(userId, gatheringId, pendingIds, updatedAt);
+        if (changed != pendingIds.size()) {
+            throw BusinessException.conflict("MOMENT_ASSOCIATION_CHANGED", "瞬间关联状态已变化，请刷新后重试");
+        }
+        log.info("已写入瞬间批量关联，gatheringId={}，userId={}，count={}", gatheringId, userId, changed);
+    }
+
+    /**
+     * 批量取消本人瞬间在指定同行中的关联，允许已结束同行，重复取消成功。
+     * @param gatheringId 当前操作的同行 ID
+     * @param request 已通过列表及 UUIDv7 校验的请求
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void removeMoments(UUID gatheringId, RemoveGatheringMomentsRequest request, UUID userId) {
+        // 1. 校验有效同行及本人成员资格，整批确认瞬间有效且属于本人。
+        requireMemberGathering(gatheringId, userId);
+        List<Moment> moments = requireOwnedMoments(request.momentIds(), userId);
+        // 2. 仅筛选当前同行的关联，未关联和其他同行关联保持原样。
+        List<UUID> pendingIds = moments.stream().filter(moment -> gatheringId.equals(moment.getGatheringId()))
+                .map(Moment::getId).toList();
+        if (pendingIds.isEmpty()) {
+            log.debug("指定瞬间已移出同行，gatheringId={}，userId={}，count={}", gatheringId, userId, moments.size());
+            return;
+        }
+        // 3. 一次清空符合条件的关联，原瞬间及媒体内容保留。
+        LocalDateTime updatedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        int changed = momentMapper.removeGathering(userId, gatheringId, pendingIds, updatedAt);
+        log.info("已写入瞬间批量取消关联，gatheringId={}，userId={}，count={}", gatheringId, userId, changed);
+    }
 
     /**
      * 浏览本人已加入的有效同行，分页后批量补齐数量。
@@ -247,6 +302,38 @@ public class GatheringService {
         if (!gatheringMemberMapper.isActiveMember(gatheringId, userId)) {
             log.warn("关联瞬间被拒绝，gatheringId={}，userId={}，reason=非有效成员", gatheringId, userId);
             throw BusinessException.forbidden("只有同行有效成员可以添加瞬间");
+        }
+    }
+
+    /**
+     * 去重并批量确认瞬间有效且属于本人，供关联及取消关联共同使用。
+     * @param momentIds 已校验非空、元素非空的瞬间 ID
+     * @param userId 当前作者 ID
+     * @return 只含关联校验字段的瞬间列表，候选全部通过校验
+     */
+    private List<Moment> requireOwnedMoments(List<UUID> momentIds, UUID userId) {
+        // 查询限定作者和有效记录，返回数量少于去重候选即表示整批中存在无效项。
+        List<UUID> ids = momentIds.stream().distinct().toList();
+        List<Moment> moments = momentMapper.selectOwnedForGathering(userId, ids);
+        if (moments.size() != ids.size()) {
+            log.warn("批量关联操作被拒绝，userId={}，reason=瞬间不存在、已删除或非本人", userId);
+            throw BusinessException.invalidArgument("部分瞬间不存在、已删除或不属于本人");
+        }
+        return moments;
+    }
+
+    /**
+     * 确认整批瞬间均未关联其他同行，写入前调用。
+     * @param moments 已确认有效且属于本人的瞬间关联投影
+     * @param gatheringId 本次目标同行 ID
+     */
+    private void validateNoOtherGathering(List<Moment> moments, UUID gatheringId) {
+        // 已关联当前同行属于重复操作；其他同行关联必须先由用户主动解除。
+        boolean hasOtherGathering = moments.stream().anyMatch(moment -> moment.getGatheringId() != null
+                && !gatheringId.equals(moment.getGatheringId()));
+        if (hasOtherGathering) {
+            log.debug("批量关联被拒绝，gatheringId={}，reason=部分瞬间已关联其他同行", gatheringId);
+            throw BusinessException.conflict("MOMENT_ALREADY_ASSOCIATED", "部分瞬间已关联其他同行，请先取消原关联");
         }
     }
 

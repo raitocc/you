@@ -19,6 +19,51 @@ import java.util.UUID;
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
     /**
+     * 批量读取本人有效瞬间的关联校验字段。
+     * @param userId 当前作者 ID
+     * @param ids 非空且已去重的瞬间 ID
+     * @return 仅含 id、authorUserId、gatheringId 的投影实体，仅用于关联校验
+     */
+    default List<Moment> selectOwnedForGathering(UUID userId, List<UUID> ids) {
+        // 限定作者并沿用逻辑删除过滤，缺少的候选由业务层统一判为无效。
+        return selectList(Wrappers.<Moment>lambdaQuery()
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getGatheringId)
+                .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids));
+    }
+
+    /**
+     * 将本人尚未关联同行的有效瞬间批量加入目标同行。
+     * @param userId 已校验的作者 ID
+     * @param gatheringId 已校验有效、进行中且本人已加入的目标同行
+     * @param ids 非空且已筛选为尚未关联的瞬间 ID
+     * @param updatedAt 本次统一 UTC 毫秒时间
+     * @return 实际修改行数
+     */
+    default int associateGathering(UUID userId, UUID gatheringId, List<UUID> ids, LocalDateTime updatedAt) {
+        // 仅更新无关联记录，避免覆盖校验后由另一请求建立的同行关联。
+        return update(Wrappers.<Moment>lambdaUpdate()
+                .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids)
+                .isNull(Moment::getGatheringId)
+                .set(Moment::getGatheringId, gatheringId).set(Moment::getUpdatedAt, updatedAt));
+    }
+
+    /**
+     * 批量移出本人在指定同行中的瞬间。
+     * @param userId 已校验的作者 ID
+     * @param gatheringId 已校验有效且本人已加入的同行，允许已结束
+     * @param ids 非空且已筛选为当前同行关联的瞬间 ID
+     * @param updatedAt 本次统一 UTC 毫秒时间
+     * @return 实际修改行数
+     */
+    default int removeGathering(UUID userId, UUID gatheringId, List<UUID> ids, LocalDateTime updatedAt) {
+        // 操作范围限定当前同行，显式写 null 清空关联，原内容和其他同行关联保持原样。
+        return update(Wrappers.<Moment>lambdaUpdate()
+                .eq(Moment::getAuthorUserId, userId).eq(Moment::getGatheringId, gatheringId)
+                .in(Moment::getId, ids)
+                .set(Moment::getGatheringId, null).set(Moment::getUpdatedAt, updatedAt));
+    }
+
+    /**
      * 批量统计同行的有效瞬间数量，避免列表逐条查询。
      * @param ids 非空的本页同行 ID 集合
      * @return 有记录的同行及数量；无记录的同行按零解释

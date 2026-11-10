@@ -7,12 +7,14 @@ import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.gathering.model.GatheringListCursor;
 import com.you.youbackend.gathering.model.GatheringMemberCursor;
+import com.you.youbackend.gathering.request.AddGatheringMomentsRequest;
 import com.you.youbackend.gathering.request.CreateGatheringRequest;
 import com.you.youbackend.gathering.request.FaceToFacePreviewRequest;
 import com.you.youbackend.gathering.request.GatheringJoinPreviewRequest;
 import com.you.youbackend.gathering.request.JoinFaceToFaceRequest;
 import com.you.youbackend.gathering.request.JoinGatheringRequest;
 import com.you.youbackend.gathering.request.OpenFaceToFaceRequest;
+import com.you.youbackend.gathering.request.RemoveGatheringMomentsRequest;
 import com.you.youbackend.gathering.request.UpdateGatheringRequest;
 import com.you.youbackend.gathering.response.FaceToFaceCandidateResponse;
 import com.you.youbackend.gathering.response.FaceToFaceOpenResponse;
@@ -57,6 +59,41 @@ import java.util.UUID;
 public class GatheringController {
     private final GatheringService gatheringService;
     private final GatheringFaceToFaceService faceToFaceService;
+
+    /** 批量关联本人瞬间，已完成的重复操作返回成功。 */
+    @Operation(summary = "批量关联同行瞬间", operationId = "11_add_gathering_moments")
+    @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
+    @ApiResponse(responseCode = "400", description = "参数无效、瞬间不存在、已删除或非本人，或同行已结束")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是有效成员")
+    @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
+    @ApiResponse(responseCode = "409", description = "瞬间已关联其他同行，或关联状态在写入前变化；整批回滚")
+    @PostMapping(value = "/{gatheringId}/moments", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Result<Void> addMoments(
+            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
+            @Valid @RequestBody AddGatheringMomentsRequest request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 统一身份和参数交给业务层，整批业务校验通过后维护关联。
+        gatheringService.addMoments(gatheringId, request, userId);
+        return Result.ok(null);
+    }
+
+    /** 批量取消关联本人瞬间，已完成的重复操作返回成功。 */
+    @Operation(summary = "批量取消关联同行瞬间", operationId = "12_remove_gathering_moments")
+    @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
+    @ApiResponse(responseCode = "400", description = "参数无效、瞬间不存在、已删除或非本人")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是有效成员")
+    @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
+    @PostMapping(value = "/{gatheringId}/moments/remove", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Result<Void> removeMoments(
+            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
+            @Valid @RequestBody RemoveGatheringMomentsRequest request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 统一身份和参数交给业务层，整批业务校验通过后维护关联。
+        gatheringService.removeMoments(gatheringId, request, userId);
+        return Result.ok(null);
+    }
 
     /** 浏览自己的同行，使用 GET 查询参数绑定业务游标。 */
     @Operation(summary = "浏览自己的同行", operationId = "07_list_gatherings")
