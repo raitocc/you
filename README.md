@@ -61,6 +61,12 @@ $env:https_proxy = 'http://127.0.0.1:7890'
 flutter run -d emulator-5554 --dart-define-from-file=env/dev.json
 ```
 
+使用 adb 转发端口，
+
+```
+adb reverse tcp:9000 tcp:9000
+```
+
 
 
 

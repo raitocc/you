@@ -234,6 +234,7 @@ circle 表为圈子表，用于持续分享空间的信息、创建者及邀请�
 | creator_user_id | BINARY(16) | 创建者 ID | 非空，关联 app_user.id；创建者负责圈子管理操作 |
 | name | VARCHAR(128) | 圈子名称 | 非空、非空白，允许重名 |
 | description | TEXT | 圈子介绍 | 可空 |
+| avatar_file_id | BINARY(16) | 自定义圈子头像文件 ID | 可空，关联 media_file.id；系统默认头像不占用此字段 |
 | invite_enabled | TINYINT | 是否允许通过圈子码加入 | 非空，0 否、1 是，默认 1 |
 | invite_code | VARCHAR(16) | 圈子邀请码 | 非空、唯一，由系统随机生成，可重置 |
 | deleted_at | DATETIME(3) | 解散时间 | UTC；为空表示未解散 |
@@ -342,6 +343,7 @@ notification 表为站内通知表，用于用户相关通知及已读状态。
 | app_user | uk_app_user_username | 唯一 | username |
 | circle | uk_circle_invite_code | 唯一 | invite_code |
 | circle_member | idx_circle_member_user | 普通 | user_id, deleted_at, circle_id |
+| circle_member | idx_circle_member_user_page | 普通 | user_id, deleted_at, created_at, id |
 | circle_member | uk_circle_member_circle_user | 唯一 | circle_id, user_id |
 | circle_share | idx_circle_share_feed | 普通 | circle_id, deleted_at, shared_at, id |
 | circle_share | idx_circle_share_object | 普通 | object_type, object_id, deleted_at, circle_id |

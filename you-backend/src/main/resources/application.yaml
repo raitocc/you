@@ -27,6 +27,8 @@ storage:
   access-key: you
   secret-key: you
   bucket: you-files
+  # 系统默认圈子头像；通过媒体签名能力生成读取地址，不登记为用户文件。
+  default-circle-avatar-key: defaults/circle-avatar.png
 
 mybatis-plus:
   type-handlers-package: com.you.youbackend.common.mybatis
