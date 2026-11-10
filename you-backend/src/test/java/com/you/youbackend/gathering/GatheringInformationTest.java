@@ -15,6 +15,7 @@ import com.you.youbackend.gathering.request.UpdateGatheringRequest;
 import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
 import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.moment.mapper.MomentMapper;
+import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
 import org.junit.jupiter.api.Test;
@@ -47,7 +48,7 @@ class GatheringInformationTest {
     private final UUID userId = UuidCreator.getTimeOrderedEpoch();
     private final GatheringService controllerService = mock(GatheringService.class);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new GatheringController(
-            controllerService, mock(GatheringFaceToFaceService.class)))
+            controllerService, mock(GatheringFaceToFaceService.class), mock(MomentService.class)))
             .setControllerAdvice(new GlobalExceptionHandler())
             .setCustomArgumentResolvers(new PageQueryArgumentResolver(new JsonMapper())).build();
 

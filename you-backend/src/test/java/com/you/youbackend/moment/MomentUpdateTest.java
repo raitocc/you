@@ -1,14 +1,17 @@
 package com.you.youbackend.moment;
 
+import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.*;
 import com.you.youbackend.moment.mapper.*;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.service.MomentService;
-import com.you.youbackend.gathering.service.GatheringService;
+import com.you.youbackend.user.service.UserService;
 import org.junit.jupiter.api.Test;
+
 import java.time.*;
 import java.util.*;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -18,7 +21,7 @@ class MomentUpdateTest {
     final MomentImageMapper images = mock(MomentImageMapper.class);
     final MomentTagMapper tags = mock(MomentTagMapper.class);
     final MediaService media = mock(MediaService.class);
-    final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class));
+    final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class));
     final UUID id = UUID.randomUUID(), user = UUID.randomUUID();
     final LocalDateTime oldTime = LocalDateTime.of(2026, 1, 1, 0, 0);
 

@@ -10,9 +10,10 @@ import com.you.youbackend.gathering.mapper.GatheringMapper;
 import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
 import com.you.youbackend.gathering.request.GatheringJoinPreviewRequest;
 import com.you.youbackend.gathering.request.JoinGatheringRequest;
-import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
+import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.moment.mapper.MomentMapper;
+import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
@@ -94,7 +95,7 @@ class GatheringInvitationTest {
     @Test
     void bindsGetQueryAndReturnsIsMemberAndCreatorAsDesigned() throws Exception {
         availableGathering();
-        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(service, mock(GatheringFaceToFaceService.class)))
+        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(service, mock(GatheringFaceToFaceService.class), mock(MomentService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(get("/gatherings/join-preview").param("inviteCode", inviteCode)
                         .requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId))
@@ -113,7 +114,7 @@ class GatheringInvitationTest {
 
     @Test
     void invalidInviteCodesAreRejectedBeforeServiceQueries() throws Exception {
-        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(service, mock(GatheringFaceToFaceService.class)))
+        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(service, mock(GatheringFaceToFaceService.class), mock(MomentService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(get("/gatherings/join-preview").requestAttr(JwtAuthFilter.CURRENT_USER_ID, userId))
                 .andExpect(status().isBadRequest());

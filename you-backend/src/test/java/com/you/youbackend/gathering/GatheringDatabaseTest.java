@@ -1,25 +1,30 @@
 package com.you.youbackend.gathering;
 
-import com.github.f4b6a3.uuid.UuidCreator;
-import com.you.youbackend.common.request.PageRequest;
-import com.you.youbackend.gathering.request.UpdateGatheringRequest;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.gathering.entity.GatheringMember;
 import com.you.youbackend.gathering.mapper.GatheringMapper;
 import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
 import com.you.youbackend.gathering.model.GatheringStatus;
+import com.you.youbackend.gathering.request.AddGatheringMomentsRequest;
 import com.you.youbackend.gathering.request.CreateGatheringRequest;
 import com.you.youbackend.gathering.request.GatheringJoinPreviewRequest;
 import com.you.youbackend.gathering.request.JoinGatheringRequest;
-import org.springframework.http.HttpStatus;
+import com.you.youbackend.gathering.request.RemoveGatheringMomentsRequest;
+import com.you.youbackend.gathering.request.UpdateGatheringRequest;
 import com.you.youbackend.gathering.service.GatheringService;
+import com.you.youbackend.media.mapper.MediaFileMapper;
 import com.you.youbackend.media.service.MediaService;
+import com.you.youbackend.moment.mapper.MomentMapper;
+import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.mapper.UserMapper;
 import com.you.youbackend.user.model.AppUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -29,11 +34,8 @@ import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.UUID;
 import java.util.List;
-import com.you.youbackend.gathering.request.AddGatheringMomentsRequest;
-import com.you.youbackend.gathering.request.RemoveGatheringMomentsRequest;
-import com.you.youbackend.moment.mapper.MomentMapper;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,6 +45,8 @@ import static org.mockito.Mockito.*;
 @SpringBootTest(properties = "spring.rabbitmq.listener.simple.auto-startup=false")
 class GatheringDatabaseTest {
     @Autowired private GatheringService service;
+    @Autowired private MomentService momentService;
+    @Autowired private MediaFileMapper files;
     @Autowired private GatheringMapper gatherings;
     @MockitoSpyBean private GatheringMemberMapper members;
     @Autowired private UserMapper users;
@@ -316,6 +320,52 @@ class GatheringDatabaseTest {
         }
         assertNull(moments.selectById(pending).getGatheringId());
         assertEquals(other.id(), moments.selectById(elsewhere).getGatheringId());
+    }
+
+    @Test
+    @Transactional
+    void readsSharedTimelineAndCrossAuthorImagesWithRealPermissionQueries() {
+        // 同一发生时间按 ID 正序分页；非成员、已删除及取消关联均不能通过同行详情读取。
+        AppUser creator = saveUser(), guest = saveUser(), stranger = saveUser();
+        var target = service.createGathering(new CreateGatheringRequest("共享", null), creator.getId());
+        service.joinGathering(new JoinGatheringRequest(target.inviteCode()), guest.getId());
+        UUID first = saveMoment(creator.getId(), target.id());
+        UUID second = saveMoment(guest.getId(), target.id());
+        UUID removed = saveMoment(creator.getId(), target.id());
+        moments.deleteById(removed);
+        saveMoment(creator.getId(), null);
+        UUID fileId = UuidCreator.getTimeOrderedEpoch();
+        LocalDateTime time = LocalDateTime.of(2026, 1, 1, 0, 0);
+        jdbc.update("""
+                INSERT INTO media_file (id, owner_user_id, storage_key, mime_type, byte_size, created_at, updated_at)
+                VALUES (?, ?, 'shared-test/image', 'image/jpeg', 10, ?, ?)
+                """, bytes(fileId), bytes(creator.getId()), time, time);
+        jdbc.update("""
+                INSERT INTO moment_image (id, moment_id, file_id, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?)
+                """, bytes(UuidCreator.getTimeOrderedEpoch()), bytes(first), bytes(fileId), time, time);
+        // 验证底层查询不限定查看者，删除文件被过滤，查询结果仅返回有效图片。
+        var keys = files.selectImageStorageKeys(List.of(fileId), List.of("image/jpeg"));
+        assertEquals(1, keys.size());
+        assertEquals(fileId, keys.get(0).getId());
+        when(media.findImageKeys(List.of(fileId))).thenReturn(java.util.Map.of(fileId, keys.get(0).getStorageKey()));
+        when(media.createReadUrl("shared-test/image")).thenReturn("signed-shared-image");
+        var page = momentService.browseGatheringMoments(target.id(), new PageRequest<>(null, 1), guest.getId());
+        assertEquals(first, page.items().get(0).id());
+        assertEquals(creator.getId(), page.items().get(0).author().id());
+        assertEquals("signed-shared-image", page.items().get(0).coverUrl());
+        assertTrue(page.hasMore());
+        var next = momentService.browseGatheringMoments(target.id(), new PageRequest<>(page.nextCursor(), 1), guest.getId());
+        assertEquals(second, next.items().get(0).id());
+        assertFalse(next.hasMore());
+        assertEquals("signed-shared-image", momentService.getGatheringMoment(target.id(), first, guest.getId()).images().get(0).url());
+        assertThrows(BusinessException.class, () -> momentService.getGatheringMoment(target.id(), first, stranger.getId()));
+        assertThrows(BusinessException.class, () -> momentService.getGatheringMoment(target.id(), removed, guest.getId()));
+        service.removeMoments(target.id(), new RemoveGatheringMomentsRequest(List.of(first)), creator.getId());
+        assertThrows(BusinessException.class, () -> momentService.getGatheringMoment(target.id(), first, creator.getId()));
+        assertEquals(first, momentService.getMoment(first, creator.getId()).id());
+        files.deleteById(fileId);
+        assertTrue(files.selectImageStorageKeys(List.of(fileId), List.of("image/jpeg")).isEmpty());
     }
 
     /** 准备固定审计时间的瞬间，便于验证重复操作与正文保留。 */

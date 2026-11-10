@@ -337,6 +337,22 @@ public class GatheringService {
         }
     }
 
+    /**
+     * 读取有效同行并校验当前用户成员资格，供同行和内容读取入口共用。
+     * @param gatheringId 同行 ID
+     * @param userId 当前认证用户 ID
+     * @return 已确认有效且本人为有效成员的同行
+     */
+    public Gathering requireMemberGathering(UUID gatheringId, UUID userId) {
+        // 先确认同行有效，再确认当前关系，邀请开关及结束状态均不影响已加入成员查看。
+        Gathering gathering = requireGathering(gatheringId);
+        if (!gatheringMemberMapper.isActiveMember(gatheringId, userId)) {
+            log.warn("访问同行被拒绝，gatheringId={}，userId={}，reason=非有效成员", gatheringId, userId);
+            throw BusinessException.forbidden("只有同行有效成员可以查看");
+        }
+        return gathering;
+    }
+
     /** 按首屏或后续页意图读取本人同行，分页参数已由请求边界校验。 */
     private List<Gathering> findGatheringPage(PageRequest<GatheringListCursor> request, UUID userId) {
         // 后续页将 UTC 时间转换成数据库时间，游标成组校验由 PageQuery 完成。
@@ -390,17 +406,6 @@ public class GatheringService {
         Gathering gathering = gatheringMapper.selectById(gatheringId);
         if (gathering == null) {
             throw BusinessException.notFound("GATHERING_NOT_FOUND", "同行不存在或已解散");
-        }
-        return gathering;
-    }
-
-    /** 读取有效同行并校验当前用户的有效成员资格，供成员查询入口共用。 */
-    private Gathering requireMemberGathering(UUID gatheringId, UUID userId) {
-        // 先确认同行有效，再确认当前关系，邀请开关及结束状态均不影响已加入成员查看。
-        Gathering gathering = requireGathering(gatheringId);
-        if (!gatheringMemberMapper.isActiveMember(gatheringId, userId)) {
-            log.warn("访问同行被拒绝，gatheringId={}，userId={}，reason=非有效成员", gatheringId, userId);
-            throw BusinessException.forbidden("只有同行有效成员可以查看");
         }
         return gathering;
     }

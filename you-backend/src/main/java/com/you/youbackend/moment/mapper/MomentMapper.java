@@ -19,6 +19,40 @@ import java.util.UUID;
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
     /**
+     * 读取指定同行的有效瞬间首屏，按发生时间、ID 正序。
+     * @param gatheringId 已校验访问权限的同行 ID
+     * @param rowCount 页大小加一
+     * @return 仅含摘要及作者字段的投影
+     */
+    default List<Moment> selectGatheringFirstPage(UUID gatheringId, int rowCount) {
+        // 摘要查询包含作者 ID，供批量加载公开资料。
+        return selectList(Wrappers.<Moment>lambdaQuery()
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody,
+                        Moment::getMood, Moment::getMemoryTime)
+                .eq(Moment::getGatheringId, gatheringId)
+                .orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
+    }
+
+    /**
+     * 读取指定同行的后续页，严格排除上一页末项及之前的记录。
+     * @param gatheringId 已校验访问权限的同行 ID
+     * @param memoryTime 上一页末项发生时间，UTC
+     * @param id 上一页末项 ID
+     * @param rowCount 页大小加一
+     * @return 仅含摘要及作者字段的投影，排序与首屏一致
+     */
+    default List<Moment> selectGatheringNextPage(UUID gatheringId, LocalDateTime memoryTime, UUID id, int rowCount) {
+        // 正序分页取更晚时间，或相同时间下更大的 ID。
+        return selectList(Wrappers.<Moment>lambdaQuery()
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody,
+                        Moment::getMood, Moment::getMemoryTime)
+                .eq(Moment::getGatheringId, gatheringId)
+                .and(boundary -> boundary.gt(Moment::getMemoryTime, memoryTime)
+                        .or(sameTime -> sameTime.eq(Moment::getMemoryTime, memoryTime).gt(Moment::getId, id)))
+                .orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
+    }
+
+    /**
      * 批量读取本人有效瞬间的关联校验字段。
      * @param userId 当前作者 ID
      * @param ids 非空且已去重的瞬间 ID
@@ -159,11 +193,11 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param cursorId 游标记录 ID，由 Service 与 cursorTime 成对传入
      * @param rowCount 实际页大小加一，额外一条用于判断下一页
      * @return 仅填充卡片查询所需字段的瞬间列表
-     * 返回实体仅含 id、title、body、mood、memoryTime，供卡片组装使用。
+     * 返回实体仅含 id、authorUserId、title、body、mood、memoryTime，供卡片组装使用。
      */
     default List<Moment> selectFeed(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
         var query = Wrappers.<Moment>lambdaQuery()
-                .select(Moment::getId, Moment::getTitle, Moment::getBody, Moment::getMood, Moment::getMemoryTime)
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody, Moment::getMood, Moment::getMemoryTime)
                 .eq(Moment::getAuthorUserId, userId);
         // 倒序分页仅查询更早的时间，或相同时间下更小的 ID，排除上一页边界及其之前的记录。
         if (cursorTime != null) {

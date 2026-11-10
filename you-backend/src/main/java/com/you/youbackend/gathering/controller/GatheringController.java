@@ -7,6 +7,7 @@ import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.gathering.model.GatheringListCursor;
 import com.you.youbackend.gathering.model.GatheringMemberCursor;
+import com.you.youbackend.gathering.model.GatheringMomentCursor;
 import com.you.youbackend.gathering.request.AddGatheringMomentsRequest;
 import com.you.youbackend.gathering.request.CreateGatheringRequest;
 import com.you.youbackend.gathering.request.FaceToFacePreviewRequest;
@@ -23,6 +24,9 @@ import com.you.youbackend.gathering.response.GatheringResponse;
 import com.you.youbackend.gathering.response.GatheringSummaryResponse;
 import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
 import com.you.youbackend.gathering.service.GatheringService;
+import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentSummaryResponse;
+import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -59,6 +63,47 @@ import java.util.UUID;
 public class GatheringController {
     private final GatheringService gatheringService;
     private final GatheringFaceToFaceService faceToFaceService;
+    private final MomentService momentService;
+
+    /** 同行成员浏览共同经历时间线，按发生时间及 ID 正序。 */
+    @Operation(summary = "浏览同行中的瞬间", operationId = "13_list_gathering_moments")
+    @ApiResponse(responseCode = "200", description = "查询成功，返回包含作者的瞬间摘要页")
+    @ApiResponse(responseCode = "400", description = "同行 ID、分页参数或游标无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证无效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是有效成员")
+    @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
+    @Parameters({
+            @Parameter(name = "limit", in = ParameterIn.QUERY, description = "每页数量，默认 20，范围 1～100",
+                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
+            @Parameter(name = "cursor.memoryTime", in = ParameterIn.QUERY, description = "上一页末项发生时间，首屏省略",
+                    schema = @Schema(type = "string", format = "date-time")),
+            @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "与发生时间成组提交的上一页末项 UUIDv7",
+                    schema = @Schema(type = "string", format = "uuid"))
+    })
+    @GetMapping("/{gatheringId}/moments")
+    public Result<ResultPage<MomentSummaryResponse, GatheringMomentCursor>> browseMoments(
+            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
+            @Parameter(hidden = true) @PageQuery PageRequest<GatheringMomentCursor> request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 委托瞬间业务完成同行权限校验及摘要批量组装。
+        return Result.ok(momentService.browseGatheringMoments(gatheringId, request, userId));
+    }
+
+    /** 通过指定同行读取共享瞬间，检查有效成员资格与当前关联。 */
+    @Operation(summary = "查看同行共享瞬间详情", operationId = "14_get_gathering_moment")
+    @ApiResponse(responseCode = "200", description = "查询成功，返回包含作者的完整详情")
+    @ApiResponse(responseCode = "400", description = "同行或瞬间 ID 无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证无效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是有效成员")
+    @ApiResponse(responseCode = "404", description = "同行失效、瞬间不存在、已删除或已移出同行")
+    @GetMapping("/{gatheringId}/moments/{momentId}")
+    public Result<MomentResponse> getMoment(
+            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
+            @Parameter(description = "瞬间 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID momentId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 当前入口按同行关系授权，与本人瞬间详情保留独立的权限语义。
+        return Result.ok(momentService.getGatheringMoment(gatheringId, momentId, userId));
+    }
 
     /** 批量关联本人瞬间，已完成的重复操作返回成功。 */
     @Operation(summary = "批量关联同行瞬间", operationId = "11_add_gathering_moments")

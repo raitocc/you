@@ -2,9 +2,10 @@ package com.you.youbackend.moment.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
-import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.gathering.model.GatheringMomentCursor;
+import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.entity.MomentImage;
@@ -16,8 +17,10 @@ import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.model.MomentLocation;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
-import com.you.youbackend.moment.response.MomentFeedItem;
 import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentSummaryResponse;
+import com.you.youbackend.user.response.PublicUserResponse;
+import com.you.youbackend.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.dao.DuplicateKeyException;
@@ -25,9 +28,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -53,36 +56,66 @@ public class MomentService {
     private final MomentTagMapper momentTagMapper;
     private final MediaService mediaService;
     private final GatheringService gatheringService;
+    private final UserService userService;
+
+    /**
+     * 浏览有效同行成员可读的瞬间时间线，按发生时间和 ID 正序。
+     * @param gatheringId 目标同行 ID
+     * @param request 已校验的分页参数
+     * @param userId 当前认证用户 ID
+     * @return 同行瞬间摘要页，作者资料查不到时为 null
+     */
+    @Transactional(readOnly = true)
+    public ResultPage<MomentSummaryResponse, GatheringMomentCursor> browseGatheringMoments(
+            UUID gatheringId, PageRequest<GatheringMomentCursor> request, UUID userId) {
+        // 1. 同行及成员资格先校验，已结束和关闭邀请不影响已有成员读取。
+        gatheringService.requireMemberGathering(gatheringId, userId);
+        List<Moment> rows = queryGatheringMoments(gatheringId, request);
+        // 2. 多查一条判断下一页，仅对实际返回的本页批量补齐图片和作者。
+        boolean hasMore = rows.size() > request.limit();
+        List<Moment> page = rows.subList(0, Math.min(rows.size(), request.limit()));
+        List<MomentSummaryResponse> items = loadSummaries(page);
+        GatheringMomentCursor nextCursor = null;
+        if (hasMore) {
+            Moment last = page.get(page.size() - 1);
+            nextCursor = new GatheringMomentCursor(last.getMemoryTime().toInstant(ZoneOffset.UTC), last.getId());
+        }
+        log.debug("浏览同行瞬间，gatheringId={}，userId={}，count={}，hasMore={}", gatheringId, userId, items.size(), hasMore);
+        return new ResultPage<>(items, nextCursor, hasMore);
+    }
+
+    /**
+     * 经同行入口读取共享详情，成员资格和当前关联均须有效。
+     * @param gatheringId 入口同行 ID
+     * @param momentId 瞬间 ID，即使为本人所写也检查当前同行关联
+     * @param userId 当前认证用户 ID
+     * @return 当前完整内容、图片及作者资料
+     */
+    @Transactional(readOnly = true)
+    public MomentResponse getGatheringMoment(UUID gatheringId, UUID momentId, UUID userId) {
+        // 1. 校验同行成员资格，再确认瞬间仍在当前同行。
+        gatheringService.requireMemberGathering(gatheringId, userId);
+        Moment moment = momentMapper.selectById(momentId);
+        if (moment == null || !gatheringId.equals(moment.getGatheringId())) {
+            throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在、已删除或已移出当前同行");
+        }
+        // 2. 访问资格通过后，统一加载关联图片、标签及公开作者资料。
+        MomentResponse response = loadAuthorizedResponses(List.of(moment)).get(0);
+        log.debug("查看同行瞬间，gatheringId={}，momentId={}，userId={}", gatheringId, momentId, userId);
+        return response;
+    }
 
     /**
      * 为业务列表批量加载本人瞬间的图片和标签，复用详情响应及其图片失效处理规则。
      * 原有 getMoment 是单条详情入口，逐条调用会重复查询瞬间主记录、图片、标签。loadOwnedResponses 直接使用已经查出的主记录，只批量补齐关联数据。
      * @param page 调用方已筛选本人且未删除的完整瞬间实体，列表顺序即响应顺序，允许为空
-     * @param userId 当前用户 ID，作为媒体文件归属查询依据
+     * @param userId 当前用户 ID；本人范围由调用方查询保证，媒体读取沿用已授权加载规则
      * @return 与输入顺序一致的完整详情列表；不逐条查询瞬间详情
      */
     @Transactional(readOnly = true)
     public List<MomentResponse> loadOwnedResponses(List<Moment> page, UUID userId) {
-        // 1. 调用方已在查询中限定本人有效瞬间，空页不访问关联表。
-        if (page.isEmpty()) {
-            return List.of();
-        }
-        // 2. 批量加载图片关联和有效媒体对象键，保留每条瞬间的图片展示顺序。
-        List<UUID> ids = page.stream().map(Moment::getId).toList();
-        List<MomentImage> images = momentImageMapper.selectFeedImages(ids);
-        Map<UUID, String> imageKeys = mediaService.findOwnedImageKeys(userId,
-                images.stream().map(MomentImage::getFileId).distinct().toList());
-        Map<UUID, List<UUID>> fileIdsByMoment = images.stream()
-                .filter(image -> imageKeys.containsKey(image.getFileId()))
-                .collect(Collectors.groupingBy(MomentImage::getMomentId,
-                        Collectors.mapping(MomentImage::getFileId, Collectors.toList())));
-        // 3. 批量加载标签并按瞬间分组，使用与单条详情相同的转换方法组装响应。
-        Map<UUID, List<String>> tagsByMoment = momentTagMapper.selectPageTags(ids).stream()
-                .collect(Collectors.groupingBy(MomentTag::getMomentId,
-                        Collectors.mapping(MomentTag::getTagName, Collectors.toList())));
-        return page.stream().map(moment -> toResponse(moment,
-                toImageResponses(fileIdsByMoment.getOrDefault(moment.getId(), List.of()), imageKeys),
-                tagsByMoment.getOrDefault(moment.getId(), List.of()))).toList();
+        // 本人范围由调用方业务查询保证，内容加载沿用统一已授权入口。
+        return loadAuthorizedResponses(page);
     }
 
     /**
@@ -93,7 +126,7 @@ public class MomentService {
      * @return 摘要列表及下一页游标；空页或末页游标为 null
      */
     @Transactional(readOnly = true)
-    public ResultPage<MomentFeedItem, MomentFeedCursor> browseYours(
+    public ResultPage<MomentSummaryResponse, MomentFeedCursor> browseYours(
             UUID userId, PageRequest<MomentFeedCursor> request) {
         List<Moment> rows = queryFeedMoments(userId, request);
         if (rows.isEmpty()) {
@@ -102,10 +135,7 @@ public class MomentService {
         }
         boolean hasMore = rows.size() > request.limit();
         List<Moment> page = rows.subList(0, Math.min(request.limit(), rows.size()));
-        Map<UUID, List<String>> imageKeysByMoment = loadFeedImageKeys(userId, page);
-        List<MomentFeedItem> items = page.stream()
-                .map(moment -> toFeedItem(moment, imageKeysByMoment.getOrDefault(moment.getId(), List.of())))
-                .toList();
+        List<MomentSummaryResponse> items = loadSummaries(page);
         log.debug("浏览本人瞬间，userId={}，limit={}，itemCount={}，hasMore={}",
                 userId, request.limit(), items.size(), hasMore);
         return toFeedPage(items, hasMore);
@@ -145,7 +175,8 @@ public class MomentService {
         List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
         log.info("已写入瞬间，momentId={}，userId={}，gatheringId={}，imageCount={}，tagCount={}",
                 moment.getId(), userId, moment.getGatheringId(), images.size(), savedTags.size());
-        return toResponse(moment, images, savedTags);
+        PublicUserResponse author = loadAuthors(List.of(moment)).get(moment.getAuthorUserId());
+        return toResponse(moment, images, savedTags, author);
     }
 
     /**
@@ -177,7 +208,8 @@ public class MomentService {
         List<String> savedTags = momentTagMapper.selectNames(id);
         log.info("已修改瞬间，momentId={}，userId={}，imageCount={}，tagCount={}",
                 id, userId, images.size(), savedTags.size());
-        return toResponse(moment, images, savedTags);
+        PublicUserResponse author = loadAuthors(List.of(moment)).get(moment.getAuthorUserId());
+        return toResponse(moment, images, savedTags, author);
     }
 
     /**
@@ -192,11 +224,10 @@ public class MomentService {
     @Transactional(readOnly = true)
     public MomentResponse getMoment(UUID id, UUID userId) {
         Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
-        List<MomentResponse.Image> images = loadMomentImages(id, userId);
-        List<String> tags = momentTagMapper.selectNames(id);
-        log.debug("查询瞬间详情，momentId={}，userId={}，imageCount={}，tagCount={}",
-                id, userId, images.size(), tags.size());
-        return toResponse(moment, images, tags);
+        // 已确认作者身份，统一加载图片、标签及作者公开资料。
+        MomentResponse response = loadAuthorizedResponses(List.of(moment)).get(0);
+        log.debug("查询瞬间详情，momentId={}，userId={}", id, userId);
+        return response;
     }
 
     /**
@@ -223,6 +254,67 @@ public class MomentService {
     }
 
     /**
+     * 为已授权的完整瞬间批量加载图片、标签及作者，不判断用户是否能访问。
+     * @param page 调用方已完成业务权限校验的完整有效瞬间，允许为空
+     * @return 保持输入顺序的完整详情，作者资料查不到时为 null
+     */
+    private List<MomentResponse> loadAuthorizedResponses(List<Moment> page) {
+        // 1. 调用方已确认每条瞬间的业务访问资格，空页不访问关联表。
+        if (page.isEmpty()) {
+            return List.of();
+        }
+        // 2. 批量加载图片关联和有效媒体对象键，保留每条瞬间的图片展示顺序。
+        List<UUID> ids = page.stream().map(Moment::getId).toList();
+        List<MomentImage> images = momentImageMapper.selectFeedImages(ids);
+        Map<UUID, String> imageKeys = mediaService.findImageKeys(
+                images.stream().map(MomentImage::getFileId).distinct().toList());
+        Map<UUID, List<UUID>> fileIdsByMoment = images.stream()
+                .filter(image -> imageKeys.containsKey(image.getFileId()))
+                .collect(Collectors.groupingBy(MomentImage::getMomentId,
+                        Collectors.mapping(MomentImage::getFileId, Collectors.toList())));
+        // 3. 批量加载标签并按瞬间分组，使用与单条详情相同的转换方法组装响应。
+        Map<UUID, List<String>> tagsByMoment = momentTagMapper.selectPageTags(ids).stream()
+                .collect(Collectors.groupingBy(MomentTag::getMomentId,
+                        Collectors.mapping(MomentTag::getTagName, Collectors.toList())));
+        Map<UUID, PublicUserResponse> authors = loadAuthors(page);
+        return page.stream().map(moment -> toResponse(moment,
+                toImageResponses(fileIdsByMoment.getOrDefault(moment.getId(), List.of()), imageKeys),
+                tagsByMoment.getOrDefault(moment.getId(), List.of()), authors.get(moment.getAuthorUserId()))).toList();
+    }
+
+    /** 按同行时间线首屏或后续页读取摘要投影，调用方已确认成员资格。 */
+    private List<Moment> queryGatheringMoments(UUID gatheringId, PageRequest<GatheringMomentCursor> request) {
+        // 首屏与后续页意图分开表达，时间转换沿用数据库 UTC 规则。
+        GatheringMomentCursor cursor = request.cursor();
+        if (cursor == null) {
+            return momentMapper.selectGatheringFirstPage(gatheringId, request.limit() + 1);
+        }
+        return momentMapper.selectGatheringNextPage(gatheringId, toDatabaseMemoryTime(cursor.memoryTime()),
+                cursor.id(), request.limit() + 1);
+    }
+
+    /** 为已授权的摘要投影批量加载图片与作者，空页直接结束，保持输入顺序。 */
+    private List<MomentSummaryResponse> loadSummaries(List<Moment> page) {
+        // 只处理返回页，额外记录不查询图片和作者资料。
+        if (page.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, List<String>> imageKeys = loadFeedImageKeys(page);
+        Map<UUID, PublicUserResponse> authors = loadAuthors(page);
+        return page.stream().map(moment -> toFeedItem(
+                moment,
+                imageKeys.getOrDefault(moment.getId(), List.of()),
+                authors.get(moment.getAuthorUserId()))
+        ).toList();
+    }
+
+    /** 按瞬间作者去重批量加载公开资料，缺失资料由响应映射为 null。 */
+    private Map<UUID, PublicUserResponse> loadAuthors(List<Moment> moments) {
+        // 作者来自已读取的瞬间，不根据当前查看者推断。
+        return userService.getPublicUsers(moments.stream().map(Moment::getAuthorUserId).distinct().toList());
+    }
+
+    /**
      * 将游标转换为数据库 UTC 时间，查询实际页大小加一条记录。
      * @param userId 当前用户 ID
      * @param request 已校验的分页请求
@@ -238,13 +330,12 @@ public class MomentService {
 
     /**
      * 批量读取本页图片关联及有效文件，按瞬间分组，保留展示顺序；首个 key 用作封面。
-     * @param userId 当前用户 ID，用于校验文件归属
      * @param page 实际返回的非空瞬间列表，不含额外记录
      * @return 瞬间 ID 到有序有效图片 key 列表的映射；无有效图片的瞬间不在映射中
      */
-    private Map<UUID, List<String>> loadFeedImageKeys(UUID userId, List<Moment> page) {
+    private Map<UUID, List<String>> loadFeedImageKeys(List<Moment> page) {
         List<MomentImage> images = momentImageMapper.selectFeedImages(page.stream().map(Moment::getId).toList());
-        var imageKeys = mediaService.findOwnedImageKeys(userId,
+        var imageKeys = mediaService.findImageKeys(
                 images.stream().map(MomentImage::getFileId).distinct().toList());
         return images.stream().filter(image -> imageKeys.containsKey(image.getFileId()))
                 .collect(Collectors.groupingBy(MomentImage::getMomentId,
@@ -253,14 +344,15 @@ public class MomentService {
 
     /**
      * 组装摘要卡片，为首张有效图片签名，无有效图片时封面为 null、图片数为 0。
-     * @param moment 仅含 ID、标题、正文、心情和发生时间的摘要实体
+     * @param moment 含 ID、作者、标题、正文、心情和发生时间的摘要实体
+     * @param author 已加载的作者公开资料，查不到时为 null
      * @param imageKeys 有效图片 key，按展示顺序排列，允许为空
      * @return 卡片摘要；本方法不查库
      */
-    private MomentFeedItem toFeedItem(Moment moment, List<String> imageKeys) {
+    private MomentSummaryResponse toFeedItem(Moment moment, List<String> imageKeys, PublicUserResponse author) {
         String coverUrl = imageKeys.isEmpty() ? null : mediaService.createReadUrl(imageKeys.get(0));
-        return new MomentFeedItem(moment.getId(), moment.getTitle(), bodyPreview(moment.getBody()),
-                coverUrl, imageKeys.size(), moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC));
+        return new MomentSummaryResponse(moment.getId(), moment.getTitle(), bodyPreview(moment.getBody()),
+                coverUrl, imageKeys.size(), moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC), author);
     }
 
     /**
@@ -269,8 +361,8 @@ public class MomentService {
      * @param hasMore 是否多查到了额外记录
      * @return 分页结果，末页游标为 null；本方法不查库
      */
-    private ResultPage<MomentFeedItem, MomentFeedCursor> toFeedPage(List<MomentFeedItem> items, boolean hasMore) {
-        MomentFeedItem last = items.get(items.size() - 1);
+    private ResultPage<MomentSummaryResponse, MomentFeedCursor> toFeedPage(List<MomentSummaryResponse> items, boolean hasMore) {
+        MomentSummaryResponse last = items.get(items.size() - 1);
         MomentFeedCursor nextCursor = hasMore ? new MomentFeedCursor(last.memoryTime(), last.id()) : null;
         return new ResultPage<>(items, nextCursor, hasMore);
     }
@@ -333,17 +425,19 @@ public class MomentService {
      *
      * @param moment 已保存或查询到的完整瞬间实体，时间字段为 UTC
      * @param images 已生成读取地址且按展示顺序排列的图片列表，可为空列表
+     * @param author 已加载的作者公开资料，查不到时为 null
      * @param tags 实际保存或查询到的标签名称，可为空列表
      * @return 独立的详情响应，时间转换为 Instant；本方法不访问数据库或修改实体
      */
-    private MomentResponse toResponse(Moment moment, List<MomentResponse.Image> images, List<String> tags) {
+    private MomentResponse toResponse(
+            Moment moment, List<MomentResponse.Image> images, List<String> tags, PublicUserResponse author) {
         MomentLocation location = moment.getLatitude() == null && moment.getLongitude() == null
                 && moment.getLocationName() == null && moment.getLocationAddress() == null ? null
                 : new MomentLocation(moment.getLatitude(), moment.getLongitude(),
                         moment.getLocationName(), moment.getLocationAddress());
         return new MomentResponse(moment.getId(), moment.getTitle(), moment.getBody(),
                 images, tags, moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC), location,
-                moment.getCreatedAt().toInstant(ZoneOffset.UTC), moment.getUpdatedAt().toInstant(ZoneOffset.UTC));
+                moment.getCreatedAt().toInstant(ZoneOffset.UTC), moment.getUpdatedAt().toInstant(ZoneOffset.UTC), author);
     }
 
     /**
@@ -614,29 +708,6 @@ public class MomentService {
                 momentTagMapper.softDelete(tag.getId(), savedAt);
             }
         }
-    }
-
-    /**
-     * 加载详情图片：按展示顺序查询关联，批量取得有效文件的 key，再为有效图片生成读取地址。
-     * 已删除、未登记或不属于作者的文件被过滤，保留其余图片的原有顺序。
-     *
-     * @param momentId 已确认归属的有效瞬间 ID
-     * @param userId 瞬间作者 ID，用于查询本人可用图片
-     * @return 有序图片响应；无关联或所有文件均失效时返回空列表
-     */
-    private List<MomentResponse.Image> loadMomentImages(UUID momentId, UUID userId) {
-        List<UUID> fileIds = momentImageMapper.selectInDisplayOrder(momentId).stream()
-                .map(MomentImage::getFileId).toList();
-        if (fileIds.isEmpty()) {
-            return List.of();
-        }
-        Map<UUID, String> imageKeys = mediaService.findOwnedImageKeys(userId, fileIds);
-        List<UUID> validFileIds = fileIds.stream().filter(imageKeys::containsKey).toList();
-        if (validFileIds.size() != fileIds.size()) {
-            log.debug("详情跳过失效图片，momentId={}，userId={}，skippedCount={}",
-                    momentId, userId, fileIds.size() - validFileIds.size());
-        }
-        return toImageResponses(validFileIds, imageKeys);
     }
 
     /**

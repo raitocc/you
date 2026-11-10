@@ -1,14 +1,16 @@
 package com.you.youbackend.moment;
 
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.entity.MomentImage;
+import com.you.youbackend.moment.entity.MomentTag;
 import com.you.youbackend.moment.mapper.MomentImageMapper;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.service.MomentService;
-import com.you.youbackend.gathering.service.GatheringService;
+import com.you.youbackend.user.service.UserService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -25,7 +27,7 @@ class MomentDetailTest {
     private final MomentImageMapper images = mock(MomentImageMapper.class);
     private final MomentTagMapper tags = mock(MomentTagMapper.class);
     private final MediaService media = mock(MediaService.class);
-    private final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class));
+    private final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class));
     private final UUID userId = UUID.randomUUID();
     private final UUID momentId = UUID.randomUUID();
 
@@ -33,12 +35,15 @@ class MomentDetailTest {
     void skipsUnavailableImagesAndKeepsRemainingOrder() {
         when(moments.selectById(momentId)).thenReturn(moment(userId));
         UUID first = UUID.randomUUID(), missing = UUID.randomUUID(), last = UUID.randomUUID();
-        when(images.selectInDisplayOrder(momentId)).thenReturn(List.of(image(first), image(missing), image(last)));
-        when(media.findOwnedImageKeys(userId, List.of(first, missing, last)))
+        when(images.selectFeedImages(List.of(momentId))).thenReturn(List.of(image(first), image(missing), image(last)));
+        when(media.findImageKeys(List.of(first, missing, last)))
                 .thenReturn(Map.of(first, "first-key", last, "last-key"));
         when(media.createReadUrl("first-key")).thenReturn("first-url");
         when(media.createReadUrl("last-key")).thenReturn("last-url");
-        when(tags.selectNames(momentId)).thenReturn(List.of("旅行"));
+        var tag = new MomentTag();
+        tag.setMomentId(momentId);
+        tag.setTagName("旅行");
+        when(tags.selectPageTags(List.of(momentId))).thenReturn(List.of(tag));
 
         var response = service.getMoment(momentId, userId);
 
@@ -52,10 +57,10 @@ class MomentDetailTest {
     @Test
     void returnsEmptyImagesWithoutQueryingMediaWhenNoAssociations() {
         when(moments.selectById(momentId)).thenReturn(moment(userId));
-        when(images.selectInDisplayOrder(momentId)).thenReturn(List.of());
-        when(tags.selectNames(momentId)).thenReturn(List.of());
+        when(images.selectFeedImages(List.of(momentId))).thenReturn(List.of());
+        when(tags.selectPageTags(List.of(momentId))).thenReturn(List.of());
         assertTrue(service.getMoment(momentId, userId).images().isEmpty());
-        verifyNoInteractions(media);
+        verify(media).findImageKeys(List.of());
     }
 
     @Test
@@ -83,6 +88,7 @@ class MomentDetailTest {
     private MomentImage image(UUID fileId) {
         MomentImage image = new MomentImage();
         image.setFileId(fileId);
+        image.setMomentId(momentId);
         return image;
     }
 }

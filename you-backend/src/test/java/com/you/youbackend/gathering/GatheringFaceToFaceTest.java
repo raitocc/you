@@ -16,6 +16,7 @@ import com.you.youbackend.gathering.service.GatheringFaceToFaceRedisService;
 import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
 import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.moment.mapper.MomentMapper;
+import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
@@ -223,7 +224,7 @@ class GatheringFaceToFaceTest {
     @Test
     void bindsThreeInterfacesAndAcceptsJoinWithoutCoordinates() throws Exception {
         var controllerService = mock(GatheringService.class);
-        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(controllerService, service))
+        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(controllerService, service, mock(MomentService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         Gathering gathering = gathering();
         when(gatherings.selectById(gathering.getId())).thenReturn(gathering);
@@ -264,7 +265,7 @@ class GatheringFaceToFaceTest {
 
     @Test
     void rejectsInvalidCodeCoordinatesAndSelectedIdAtRequestBoundary() throws Exception {
-        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(joinService, service))
+        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(joinService, service, mock(MomentService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         for (String code : List.of("", "123", "12345", "１２３４", "ab12")) {
             mvc.perform(get("/gatherings/face-to-face/join-preview").param("faceCode", code)

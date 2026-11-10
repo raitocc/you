@@ -14,6 +14,7 @@ import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
 import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.mapper.MomentMapper;
+import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -131,7 +132,7 @@ class GatheringMomentAssociationTest {
     @Test
     void validatesBothRequestBodiesAndReturnsNullData() throws Exception {
         var target = mock(GatheringService.class);
-        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(target, mock(GatheringFaceToFaceService.class)))
+        var mvc = MockMvcBuilders.standaloneSetup(new GatheringController(target, mock(GatheringFaceToFaceService.class), mock(MomentService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         UUID momentId = UuidCreator.getTimeOrderedEpoch();
         for (String suffix : List.of("", "/remove")) {
