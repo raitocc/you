@@ -3,6 +3,7 @@ package com.you.youbackend.gathering.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.gathering.entity.Gathering;
+import com.you.youbackend.gathering.model.GatheringStatus;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -16,6 +17,30 @@ import java.util.UUID;
 /** 同行主表读写，复用全局 UUID 映射与软删除配置。 */
 @Mapper
 public interface GatheringMapper extends BaseMapper<Gathering> {
+    /** 查询包含已解散记录的同行，用于校验创建者和识别重复解散。 */
+    @Select("""
+            SELECT id, created_at, updated_at, creator_user_id, name, description,
+                   status, invite_enabled, invite_code, face_code, deleted_at
+            FROM gathering WHERE id = #{id}
+            """)
+    Gathering selectIncludingDeleted(@Param("id") UUID id);
+
+    /** 将有效同行结束，同时关闭邀请；已有成员和内容保留。 */
+    default void endGathering(UUID id, LocalDateTime updatedAt) {
+        // 同一条更新保存结束状态和邀请开关。
+        update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, id)
+                .set(Gathering::getStatus, GatheringStatus.ENDED)
+                .set(Gathering::getInviteEnabled, false).set(Gathering::getUpdatedAt, updatedAt));
+    }
+
+    /** 软删除同行，解散时间同时作为修改时间；重复请求由业务层识别。 */
+    default void dissolveGathering(UUID id, LocalDateTime deletedAt) {
+        // 沿用全局逻辑删除过滤，仅更新有效同行。
+        update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, id)
+                .set(Gathering::getDeletedAt, deletedAt).set(Gathering::getUpdatedAt, deletedAt));
+    }
+
+
     /**
      * 读取本人有效成员关系对应的同行首屏。
      * @param userId 当前用户 ID

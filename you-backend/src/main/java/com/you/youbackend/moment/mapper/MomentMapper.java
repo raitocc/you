@@ -7,6 +7,7 @@ import com.you.youbackend.moment.entity.Moment;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -18,6 +19,22 @@ import java.util.UUID;
  */
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
+    /** 退出时解除本人在指定同行的全部关联，包含已删除瞬间，原内容保留。 */
+    @Update("""
+            UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}
+            WHERE gathering_id = #{gatheringId} AND author_user_id = #{userId}
+            """)
+    int removeAllOwnedGathering(@Param("gatheringId") UUID gatheringId, @Param("userId") UUID userId,
+                               @Param("updatedAt") LocalDateTime updatedAt);
+
+    /** 解散时解除该同行全部瞬间关联，包含已删除瞬间，原内容保留。 */
+    @Update("""
+            UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}
+            WHERE gathering_id = #{gatheringId}
+            """)
+    int removeAllGathering(@Param("gatheringId") UUID gatheringId, @Param("updatedAt") LocalDateTime updatedAt);
+
+
     /**
      * 读取指定同行的有效瞬间首屏，按发生时间、ID 正序。
      * @param gatheringId 已校验访问权限的同行 ID

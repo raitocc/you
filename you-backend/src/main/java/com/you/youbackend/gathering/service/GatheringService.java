@@ -62,6 +62,80 @@ public class GatheringService {
     private final MomentMapper momentMapper;
 
     /**
+     * 普通成员主动退出并解除本人全部瞬间关联，两个写操作在同一事务中完成。
+     * @param gatheringId 未解散的同行 ID，允许已结束
+     * @param userId 当前认证用户 ID，创建者须选择解散
+     */
+    @Transactional
+    public void leaveGathering(UUID gatheringId, UUID userId) {
+        // 1. 同行须有效，创建者保留管理责任，通过解散关闭同行。
+        Gathering gathering = requireGathering(gatheringId);
+        if (userId.equals(gathering.getCreatorUserId())) {
+            log.warn("同行退出被拒绝，gatheringId={}，userId={}，reason=创建者须解散同行", gatheringId, userId);
+            throw BusinessException.badRequest("GATHERING_CREATOR_CANNOT_LEAVE", "创建者无法直接退出，请选择解散同行");
+        }
+        // 2. 区分从未加入与已经退出，重复退出保持成功且不修改时间。
+        GatheringMember member = gatheringMemberMapper.selectIncludingDeleted(gatheringId, userId);
+        if (member == null) {
+            log.warn("同行退出被拒绝，gatheringId={}，userId={}，reason=从未加入", gatheringId, userId);
+            throw BusinessException.forbidden("当前用户未加入该同行");
+        }
+        if (member.getDeletedAt() != null) {
+            log.debug("用户已退出同行，gatheringId={}，userId={}", gatheringId, userId);
+            return;
+        }
+        // 3. 成员退出和本人瞬间解绑共同提交，原始瞬间与媒体保留。
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        gatheringMemberMapper.leaveGathering(member.getId(), now);
+        int removed = momentMapper.removeAllOwnedGathering(gatheringId, userId, now);
+        log.info("已写入同行退出，gatheringId={}，userId={}，removedMomentCount={}", gatheringId, userId, removed);
+    }
+
+    /**
+     * 创建者结束同行并关闭邀请，原有成员与瞬间关联保留。
+     * @param gatheringId 有效同行 ID
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void endGathering(UUID gatheringId, UUID userId) {
+        // 1. 校验有效同行和创建者身份，重复结束保持成功。
+        Gathering gathering = requireGathering(gatheringId);
+        requireCreator(gathering, userId);
+        if (gathering.getStatus() == GatheringStatus.ENDED) {
+            log.debug("同行已结束，gatheringId={}，userId={}", gatheringId, userId);
+            return;
+        }
+        // 2. 状态与邀请开关一起更新，各加入入口继续复用邀请检查。
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        gatheringMapper.endGathering(gatheringId, now);
+        log.info("已写入同行结束，gatheringId={}，userId={}", gatheringId, userId);
+    }
+
+    /**
+     * 创建者解散同行并解除全部瞬间关联，同一事务提交，成员记录和原始瞬间保留。
+     * @param gatheringId 同行 ID，已解散记录用于识别重复请求
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void dissolveGathering(UUID gatheringId, UUID userId) {
+        // 1. 包含已解散记录查询，先校验创建者，再识别重复请求。
+        Gathering gathering = gatheringMapper.selectIncludingDeleted(gatheringId);
+        if (gathering == null) {
+            throw BusinessException.notFound("GATHERING_NOT_FOUND", "同行不存在或已解散");
+        }
+        requireCreator(gathering, userId);
+        if (gathering.getDeletedAt() != null) {
+            log.debug("同行已解散，gatheringId={}，userId={}", gatheringId, userId);
+            return;
+        }
+        // 2. 关闭同行入口并批量解除关联，任一步骤失败整体回滚。
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        gatheringMapper.dissolveGathering(gatheringId, now);
+        int removed = momentMapper.removeAllGathering(gatheringId, now);
+        log.info("已写入同行解散，gatheringId={}，userId={}，removedMomentCount={}", gatheringId, userId, removed);
+    }
+
+    /**
      * 批量关联本人瞬间，整批校验与写入共同提交或回滚。
      * @param gatheringId 进行中的目标同行 ID
      * @param request 已通过列表及 UUIDv7 校验的请求
@@ -400,6 +474,15 @@ public class GatheringService {
                 creator, memberCount, momentCount, gathering.getCreatedAt().toInstant(ZoneOffset.UTC));
     }
 
+    /** 校验已查询同行的创建者身份，供结束、解散操作使用。 */
+    private void requireCreator(Gathering gathering, UUID userId) {
+        // 创建者身份来自同行主记录，其他成员无管理权限。
+        if (!userId.equals(gathering.getCreatorUserId())) {
+            log.warn("同行管理被拒绝，gatheringId={}，userId={}，reason=非创建者", gathering.getId(), userId);
+            throw BusinessException.forbidden("仅创建者可以操作");
+        }
+    }
+
     /** 读取有效同行，软删除由全局配置过滤，缺失返回 404。 */
     private Gathering requireGathering(UUID gatheringId) {
         // 同行不存在和已解散使用统一业务语义。
@@ -450,7 +533,7 @@ public class GatheringService {
     }
 
     /**
-     * 根据邀请码加载可加入的同行，进行中和已结束采用相同加入规则。
+     * 根据邀请码加载开放邀请的同行；结束操作会关闭邀请。
      * @param inviteCode 已通过边界校验的长期邀请码
      * @return 未解散且开放邀请的完整同行实体
      * @throws BusinessException 目标不可加入时统一返回 404

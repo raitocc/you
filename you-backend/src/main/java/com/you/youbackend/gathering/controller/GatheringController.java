@@ -41,6 +41,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -64,6 +65,54 @@ public class GatheringController {
     private final GatheringService gatheringService;
     private final GatheringFaceToFaceService faceToFaceService;
     private final MomentService momentService;
+
+    /** 主动退出同行，重复操作成功，具体校验与事务由业务层处理。 */
+    @Operation(summary = "主动退出同行", operationId = "15_leave_gathering")
+    @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
+    @ApiResponse(responseCode = "400", description = "同行 ID 无效，或创建者尝试退出")
+    @ApiResponse(responseCode = "401", description = "登录凭证无效")
+    @ApiResponse(responseCode = "403", description = "当前用户从未加入该同行")
+    @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
+    @PostMapping("/{gatheringId}/leave")
+    public Result<Void> leaveGathering(
+            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 使用已认证身份执行主动退出同行。
+        gatheringService.leaveGathering(gatheringId, userId);
+        return Result.ok(null);
+    }
+
+    /** 结束同行，重复操作成功，具体校验与事务由业务层处理。 */
+    @Operation(summary = "结束同行", operationId = "16_end_gathering")
+    @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
+    @ApiResponse(responseCode = "400", description = "同行 ID 无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证无效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是创建者")
+    @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
+    @PostMapping("/{gatheringId}/end")
+    public Result<Void> endGathering(
+            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 使用已认证身份执行结束同行。
+        gatheringService.endGathering(gatheringId, userId);
+        return Result.ok(null);
+    }
+
+    /** 解散同行，重复操作成功，具体校验与事务由业务层处理。 */
+    @Operation(summary = "解散同行", operationId = "17_dissolve_gathering")
+    @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
+    @ApiResponse(responseCode = "400", description = "同行 ID 无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证无效")
+    @ApiResponse(responseCode = "403", description = "当前用户不是创建者")
+    @ApiResponse(responseCode = "404", description = "同行不存在")
+    @DeleteMapping("/{gatheringId}")
+    public Result<Void> dissolveGathering(
+            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 使用已认证身份执行解散同行。
+        gatheringService.dissolveGathering(gatheringId, userId);
+        return Result.ok(null);
+    }
 
     /** 同行成员浏览共同经历时间线，按发生时间及 ID 正序。 */
     @Operation(summary = "浏览同行中的瞬间", operationId = "13_list_gathering_moments")
