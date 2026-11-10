@@ -14,8 +14,8 @@ import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.entity.MomentImage;
 import com.you.youbackend.moment.entity.MomentTag;
-import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentImageMapper;
+import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentMood;
 import org.junit.jupiter.api.Test;
@@ -145,7 +145,7 @@ class AlbumPaginationDatabaseTest {
         image(moment, firstFile, 1);
         tag(moment, "旅行", time);
         tag(moment, "周末", time.plusSeconds(1));
-        when(media.findOwnedImageKeys(eq(user), anyCollection())).thenReturn(Map.of(firstFile, "first", secondFile, "second"));
+        when(media.findImageKeys(anyCollection())).thenReturn(Map.of(firstFile, "first", secondFile, "second"));
         when(media.createReadUrl("first")).thenReturn("first-url");
         when(media.createReadUrl("second")).thenReturn("second-url");
         var result = service.browseAlbumMoments(album.getId(), user, new PageRequest<>(null, 20));
@@ -156,7 +156,7 @@ class AlbumPaginationDatabaseTest {
         assertEquals(List.of("旅行", "周末"), item.tags());
         assertEquals(List.of(firstFile, secondFile), item.images().stream().map(image -> image.fileId()).toList());
         assertEquals(List.of("first-url", "second-url"), item.images().stream().map(image -> image.url()).toList());
-        verify(media, times(1)).findOwnedImageKeys(eq(user), anyCollection());
+        verify(media, times(1)).findImageKeys(anyCollection());
     }
 
     @Test

@@ -13,7 +13,7 @@ import java.time.Instant;
  */
 @Schema(description = "面对面同行候选项")
 public record FaceToFaceCandidateResponse(
-        @Schema(description = "同行摘要，其中的 ID 用于确认加入") GatheringSummaryResponse gathering,
+        @Schema(description = "同行摘要，其中的 ID 用于确认加入") FaceToFaceSummaryResponse gathering,
         @Schema(description = "距发起位置的米数，按此值升序排列", minimum = "0", maximum = "100")
         double distanceMeters,
         @Schema(description = "入口截止时间，UTC", format = "date-time") Instant expiresAt,

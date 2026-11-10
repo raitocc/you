@@ -15,6 +15,19 @@ import java.util.UUID;
 @Mapper
 public interface MediaFileMapper extends BaseMapper<MediaFile> {
     /**
+     * 批量读取有效图片对象键，不限定上传者，调用方须先确认业务访问权限。
+     * @param fileIds 非空的文件 ID
+     * @param mimeTypes 当前支持的图片类型
+     * @return 仅含 id、storageKey 的投影，未登记、已删除及非图片文件被过滤
+     */
+    default List<MediaFile> selectImageStorageKeys(Collection<UUID> fileIds, Collection<String> mimeTypes) {
+        // 仅加载已授权业务关联的图片；文件登记即表示上传已完成。
+        return selectList(Wrappers.<MediaFile>lambdaQuery()
+                .select(MediaFile::getId, MediaFile::getStorageKey)
+                .in(MediaFile::getId, fileIds).in(MediaFile::getMimeType, mimeTypes));
+    }
+
+    /**
      * 批量读取有效文件的对象键，调用方已确认业务访问资格。
      * @param fileIds 非空的文件 ID 集合
      * @return 只填充 id、storageKey 的投影，已删除记录由全局配置过滤

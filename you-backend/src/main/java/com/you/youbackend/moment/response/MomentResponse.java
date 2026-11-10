@@ -2,6 +2,7 @@ package com.you.youbackend.moment.response;
 
 import com.you.youbackend.moment.model.MomentLocation;
 import com.you.youbackend.moment.model.MomentMood;
+import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
@@ -11,6 +12,7 @@ import java.util.UUID;
 /**
  * 瞬间完整详情，用于详情阅读、编辑回填及发布或修改后的响应。
  *
+ * @param author 作者公开资料，查不到时为 null
  * @param id 瞬间 UUIDv7
  * @param title 标题，未设置时为 null
  * @param body 普通文本正文，可为 null
@@ -52,7 +54,10 @@ public record MomentResponse(
         Instant createdAt,
 
         @Schema(description = "最后修改时间，UTC", format = "date-time")
-        Instant updatedAt
+        Instant updatedAt,
+
+        @Schema(description = "作者公开资料，查不到时为 null", nullable = true)
+        PublicUserResponse author
 ) {
     /**
      * 瞬间中的单张图片，排列位置由外层 images 列表顺序决定。

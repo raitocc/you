@@ -2,6 +2,11 @@ package com.you.youbackend.moment;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.gathering.entity.Gathering;
+import com.you.youbackend.gathering.mapper.GatheringMapper;
+import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
+import com.you.youbackend.gathering.model.GatheringStatus;
+import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.entity.MomentImage;
@@ -13,16 +18,11 @@ import com.you.youbackend.moment.model.MomentLocation;
 import com.you.youbackend.moment.model.MomentMood;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.service.MomentService;
-import com.you.youbackend.gathering.service.GatheringService;
-import com.you.youbackend.gathering.entity.Gathering;
-import com.you.youbackend.gathering.mapper.GatheringMapper;
-import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
-import com.you.youbackend.gathering.model.GatheringStatus;
 import com.you.youbackend.user.service.UserService;
-import org.springframework.http.HttpStatus;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -45,7 +45,7 @@ class MomentCreationTest {
     private final GatheringMapper gatherings = mock(GatheringMapper.class);
     private final GatheringMemberMapper members = mock(GatheringMemberMapper.class);
     private final GatheringService gatheringService = new GatheringService(gatherings, members, mock(UserService.class), moments);
-    private final MomentService service = new MomentService(moments, images, tags, media, gatheringService);
+    private final MomentService service = new MomentService(moments, images, tags, media, gatheringService, mock(UserService.class));
     private final UUID userId = UUID.randomUUID();
     private final UUID momentId = UuidCreator.getTimeOrderedEpoch();
     private final Instant time = Instant.parse("2026-01-01T00:00:00.123456Z");

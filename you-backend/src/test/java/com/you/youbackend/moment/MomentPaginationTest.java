@@ -1,8 +1,10 @@
 package com.you.youbackend.moment;
 
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
+import com.you.youbackend.common.request.PageQueryArgumentResolver;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.controller.MomentController;
 import com.you.youbackend.moment.entity.Moment;
@@ -11,16 +13,14 @@ import com.you.youbackend.moment.mapper.MomentImageMapper;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentFeedCursor;
-import com.you.youbackend.moment.response.MomentFeedItem;
 import com.you.youbackend.moment.service.MomentService;
-import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
+import com.you.youbackend.user.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import com.you.youbackend.common.request.PageQueryArgumentResolver;
-import tools.jackson.databind.json.JsonMapper;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -102,11 +102,11 @@ class MomentPaginationTest {
         MomentMapper moments = mock(MomentMapper.class);
         MomentImageMapper images = mock(MomentImageMapper.class);
         MediaService media = mock(MediaService.class);
-        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class));
+        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class), mock(UserService.class));
         Moment first = moment(3), last = moment(2), extra = moment(1);
         when(moments.selectFeed(userId, null, null, 3)).thenReturn(List.of(first, last, extra));
         when(images.selectFeedImages(anyCollection())).thenReturn(List.of());
-        when(media.findOwnedImageKeys(eq(userId), anyCollection())).thenReturn(Map.of());
+        when(media.findImageKeys(anyCollection())).thenReturn(Map.of());
 
         var page = real.browseYours(userId, new PageRequest<>(null, 2));
         assertEquals(2, page.items().size());
@@ -127,7 +127,7 @@ class MomentPaginationTest {
         MomentMapper moments = mock(MomentMapper.class);
         MomentImageMapper images = mock(MomentImageMapper.class);
         when(moments.selectFeed(userId, null, null, 21)).thenReturn(List.of());
-        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), mock(MediaService.class), mock(GatheringService.class));
+        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), mock(MediaService.class), mock(GatheringService.class), mock(UserService.class));
         var page = real.browseYours(userId, new PageRequest<>(null, null));
         assertTrue(page.items().isEmpty());
         assertFalse(page.hasMore());
@@ -140,7 +140,7 @@ class MomentPaginationTest {
         MomentMapper moments = mock(MomentMapper.class);
         MomentImageMapper images = mock(MomentImageMapper.class);
         MediaService media = mock(MediaService.class);
-        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class));
+        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class), mock(UserService.class));
         Moment first = moment(3), second = moment(2), extra = moment(1);
         first.setBody("😊".repeat(101));
         when(moments.selectFeed(userId, null, null, 3)).thenReturn(List.of(first, second, extra));
@@ -148,7 +148,7 @@ class MomentPaginationTest {
         List<MomentImage> associations = List.of(feedImage(first.getId(), invalid),
                 feedImage(first.getId(), cover), feedImage(first.getId(), remaining));
         when(images.selectFeedImages(List.of(first.getId(), second.getId()))).thenReturn(associations);
-        when(media.findOwnedImageKeys(userId, List.of(invalid, cover, remaining)))
+        when(media.findImageKeys(List.of(invalid, cover, remaining)))
                 .thenReturn(Map.of(cover, "cover-key", remaining, "remaining-key"));
         when(media.createReadUrl("cover-key")).thenReturn("cover-url");
 

@@ -2,12 +2,15 @@ package com.you.youbackend.moment.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.you.youbackend.gathering.model.GatheringCount;
 import com.you.youbackend.moment.entity.Moment;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,6 +19,117 @@ import java.util.UUID;
  */
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
+    /** 退出时解除本人在指定同行的全部关联，包含已删除瞬间，原内容保留。 */
+    @Update("""
+            UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}
+            WHERE gathering_id = #{gatheringId} AND author_user_id = #{userId}
+            """)
+    int removeAllOwnedGathering(@Param("gatheringId") UUID gatheringId, @Param("userId") UUID userId,
+                               @Param("updatedAt") LocalDateTime updatedAt);
+
+    /** 解散时解除该同行全部瞬间关联，包含已删除瞬间，原内容保留。 */
+    @Update("""
+            UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}
+            WHERE gathering_id = #{gatheringId}
+            """)
+    int removeAllGathering(@Param("gatheringId") UUID gatheringId, @Param("updatedAt") LocalDateTime updatedAt);
+
+
+    /**
+     * 读取指定同行的有效瞬间首屏，按发生时间、ID 正序。
+     * @param gatheringId 已校验访问权限的同行 ID
+     * @param rowCount 页大小加一
+     * @return 仅含摘要及作者字段的投影
+     */
+    default List<Moment> selectGatheringFirstPage(UUID gatheringId, int rowCount) {
+        // 摘要查询包含作者 ID，供批量加载公开资料。
+        return selectList(Wrappers.<Moment>lambdaQuery()
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody,
+                        Moment::getMood, Moment::getMemoryTime)
+                .eq(Moment::getGatheringId, gatheringId)
+                .orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
+    }
+
+    /**
+     * 读取指定同行的后续页，严格排除上一页末项及之前的记录。
+     * @param gatheringId 已校验访问权限的同行 ID
+     * @param memoryTime 上一页末项发生时间，UTC
+     * @param id 上一页末项 ID
+     * @param rowCount 页大小加一
+     * @return 仅含摘要及作者字段的投影，排序与首屏一致
+     */
+    default List<Moment> selectGatheringNextPage(UUID gatheringId, LocalDateTime memoryTime, UUID id, int rowCount) {
+        // 正序分页取更晚时间，或相同时间下更大的 ID。
+        return selectList(Wrappers.<Moment>lambdaQuery()
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody,
+                        Moment::getMood, Moment::getMemoryTime)
+                .eq(Moment::getGatheringId, gatheringId)
+                .and(boundary -> boundary.gt(Moment::getMemoryTime, memoryTime)
+                        .or(sameTime -> sameTime.eq(Moment::getMemoryTime, memoryTime).gt(Moment::getId, id)))
+                .orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
+    }
+
+    /**
+     * 批量读取本人有效瞬间的关联校验字段。
+     * @param userId 当前作者 ID
+     * @param ids 非空且已去重的瞬间 ID
+     * @return 仅含 id、authorUserId、gatheringId 的投影实体，仅用于关联校验
+     */
+    default List<Moment> selectOwnedForGathering(UUID userId, List<UUID> ids) {
+        // 限定作者并沿用逻辑删除过滤，缺少的候选由业务层统一判为无效。
+        return selectList(Wrappers.<Moment>lambdaQuery()
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getGatheringId)
+                .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids));
+    }
+
+    /**
+     * 将本人尚未关联同行的有效瞬间批量加入目标同行。
+     * @param userId 已校验的作者 ID
+     * @param gatheringId 已校验有效、进行中且本人已加入的目标同行
+     * @param ids 非空且已筛选为尚未关联的瞬间 ID
+     * @param updatedAt 本次统一 UTC 毫秒时间
+     * @return 实际修改行数
+     */
+    default int associateGathering(UUID userId, UUID gatheringId, List<UUID> ids, LocalDateTime updatedAt) {
+        // 仅更新无关联记录，避免覆盖校验后由另一请求建立的同行关联。
+        return update(Wrappers.<Moment>lambdaUpdate()
+                .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids)
+                .isNull(Moment::getGatheringId)
+                .set(Moment::getGatheringId, gatheringId).set(Moment::getUpdatedAt, updatedAt));
+    }
+
+    /**
+     * 批量移出本人在指定同行中的瞬间。
+     * @param userId 已校验的作者 ID
+     * @param gatheringId 已校验有效且本人已加入的同行，允许已结束
+     * @param ids 非空且已筛选为当前同行关联的瞬间 ID
+     * @param updatedAt 本次统一 UTC 毫秒时间
+     * @return 实际修改行数
+     */
+    default int removeGathering(UUID userId, UUID gatheringId, List<UUID> ids, LocalDateTime updatedAt) {
+        // 操作范围限定当前同行，显式写 null 清空关联，原内容和其他同行关联保持原样。
+        return update(Wrappers.<Moment>lambdaUpdate()
+                .eq(Moment::getAuthorUserId, userId).eq(Moment::getGatheringId, gatheringId)
+                .in(Moment::getId, ids)
+                .set(Moment::getGatheringId, null).set(Moment::getUpdatedAt, updatedAt));
+    }
+
+    /**
+     * 批量统计同行的有效瞬间数量，避免列表逐条查询。
+     * @param ids 非空的本页同行 ID 集合
+     * @return 有记录的同行及数量；无记录的同行按零解释
+     */
+    @Select("""
+            <script>
+            SELECT gathering_id, COUNT(*) AS count FROM moment
+            WHERE deleted_at IS NULL AND gathering_id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            GROUP BY gathering_id
+            </script>
+            """)
+    List<GatheringCount> countByGatherings(
+            @Param("ids") Collection<UUID> ids);
+
     /**
      * 统计当前仍关联到同行的有效瞬间，供同行信息展示使用。
      * @param gatheringId 已确认有效且当前用户可访问的同行 ID
@@ -96,11 +210,11 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param cursorId 游标记录 ID，由 Service 与 cursorTime 成对传入
      * @param rowCount 实际页大小加一，额外一条用于判断下一页
      * @return 仅填充卡片查询所需字段的瞬间列表
-     * 返回实体仅含 id、title、body、mood、memoryTime，供卡片组装使用。
+     * 返回实体仅含 id、authorUserId、title、body、mood、memoryTime，供卡片组装使用。
      */
     default List<Moment> selectFeed(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
         var query = Wrappers.<Moment>lambdaQuery()
-                .select(Moment::getId, Moment::getTitle, Moment::getBody, Moment::getMood, Moment::getMemoryTime)
+                .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody, Moment::getMood, Moment::getMemoryTime)
                 .eq(Moment::getAuthorUserId, userId);
         // 倒序分页仅查询更早的时间，或相同时间下更小的 ID，排除上一页边界及其之前的记录。
         if (cursorTime != null) {

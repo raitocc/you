@@ -3,12 +3,32 @@ package com.you.youbackend.media.service;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.entity.MediaFile;
+import com.you.youbackend.media.event.MediaUploadEvent;
 import com.you.youbackend.media.mapper.MediaFileMapper;
 import com.you.youbackend.media.request.CreateUploadRequest;
-import com.you.youbackend.media.event.MediaUploadEvent;
 import com.you.youbackend.media.request.TestUploadRequest;
 import com.you.youbackend.media.response.CreateUploadResponse;
 import com.you.youbackend.media.response.TestUploadResponse;
+import com.you.youbackend.media.response.UploadStatusResponse;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -22,27 +42,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
-import com.you.youbackend.media.response.UploadStatusResponse;
-import lombok.extern.log4j.Log4j2;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DuplicateKeyException;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
-import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.core.exception.SdkException;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
 /**
  * 媒体上传地址生成与签名上传测试。
@@ -302,6 +301,21 @@ public class MediaService {
      */
     public String createOwnedImageReadUrl(UUID fileId, UUID userId) {
         return createReadUrl(requireOwnedImage(fileId, userId).getStorageKey());
+    }
+
+    /**
+     * 批量取得有效图片对象键，不限定上传者。
+     * @param fileIds 由已授权业务内容取得的文件 ID，允许为空
+     * @return 有效图片 ID 到对象键的映射，查不到的文件省略
+     * <p>调用方须已校验内容访问权限；此方法只查询文件，不授予读取资格。
+     */
+    public Map<UUID, String> findImageKeys(Collection<UUID> fileIds) {
+        // 空集合跳过查询；上传完成后才登记媒体记录，逻辑删除由全局配置过滤。
+        if (fileIds.isEmpty()) {
+            return Map.of();
+        }
+        return mediaFileMapper.selectImageStorageKeys(fileIds, ALLOWED_IMAGE_TYPES)
+                .stream().collect(Collectors.toMap(MediaFile::getId, MediaFile::getStorageKey));
     }
 
     /**

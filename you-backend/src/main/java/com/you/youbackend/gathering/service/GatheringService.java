@@ -2,18 +2,28 @@ package com.you.youbackend.gathering.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.common.request.PageRequest;
+import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.gathering.entity.Gathering;
 import com.you.youbackend.gathering.entity.GatheringMember;
 import com.you.youbackend.gathering.mapper.GatheringMapper;
 import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
-import com.you.youbackend.gathering.model.GatheringStatus;
 import com.you.youbackend.gathering.model.FaceToFaceRules;
+import com.you.youbackend.gathering.model.GatheringCount;
+import com.you.youbackend.gathering.model.GatheringListCursor;
+import com.you.youbackend.gathering.model.GatheringMemberCursor;
+import com.you.youbackend.gathering.model.GatheringStatus;
+import com.you.youbackend.gathering.request.AddGatheringMomentsRequest;
 import com.you.youbackend.gathering.request.CreateGatheringRequest;
 import com.you.youbackend.gathering.request.GatheringJoinPreviewRequest;
-import com.you.youbackend.gathering.request.JoinGatheringRequest;
 import com.you.youbackend.gathering.request.JoinFaceToFaceRequest;
+import com.you.youbackend.gathering.request.JoinGatheringRequest;
+import com.you.youbackend.gathering.request.RemoveGatheringMomentsRequest;
+import com.you.youbackend.gathering.request.UpdateGatheringRequest;
 import com.you.youbackend.gathering.response.GatheringJoinPreviewResponse;
 import com.you.youbackend.gathering.response.GatheringResponse;
+import com.you.youbackend.gathering.response.GatheringSummaryResponse;
+import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
@@ -24,17 +34,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /** 同行创建、成员加入与瞬间关联资格校验。 */
 @Log4j2
 @Service
 @RequiredArgsConstructor
 public class GatheringService {
+    /** 列表介绍摘要的最大 Unicode 码点数。 */
+    private static final int SUMMARY_DESCRIPTION_LENGTH = 100;
     /** 长期邀请码长度，与 gathering.invite_code 的字段长度一致。 */
     private static final int INVITE_CODE_LENGTH = 16;
     /** 使用大写字母与数字，避免 MySQL 默认忽略大小写导致随机空间缩水。 */
@@ -45,6 +60,225 @@ public class GatheringService {
     private final GatheringMemberMapper gatheringMemberMapper;
     private final UserService userService;
     private final MomentMapper momentMapper;
+
+    /**
+     * 普通成员主动退出并解除本人全部瞬间关联，两个写操作在同一事务中完成。
+     * @param gatheringId 未解散的同行 ID，允许已结束
+     * @param userId 当前认证用户 ID，创建者须选择解散
+     */
+    @Transactional
+    public void leaveGathering(UUID gatheringId, UUID userId) {
+        // 1. 同行须有效，创建者保留管理责任，通过解散关闭同行。
+        Gathering gathering = requireGathering(gatheringId);
+        if (userId.equals(gathering.getCreatorUserId())) {
+            log.warn("同行退出被拒绝，gatheringId={}，userId={}，reason=创建者须解散同行", gatheringId, userId);
+            throw BusinessException.badRequest("GATHERING_CREATOR_CANNOT_LEAVE", "创建者无法直接退出，请选择解散同行");
+        }
+        // 2. 区分从未加入与已经退出，重复退出保持成功且不修改时间。
+        GatheringMember member = gatheringMemberMapper.selectIncludingDeleted(gatheringId, userId);
+        if (member == null) {
+            log.warn("同行退出被拒绝，gatheringId={}，userId={}，reason=从未加入", gatheringId, userId);
+            throw BusinessException.forbidden("当前用户未加入该同行");
+        }
+        if (member.getDeletedAt() != null) {
+            log.debug("用户已退出同行，gatheringId={}，userId={}", gatheringId, userId);
+            return;
+        }
+        // 3. 成员退出和本人瞬间解绑共同提交，原始瞬间与媒体保留。
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        gatheringMemberMapper.leaveGathering(member.getId(), now);
+        int removed = momentMapper.removeAllOwnedGathering(gatheringId, userId, now);
+        log.info("已写入同行退出，gatheringId={}，userId={}，removedMomentCount={}", gatheringId, userId, removed);
+    }
+
+    /**
+     * 创建者结束同行并关闭邀请，原有成员与瞬间关联保留。
+     * @param gatheringId 有效同行 ID
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void endGathering(UUID gatheringId, UUID userId) {
+        // 1. 校验有效同行和创建者身份，重复结束保持成功。
+        Gathering gathering = requireGathering(gatheringId);
+        requireCreator(gathering, userId);
+        if (gathering.getStatus() == GatheringStatus.ENDED) {
+            log.debug("同行已结束，gatheringId={}，userId={}", gatheringId, userId);
+            return;
+        }
+        // 2. 状态与邀请开关一起更新，各加入入口继续复用邀请检查。
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        gatheringMapper.endGathering(gatheringId, now);
+        log.info("已写入同行结束，gatheringId={}，userId={}", gatheringId, userId);
+    }
+
+    /**
+     * 创建者解散同行并解除全部瞬间关联，同一事务提交，成员记录和原始瞬间保留。
+     * @param gatheringId 同行 ID，已解散记录用于识别重复请求
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void dissolveGathering(UUID gatheringId, UUID userId) {
+        // 1. 包含已解散记录查询，先校验创建者，再识别重复请求。
+        Gathering gathering = gatheringMapper.selectIncludingDeleted(gatheringId);
+        if (gathering == null) {
+            throw BusinessException.notFound("GATHERING_NOT_FOUND", "同行不存在或已解散");
+        }
+        requireCreator(gathering, userId);
+        if (gathering.getDeletedAt() != null) {
+            log.debug("同行已解散，gatheringId={}，userId={}", gatheringId, userId);
+            return;
+        }
+        // 2. 关闭同行入口并批量解除关联，任一步骤失败整体回滚。
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        gatheringMapper.dissolveGathering(gatheringId, now);
+        int removed = momentMapper.removeAllGathering(gatheringId, now);
+        log.info("已写入同行解散，gatheringId={}，userId={}，removedMomentCount={}", gatheringId, userId, removed);
+    }
+
+    /**
+     * 批量关联本人瞬间，整批校验与写入共同提交或回滚。
+     * @param gatheringId 进行中的目标同行 ID
+     * @param request 已通过列表及 UUIDv7 校验的请求
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void addMoments(UUID gatheringId, AddGatheringMomentsRequest request, UUID userId) {
+        // 1. 复用发布时的关联资格校验，批量加载去重后的本人有效瞬间。
+        validateMomentAssociation(gatheringId, userId);
+        List<Moment> moments = requireOwnedMoments(request.momentIds(), userId);
+        // 2. 任何其他同行关联均使整批失败，已关联当前同行的按成功处理。
+        validateNoOtherGathering(moments, gatheringId);
+        List<UUID> pendingIds = moments.stream().filter(moment -> moment.getGatheringId() == null)
+                .map(Moment::getId).toList();
+        if (pendingIds.isEmpty()) {
+            log.debug("瞬间已全部关联当前同行，gatheringId={}，userId={}，count={}", gatheringId, userId, moments.size());
+            return;
+        }
+        // 3. 只更新新增关联；条件更新与行数检查共同保证不会覆盖其他请求建立的关联。
+        LocalDateTime updatedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        int changed = momentMapper.associateGathering(userId, gatheringId, pendingIds, updatedAt);
+        if (changed != pendingIds.size()) {
+            throw BusinessException.conflict("MOMENT_ASSOCIATION_CHANGED", "瞬间关联状态已变化，请刷新后重试");
+        }
+        log.info("已写入瞬间批量关联，gatheringId={}，userId={}，count={}", gatheringId, userId, changed);
+    }
+
+    /**
+     * 批量取消本人瞬间在指定同行中的关联，允许已结束同行，重复取消成功。
+     * @param gatheringId 当前操作的同行 ID
+     * @param request 已通过列表及 UUIDv7 校验的请求
+     * @param userId 当前认证用户 ID
+     */
+    @Transactional
+    public void removeMoments(UUID gatheringId, RemoveGatheringMomentsRequest request, UUID userId) {
+        // 1. 校验有效同行及本人成员资格，整批确认瞬间有效且属于本人。
+        requireMemberGathering(gatheringId, userId);
+        List<Moment> moments = requireOwnedMoments(request.momentIds(), userId);
+        // 2. 仅筛选当前同行的关联，未关联和其他同行关联保持原样。
+        List<UUID> pendingIds = moments.stream().filter(moment -> gatheringId.equals(moment.getGatheringId()))
+                .map(Moment::getId).toList();
+        if (pendingIds.isEmpty()) {
+            log.debug("指定瞬间已移出同行，gatheringId={}，userId={}，count={}", gatheringId, userId, moments.size());
+            return;
+        }
+        // 3. 一次清空符合条件的关联，原瞬间及媒体内容保留。
+        LocalDateTime updatedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        int changed = momentMapper.removeGathering(userId, gatheringId, pendingIds, updatedAt);
+        log.info("已写入瞬间批量取消关联，gatheringId={}，userId={}，count={}", gatheringId, userId, changed);
+    }
+
+    /**
+     * 浏览本人已加入的有效同行，分页后批量补齐数量。
+     * @param request 已由 PageQuery 校验的分页参数
+     * @param userId 当前认证用户 ID
+     * @return 按创建时间、ID 倒序的同行摘要页
+     */
+    @Transactional(readOnly = true)
+    public ResultPage<GatheringSummaryResponse, GatheringListCursor> browseGatherings(
+            PageRequest<GatheringListCursor> request, UUID userId) {
+        // 1. 按游标加载页大小加一条，成员与同行都必须有效。
+        List<Gathering> rows = findGatheringPage(request, userId);
+        boolean hasMore = rows.size() > request.limit();
+        List<Gathering> page = rows.subList(0, Math.min(rows.size(), request.limit()));
+        // 2. 只为实际返回的本页记录批量加载创建者资料和数量，再转换为摘要。
+        List<GatheringSummaryResponse> items = buildSummaries(page);
+        GatheringListCursor nextCursor = null;
+        if (hasMore) {
+            Gathering last = page.get(page.size() - 1);
+            nextCursor = new GatheringListCursor(last.getCreatedAt().toInstant(ZoneOffset.UTC), last.getId());
+        }
+        log.debug("浏览本人同行，userId={}，count={}，hasMore={}", userId, items.size(), hasMore);
+        return new ResultPage<>(items, nextCursor, hasMore);
+    }
+
+    /**
+     * 有效成员读取同行详情，分页内容从各自入口读取。
+     * @param gatheringId 同行 ID
+     * @param userId 当前认证用户 ID
+     * @return 同行信息、实际数量与创建者公开资料
+     */
+    @Transactional(readOnly = true)
+    public GatheringResponse getGathering(UUID gatheringId, UUID userId) {
+        // 先校验空间及成员资格，再加载完整展示信息。
+        Gathering gathering = requireMemberGathering(gatheringId, userId);
+        log.debug("查看同行信息，gatheringId={}，userId={}", gatheringId, userId);
+        return loadMemberGatheringResponse(gathering);
+    }
+
+    /**
+     * 创建者全量修改基本信息，保存及响应加载在同一事务完成。
+     * @param gatheringId 同行 ID
+     * @param request 已校验名称、介绍，null 介绍表示清空
+     * @param userId 当前认证用户 ID
+     * @return 最新同行信息
+     */
+    @Transactional
+    public GatheringResponse updateGathering(UUID gatheringId, UpdateGatheringRequest request, UUID userId) {
+        // 1. 校验有效同行和创建者权限，管理身份由创建者字段确定。
+        Gathering gathering = requireGathering(gatheringId);
+        if (!gathering.getCreatorUserId().equals(userId)) {
+            log.warn("修改同行被拒绝，gatheringId={}，userId={}，reason=非创建者", gatheringId, userId);
+            throw BusinessException.forbidden("只有创建者可以修改同行信息");
+        }
+        // 2. 显式保存允许编辑的字段，介绍 null 会清空数据库原值。
+        gathering.setName(request.name());
+        gathering.setDescription(request.description());
+        gathering.setUpdatedAt(LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS));
+        gatheringMapper.updateContent(gathering);
+        // 3. 响应加载失败时写入回滚，日志表示当前事务内完成写入。
+        GatheringResponse response = loadMemberGatheringResponse(gathering);
+        log.info("已写入同行基本信息修改，gatheringId={}，userId={}", gatheringId, userId);
+        return response;
+    }
+
+    /**
+     * 有效成员分页读取其他有效成员的公开资料。
+     * @param gatheringId 同行 ID
+     * @param request 已校验的成员关系创建时间、用户 ID 游标
+     * @param userId 当前认证用户 ID
+     * @return 按成员关系创建时间、用户 ID 正序的公开资料页
+     */
+    @Transactional(readOnly = true)
+    public ResultPage<PublicUserResponse, GatheringMemberCursor> browseMembers(
+            UUID gatheringId, PageRequest<GatheringMemberCursor> request, UUID userId) {
+        // 1. 校验同行和访问资格，再按关系原创建时间分页。
+        requireMemberGathering(gatheringId, userId);
+        List<GatheringMember> rows = findMemberPage(gatheringId, request);
+        boolean hasMore = rows.size() > request.limit();
+        List<GatheringMember> page = rows.subList(0, Math.min(rows.size(), request.limit()));
+        // 2. 批量加载资料，保留关系顺序；查不到的资料保留为 null。
+        List<UUID> userIds = page.stream().map(GatheringMember::getUserId).toList();
+        Map<UUID, PublicUserResponse> profiles = userService.getPublicUsers(userIds);
+        List<PublicUserResponse> items = userIds.stream().map(profiles::get).toList();
+        GatheringMemberCursor nextCursor = null;
+        if (hasMore) {
+            GatheringMember last = page.get(page.size() - 1);
+            nextCursor = new GatheringMemberCursor(last.getCreatedAt().toInstant(ZoneOffset.UTC), last.getUserId());
+        }
+        log.debug("浏览同行成员，gatheringId={}，userId={}，count={}，hasMore={}",
+                gatheringId, userId, items.size(), hasMore);
+        return new ResultPage<>(items, nextCursor, hasMore);
+    }
 
     /**
      * 创建同行与创建者成员关系，两类记录共同提交或回滚。
@@ -146,6 +380,140 @@ public class GatheringService {
     }
 
     /**
+     * 去重并批量确认瞬间有效且属于本人，供关联及取消关联共同使用。
+     * @param momentIds 已校验非空、元素非空的瞬间 ID
+     * @param userId 当前作者 ID
+     * @return 只含关联校验字段的瞬间列表，候选全部通过校验
+     */
+    private List<Moment> requireOwnedMoments(List<UUID> momentIds, UUID userId) {
+        // 查询限定作者和有效记录，返回数量少于去重候选即表示整批中存在无效项。
+        List<UUID> ids = momentIds.stream().distinct().toList();
+        List<Moment> moments = momentMapper.selectOwnedForGathering(userId, ids);
+        if (moments.size() != ids.size()) {
+            log.warn("批量关联操作被拒绝，userId={}，reason=瞬间不存在、已删除或非本人", userId);
+            throw BusinessException.invalidArgument("部分瞬间不存在、已删除或不属于本人");
+        }
+        return moments;
+    }
+
+    /**
+     * 确认整批瞬间均未关联其他同行，写入前调用。
+     * @param moments 已确认有效且属于本人的瞬间关联投影
+     * @param gatheringId 本次目标同行 ID
+     */
+    private void validateNoOtherGathering(List<Moment> moments, UUID gatheringId) {
+        // 已关联当前同行属于重复操作；其他同行关联必须先由用户主动解除。
+        boolean hasOtherGathering = moments.stream().anyMatch(moment -> moment.getGatheringId() != null
+                && !gatheringId.equals(moment.getGatheringId()));
+        if (hasOtherGathering) {
+            log.debug("批量关联被拒绝，gatheringId={}，reason=部分瞬间已关联其他同行", gatheringId);
+            throw BusinessException.conflict("MOMENT_ALREADY_ASSOCIATED", "部分瞬间已关联其他同行，请先取消原关联");
+        }
+    }
+
+    /**
+     * 读取有效同行并校验当前用户成员资格，供同行和内容读取入口共用。
+     * @param gatheringId 同行 ID
+     * @param userId 当前认证用户 ID
+     * @return 已确认有效且本人为有效成员的同行
+     */
+    public Gathering requireMemberGathering(UUID gatheringId, UUID userId) {
+        // 先确认同行有效，再确认当前关系，邀请开关及结束状态均不影响已加入成员查看。
+        Gathering gathering = requireGathering(gatheringId);
+        if (!gatheringMemberMapper.isActiveMember(gatheringId, userId)) {
+            log.warn("访问同行被拒绝，gatheringId={}，userId={}，reason=非有效成员", gatheringId, userId);
+            throw BusinessException.forbidden("只有同行有效成员可以查看");
+        }
+        return gathering;
+    }
+
+    /** 按首屏或后续页意图读取本人同行，分页参数已由请求边界校验。 */
+    private List<Gathering> findGatheringPage(PageRequest<GatheringListCursor> request, UUID userId) {
+        // 后续页将 UTC 时间转换成数据库时间，游标成组校验由 PageQuery 完成。
+        GatheringListCursor cursor = request.cursor();
+        if (cursor == null) {
+            return gatheringMapper.selectFirstPage(userId, request.limit() + 1);
+        }
+        return gatheringMapper.selectNextPage(userId, LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC),
+                cursor.id(), request.limit() + 1);
+    }
+
+    /** 为非空本页批量加载创建者资料、成员数及瞬间数，空页直接返回空列表。 */
+    private List<GatheringSummaryResponse> buildSummaries(List<Gathering> page) {
+        // 零记录时跳过 IN 查询；无统计行表示当前数量为零。
+        if (page.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> ids = page.stream().map(Gathering::getId).toList();
+        Map<UUID, Long> memberCounts = toCountMap(gatheringMemberMapper.countByGatherings(ids));
+        Map<UUID, Long> momentCounts = toCountMap(momentMapper.countByGatherings(ids));
+        List<UUID> creatorIds = page.stream().map(Gathering::getCreatorUserId).distinct().toList();
+        Map<UUID, PublicUserResponse> creators = userService.getPublicUsers(creatorIds);
+        return page.stream().map(gathering -> toSummaryResponse(gathering,
+                creators.get(gathering.getCreatorUserId()),
+                memberCounts.getOrDefault(gathering.getId(), 0L),
+                momentCounts.getOrDefault(gathering.getId(), 0L))).toList();
+    }
+
+    /** 将数据库分组统计投影转换为同行 ID 到数量的动态映射。 */
+    private Map<UUID, Long> toCountMap(List<GatheringCount> counts) {
+        // 每个同行由 GROUP BY 返回一行，无记录的同行在组装时解释为零。
+        return counts.stream().collect(Collectors.toMap(GatheringCount::getGatheringId, GatheringCount::getCount));
+    }
+
+    /** 仅转换已加载的同行、创建者资料和数量，介绍截取前 100 个 Unicode 码点，保留原实体。 */
+    private GatheringSummaryResponse toSummaryResponse(
+            Gathering gathering, PublicUserResponse creator, long memberCount, long momentCount) {
+        // 使用码点边界保留完整 emoji，null 介绍保持为空。
+        String description = gathering.getDescription();
+        if (description != null) {
+            int end = description.offsetByCodePoints(0, Math.min(SUMMARY_DESCRIPTION_LENGTH, description.codePointCount(0, description.length())));
+            description = description.substring(0, end);
+        }
+        return new GatheringSummaryResponse(gathering.getId(), gathering.getName(), description,
+                creator, memberCount, momentCount, gathering.getCreatedAt().toInstant(ZoneOffset.UTC));
+    }
+
+    /** 校验已查询同行的创建者身份，供结束、解散操作使用。 */
+    private void requireCreator(Gathering gathering, UUID userId) {
+        // 创建者身份来自同行主记录，其他成员无管理权限。
+        if (!userId.equals(gathering.getCreatorUserId())) {
+            log.warn("同行管理被拒绝，gatheringId={}，userId={}，reason=非创建者", gathering.getId(), userId);
+            throw BusinessException.forbidden("仅创建者可以操作");
+        }
+    }
+
+    /** 读取有效同行，软删除由全局配置过滤，缺失返回 404。 */
+    private Gathering requireGathering(UUID gatheringId) {
+        // 同行不存在和已解散使用统一业务语义。
+        Gathering gathering = gatheringMapper.selectById(gatheringId);
+        if (gathering == null) {
+            throw BusinessException.notFound("GATHERING_NOT_FOUND", "同行不存在或已解散");
+        }
+        return gathering;
+    }
+
+    /** 根据已校验的分页参数读取完整成员关系，供后续批量补齐资料。 */
+    private List<GatheringMember> findMemberPage(UUID gatheringId, PageRequest<GatheringMemberCursor> request) {
+        // 首屏和后续页分开调用，排序边界与 Mapper 查询保持一致。
+        GatheringMemberCursor cursor = request.cursor();
+        if (cursor == null) {
+            return gatheringMemberMapper.selectFirstPage(gatheringId, request.limit() + 1);
+        }
+        return gatheringMemberMapper.selectNextPage(gatheringId,
+                LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC), cursor.userId(), request.limit() + 1);
+    }
+
+    /** 已校验访问权限后，加载详情所需创建者及数量，创建者资料查不到时返回 null。 */
+    private GatheringResponse loadMemberGatheringResponse(Gathering gathering) {
+        // 创建者资料使用批量查询，查不到时 creator 为 null，同行信息仍正常返回。
+        PublicUserResponse creator = userService.getPublicUsers(List.of(gathering.getCreatorUserId())).get(gathering.getCreatorUserId());
+        long memberCount = gatheringMemberMapper.countActiveMembers(gathering.getId());
+        long momentCount = momentMapper.countByGathering(gathering.getId());
+        return toResponse(gathering, creator, memberCount, momentCount);
+    }
+
+    /**
      * 从数据库校验面对面加入资格。
      * @param gatheringId 用户选择的同行 ID
      * @param faceCode 用户提交的四位短码
@@ -165,7 +533,7 @@ public class GatheringService {
     }
 
     /**
-     * 根据邀请码加载可加入的同行，进行中和已结束采用相同加入规则。
+     * 根据邀请码加载开放邀请的同行；结束操作会关闭邀请。
      * @param inviteCode 已通过边界校验的长期邀请码
      * @return 未解散且开放邀请的完整同行实体
      * @throws BusinessException 目标不可加入时统一返回 404

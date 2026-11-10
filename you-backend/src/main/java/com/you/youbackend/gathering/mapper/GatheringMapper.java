@@ -3,8 +3,10 @@ package com.you.youbackend.gathering.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.gathering.entity.Gathering;
+import com.you.youbackend.gathering.model.GatheringStatus;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
@@ -15,6 +17,81 @@ import java.util.UUID;
 /** 同行主表读写，复用全局 UUID 映射与软删除配置。 */
 @Mapper
 public interface GatheringMapper extends BaseMapper<Gathering> {
+    /** 查询包含已解散记录的同行，用于校验创建者和识别重复解散。 */
+    @Select("""
+            SELECT id, created_at, updated_at, creator_user_id, name, description,
+                   status, invite_enabled, invite_code, face_code, deleted_at
+            FROM gathering WHERE id = #{id}
+            """)
+    Gathering selectIncludingDeleted(@Param("id") UUID id);
+
+    /** 将有效同行结束，同时关闭邀请；已有成员和内容保留。 */
+    default void endGathering(UUID id, LocalDateTime updatedAt) {
+        // 同一条更新保存结束状态和邀请开关。
+        update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, id)
+                .set(Gathering::getStatus, GatheringStatus.ENDED)
+                .set(Gathering::getInviteEnabled, false).set(Gathering::getUpdatedAt, updatedAt));
+    }
+
+    /** 软删除同行，解散时间同时作为修改时间；重复请求由业务层识别。 */
+    default void dissolveGathering(UUID id, LocalDateTime deletedAt) {
+        // 沿用全局逻辑删除过滤，仅更新有效同行。
+        update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, id)
+                .set(Gathering::getDeletedAt, deletedAt).set(Gathering::getUpdatedAt, deletedAt));
+    }
+
+
+    /**
+     * 读取本人有效成员关系对应的同行首屏。
+     * @param userId 当前用户 ID
+     * @param rowCount 页大小加一
+     * @return 按同行创建时间和 ID 倒序的完整实体
+     */
+    @Select("""
+            SELECT g.id, g.created_at, g.updated_at, g.creator_user_id, g.name, g.description,
+                   g.status, g.invite_enabled, g.invite_code, g.face_code, g.deleted_at
+            FROM gathering g
+            WHERE g.deleted_at IS NULL
+              AND EXISTS (SELECT 1 FROM gathering_member m
+                          WHERE m.gathering_id = g.id AND m.user_id = #{userId} AND m.deleted_at IS NULL)
+            ORDER BY g.created_at DESC, g.id DESC LIMIT #{rowCount}
+            """)
+    List<Gathering> selectFirstPage(@Param("userId") UUID userId, @Param("rowCount") int rowCount);
+
+    /**
+     * 读取本人同行后续页，严格排除上一页末项及其之前的位置。
+     * @param userId 当前用户 ID
+     * @param createdAt 上一页末项创建时间，UTC
+     * @param id 上一页末项同行 ID
+     * @param rowCount 页大小加一
+     * @return 与首屏排序一致的完整实体
+     */
+    @Select("""
+            SELECT g.id, g.created_at, g.updated_at, g.creator_user_id, g.name, g.description,
+                   g.status, g.invite_enabled, g.invite_code, g.face_code, g.deleted_at
+            FROM gathering g
+            WHERE g.deleted_at IS NULL
+              AND EXISTS (SELECT 1 FROM gathering_member m
+                          WHERE m.gathering_id = g.id AND m.user_id = #{userId} AND m.deleted_at IS NULL)
+              AND (g.created_at < #{createdAt} OR (g.created_at = #{createdAt} AND g.id < #{id}))
+            ORDER BY g.created_at DESC, g.id DESC LIMIT #{rowCount}
+            """)
+    List<Gathering> selectNextPage(@Param("userId") UUID userId, @Param("createdAt") LocalDateTime createdAt,
+                                   @Param("id") UUID id, @Param("rowCount") int rowCount);
+
+    /**
+     * 保存名称、介绍与修改时间，null 介绍显式写入数据库。
+     * @param gathering 已校验创建者权限并填充最终字段的有效同行
+     * @return 更新行数
+     */
+    default int updateContent(Gathering gathering) {
+        // 只覆盖本次全量编辑范围，保留状态、邀请设置及创建信息。
+        return update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, gathering.getId())
+                .set(Gathering::getName, gathering.getName())
+                .set(Gathering::getDescription, gathering.getDescription())
+                .set(Gathering::getUpdatedAt, gathering.getUpdatedAt()));
+    }
+
     /**
      * 首次登记面对面短码，永久保留已有值。
      * @param gatheringId 已确认存在且当前用户有开启权限的同行 ID

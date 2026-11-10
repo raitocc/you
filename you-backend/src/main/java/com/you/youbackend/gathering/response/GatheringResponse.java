@@ -29,7 +29,7 @@ public record GatheringResponse(
         @Schema(description = "介绍；未设置为 null", maxLength = 5000, nullable = true)
         String description,
 
-        @Schema(description = "创建者公开资料")
+        @Schema(description = "创建者公开资料，查不到时为 null", nullable = true)
         PublicUserResponse creator,
 
         @Schema(description = "有效成员数量", minimum = "1")

@@ -1,19 +1,19 @@
 package com.you.youbackend.moment.controller;
 
-import com.you.youbackend.common.validation.UUIDv7;
-import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.request.PageQuery;
+import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.Result;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
-import com.you.youbackend.moment.response.MomentFeedItem;
 import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentSummaryResponse;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -53,7 +53,7 @@ public class MomentController {
                     schema = @Schema(type = "string", format = "uuid"))
     })
     @GetMapping("/yours")
-    public Result<ResultPage<MomentFeedItem, MomentFeedCursor>> browseYours(
+    public Result<ResultPage<MomentSummaryResponse, MomentFeedCursor>> browseYours(
             @Parameter(hidden = true) @PageQuery PageRequest<MomentFeedCursor> request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         // 参数解析器已完成分页转换和校验，委托业务层读取当前用户的瞬间流。
