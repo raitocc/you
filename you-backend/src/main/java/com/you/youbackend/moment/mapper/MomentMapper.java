@@ -2,12 +2,14 @@ package com.you.youbackend.moment.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.you.youbackend.gathering.model.GatheringCount;
 import com.you.youbackend.moment.entity.Moment;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,6 +18,22 @@ import java.util.UUID;
  */
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
+    /**
+     * 批量统计同行的有效瞬间数量，避免列表逐条查询。
+     * @param ids 非空的本页同行 ID 集合
+     * @return 有记录的同行及数量；无记录的同行按零解释
+     */
+    @Select("""
+            <script>
+            SELECT gathering_id, COUNT(*) AS count FROM moment
+            WHERE deleted_at IS NULL AND gathering_id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            GROUP BY gathering_id
+            </script>
+            """)
+    List<GatheringCount> countByGatherings(
+            @Param("ids") Collection<UUID> ids);
+
     /**
      * 统计当前仍关联到同行的有效瞬间，供同行信息展示使用。
      * @param gatheringId 已确认有效且当前用户可访问的同行 ID

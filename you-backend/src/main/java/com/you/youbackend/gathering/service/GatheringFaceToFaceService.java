@@ -10,7 +10,7 @@ import com.you.youbackend.gathering.request.FaceToFacePreviewRequest;
 import com.you.youbackend.gathering.request.OpenFaceToFaceRequest;
 import com.you.youbackend.gathering.response.FaceToFaceCandidateResponse;
 import com.you.youbackend.gathering.response.FaceToFaceOpenResponse;
-import com.you.youbackend.gathering.response.GatheringSummaryResponse;
+import com.you.youbackend.gathering.response.FaceToFaceSummaryResponse;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -219,7 +219,7 @@ public class GatheringFaceToFaceService {
      * @param creator 已加载的创建者公开资料
      * @return 用于列表展示的同行摘要，实体中的完整介绍保持原样
      */
-    private GatheringSummaryResponse toSummaryResponse(Gathering gathering, PublicUserResponse creator) {
+    private FaceToFaceSummaryResponse toSummaryResponse(Gathering gathering, PublicUserResponse creator) {
         // 按码点截取介绍，确保 emoji 等补充字符保持完整；未填写介绍时保留 null。
         String description = gathering.getDescription();
         if (description != null) {
@@ -227,7 +227,7 @@ public class GatheringFaceToFaceService {
                     Math.min(SUMMARY_DESCRIPTION_LENGTH, description.codePointCount(0, description.length())));
             description = description.substring(0, end);
         }
-        return new GatheringSummaryResponse(gathering.getId(), gathering.getName(), description, creator);
+        return new FaceToFaceSummaryResponse(gathering.getId(), gathering.getName(), description, creator);
     }
 
     /**
