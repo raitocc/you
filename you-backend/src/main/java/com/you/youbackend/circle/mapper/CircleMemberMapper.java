@@ -52,4 +52,19 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
                 .eq(CircleMember::getCircleId, circleId).in(CircleMember::getUserId, userIds))
                 .stream().map(CircleMember::getUserId).collect(Collectors.toSet());
     }
+
+    /** 结束指定用户的有效成员关系，并按离开原因设置加入限制。 */
+    default int endMembership(UUID circleId, UUID userId, boolean restricted, LocalDateTime now) {
+        // MP 自动过滤已结束的关系，重复操作不会覆盖原离开时间。
+        return update(Wrappers.<CircleMember>lambdaUpdate()
+                .eq(CircleMember::getCircleId, circleId).eq(CircleMember::getUserId, userId)
+                .set(CircleMember::getDeletedAt, now).set(CircleMember::getUpdatedAt, now)
+                .set(CircleMember::getJoinRestricted, restricted));
+    }
+
+    /** 结束解散圈子中的全部有效成员关系。 */
+    default int invalidateMemberships(UUID circleId, LocalDateTime now) {
+        return update(Wrappers.<CircleMember>lambdaUpdate().eq(CircleMember::getCircleId, circleId)
+                .set(CircleMember::getDeletedAt, now).set(CircleMember::getUpdatedAt, now));
+    }
 }

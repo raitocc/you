@@ -80,7 +80,7 @@ public class CircleService {
         this.momentService = momentService;
     }
 
-    /** 创建圈子：重复 ID 返回 409，不覆盖已有圈子。 */
+    /** 创建圈子 ：【重复 ID 返回 409，不覆盖已有圈子】 */
     @Transactional
     public void createCircle(CreateCircleRequest request, UUID userId) {
         // 1. 已占用 ID 直接拒绝，不读取已有圈子作为成功结果。
@@ -111,7 +111,7 @@ public class CircleService {
         log.info("已写入圈子及创建者成员关系，circleId={}，userId={}", circle.getId(), userId);
     }
 
-    /** 查看圈子详情；不存在、解散及非成员统一隐藏为 404。 */
+    /** 查看圈子详情 ：【不存在、已解散和非成员统一返回 404】 */
     @Transactional(readOnly = true)
     public CircleDetailResponse getCircle(UUID circleId, UUID userId) {
         // 1. 确认访问资格，再读取全部有效成员关系。
@@ -135,7 +135,7 @@ public class CircleService {
                 loadCircleAvatar(circle), members);
     }
 
-    /** 查看本人圈子列表：按当前用户的成员关系倒序浏览圈子 */
+    /** 查看本人圈子列表 ：【按当前用户的成员关系倒序浏览圈子】 */
     @Transactional(readOnly = true)
     public ResultPage<CircleListResponse, CircleListCursor> listMyCircles(UUID userId, PageRequest<CircleListCursor> request) {
         // 多读一条判断后续页，游标始终使用成员关系的位置。
@@ -152,7 +152,7 @@ public class CircleService {
         return new ResultPage<>(loadListResponses(page), next, hasMore);
     }
 
-    /** 编辑圈子信息：创建者全量保存名称、介绍和头像，省略头像表示移除自定义头像。 */
+    /** 编辑圈子信息 ：【创建者全量保存名称、介绍和头像，省略头像表示移除自定义头像】 */
     @Transactional
     public void updateCircle(UUID circleId, UpdateCircleRequest request, UUID userId) {
         // 先按成员资格隐藏不可访问目标，再拒绝普通成员编辑。
@@ -178,7 +178,7 @@ public class CircleService {
     @Transactional
     public CircleInvitationResponse updateInvitation(UUID circleId, UpdateCircleInvitationRequest request, UUID userId) {
         // 1. 校验圈子访问资格和创建者身份。
-        Circle circle = requireInvitationCreator(circleId, userId);
+        Circle circle = requireCircleCreator(circleId, userId, "只有圈子创建者可以管理邀请");
         // 2. 只在开关状态变化时写入，保留原邀请码。
         if (!request.inviteEnabled().equals(circle.getInviteEnabled())) {
             circle.setInviteEnabled(request.inviteEnabled());
@@ -193,7 +193,7 @@ public class CircleService {
     @Transactional
     public CircleInvitationResponse resetInvitation(UUID circleId, UUID userId) {
         // 1. 校验圈子访问资格和创建者身份。
-        Circle circle = requireInvitationCreator(circleId, userId);
+        Circle circle = requireCircleCreator(circleId, userId, "只有圈子创建者可以管理邀请");
         // 2. 分配新号码并替换当前码，保留邀请开关。
         circle.setInviteCode(circleInviteNumberMapper.allocate(circleId));
         circle.setUpdatedAt(utcNow());
@@ -215,7 +215,7 @@ public class CircleService {
         return new CircleJoinPreviewResponse(summary, membership != null && membership.getLeftAt() == null);
     }
 
-    /** 确认加入圈子，事务内新增或恢复有效成员关系。 */
+    /** 确认加入圈子 */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public void join(JoinCircleRequest request, UUID userId) {
         // 1.1 过滤圈子：检查圈子是否解散、邀请是否关闭
@@ -236,7 +236,83 @@ public class CircleService {
         }
     }
 
-    /** 分享到多个圈子：所有目标都通过检查后才写入，写入冲突时整批回滚并返回 409。 */
+    /** 移除圈子成员 ：【同时撤回该成员的圈内分享并限制再次加入】 */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void removeMember(UUID circleId, UUID targetId, UUID userId) {
+        // 1. 检查圈子管理权限，创建者不能移除自己。
+        requireCircleCreator(circleId, userId, "只有圈子创建者可以移除成员");
+        if (userId.equals(targetId)) throw BusinessException.forbidden("圈子创建者不能移除自己");
+
+        // 2. 仅变更有效成员关系；已被移除且仍受限时直接成功。
+        LocalDateTime now = utcNow();
+        if (circleMemberMapper.endMembership(circleId, targetId, true, now) == 0) {
+            CircleMemberHistory history = memberHistoryMapper.find(circleId, targetId);
+            if (history != null && history.getLeftAt() != null && Boolean.TRUE.equals(history.getJoinRestricted())) {
+                return;
+            }
+            throw BusinessException.conflict("TARGET_UNAVAILABLE", "目标用户已不是可移除的圈子成员");
+        }
+
+        // 3. 在同一事务撤回该成员的圈内分享，原内容保留。
+        circleShareMapper.invalidateMemberShares(circleId, targetId, now);
+        log.info("已移除圈子成员并设置加入限制，circleId={}，userId={}", circleId, targetId);
+    }
+
+    /** 解除圈子加入限制 */
+    @Transactional
+    public void clearJoinRestriction(UUID circleId, UUID targetId, UUID userId) {
+        // 只清除已有的加入限制，成员身份和分享状态保持原样。
+        requireCircleCreator(circleId, userId, "只有圈子创建者可以解除加入限制");
+        if (memberHistoryMapper.clearRestriction(circleId, targetId, utcNow()) > 0) {
+            log.info("已解除圈子加入限制，circleId={}，userId={}", circleId, targetId);
+        }
+    }
+
+    /** 查看被限制加入的用户 */
+    @Transactional(readOnly = true)
+    public List<CircleJoinRestrictionResponse> listJoinRestrictions(UUID circleId, UUID userId) {
+        // 1. 校验管理权限，再读取全部受限用户。
+        requireCircleCreator(circleId, userId, "只有圈子创建者可以查看加入限制");
+        var rows = memberHistoryMapper.selectRestrictions(circleId);
+        if (rows.isEmpty()) return List.of();
+
+        // 2. 批量加载用户公开资料，沿用查询顺序组装结果。
+        var profiles = userService.getPublicUsers(rows.stream().map(CircleMemberHistory::getUserId).toList());
+        return rows.stream().map(row -> new CircleJoinRestrictionResponse(
+                requirePublicProfile(profiles, row.getUserId()), row.getLeftAt().toInstant(ZoneOffset.UTC))).toList();
+    }
+
+    /** 退出圈子 ：【创建者不能直接退出】 */
+    @Transactional
+    public void leaveCircle(UUID circleId, UUID userId) {
+        // 1. 确认调用者为有效普通成员。
+        Circle circle = requireAccessibleCircle(circleId, userId);
+        if (userId.equals(circle.getCreatorUserId())) {
+            throw BusinessException.conflict("CREATOR_CANNOT_LEAVE", "圈子创建者不能直接退出，请解散圈子");
+        }
+
+        // 2. 结束成员关系并撤回本人圈内分享，主动退出不设置加入限制。
+        LocalDateTime now = utcNow();
+        if (circleMemberMapper.endMembership(circleId, userId, false, now) == 0) throw unavailable();
+        circleShareMapper.invalidateMemberShares(circleId, userId, now);
+        log.info("已退出圈子并撤回本人圈内分享，circleId={}，userId={}", circleId, userId);
+    }
+
+    /** 解散圈子 ：【同时使邀请、成员关系和圈内分享失效】 */
+    @Transactional
+    public void dissolveCircle(UUID circleId, UUID userId) {
+        // 1. 创建者才能解散圈子，解散标记与邀请关闭同时写入。
+        requireCircleCreator(circleId, userId, "只有圈子创建者可以解散圈子");
+        LocalDateTime now = utcNow();
+        if (circleMapper.dissolve(circleId, userId, now) == 0) throw unavailable();
+
+        // 2. 在同一事务结束全部有效成员关系及圈内分享，原内容保留。
+        circleMemberMapper.invalidateMemberships(circleId, now);
+        circleShareMapper.invalidateCircleShares(circleId, now);
+        log.info("已解散圈子，circleId={}，userId={}", circleId, userId);
+    }
+
+    /** 分享到多个圈子 */
     @Transactional
     public void shareToCircles(CreateCircleSharesRequest request, UUID userId) {
         // 1. 检查原内容是否存在，以及是否属于当前用户。
@@ -267,7 +343,7 @@ public class CircleService {
                 userId, request.circleIds().size(), additions.size(), restores.size());
     }
 
-    /** 分页浏览圈子里的分享：只有当前成员可以查看。按分享时间从新到旧排列，时间相同按分享 ID 倒序。 */
+    /** 分页浏览圈子分享 ：【查下一页时传上一页最后一条分享的时间和 ID】 */
     @Transactional(readOnly = true)
     public ResultPage<CircleShareFeedResponse, CircleShareCursor> browseShares(
             UUID circleId,
@@ -292,7 +368,7 @@ public class CircleService {
         return new ResultPage<>(items, next, hasMore);
     }
 
-    /** 分页查看已分享时光里仍有效的瞬间：按发生时间从早到晚排列，时间相同按瞬间 ID 正序。 */
+    /** 分页浏览圈子共享时光中的瞬间 ：【查下一页时传上一页最后一个瞬间的发生时间和 ID】 */
     @Transactional(readOnly = true)
     public ResultPage<MomentResponse, CircleShareMomentCursor> browseSharedAlbumMoments(
             UUID circleId,
@@ -322,7 +398,7 @@ public class CircleService {
         return new ResultPage<>(momentService.loadAuthorizedResponses(page), next, hasMore);
     }
 
-    /** 撤回当前圈子里的这条分享：有权限时重复撤回也返回成功。 */
+    /** 撤回圈子分享 */
     @Transactional
     public void withdrawShare(UUID circleId, UUID shareId, UUID userId) {
         // 1. 先检查成员身份，再查这条分享及其撤回权限。查询包含已撤回的记录。
@@ -446,11 +522,11 @@ public class CircleService {
     }
 
     /** 校验圈子访问资格和创建者权限。 */
-    private Circle requireInvitationCreator(UUID circleId, UUID userId) {
-        // 沿用圈子详情的访问规则，普通成员无权管理邀请。
+    private Circle requireCircleCreator(UUID circleId, UUID userId, String forbiddenMessage) {
+        // 沿用圈子详情的访问规则，普通成员无权执行管理操作。
         Circle circle = requireAccessibleCircle(circleId, userId);
         if (!userId.equals(circle.getCreatorUserId())) {
-            throw BusinessException.forbidden("只有圈子创建者可以管理邀请");
+            throw BusinessException.forbidden(forbiddenMessage);
         }
         return circle;
     }

@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 import java.util.UUID;
 @RestController
 @RequestMapping("/circles")
@@ -27,7 +28,7 @@ import java.util.UUID;
 public class CircleController {
     private final CircleService service;
 
-    /** 创建圈子：重复 ID 返回 409，不覆盖已有圈子。 */
+    /** 创建圈子 ：【重复 ID 返回 409，不覆盖已有圈子】 */
     @PostMapping
     @Operation(summary = "创建圈子")
     @ApiResponse(responseCode = "200", description = "圈子创建成功")
@@ -39,7 +40,7 @@ public class CircleController {
         return Result.ok(null);
     }
 
-    /** 查看本人圈子列表：按当前用户的成员关系倒序浏览圈子 */
+    /** 查看本人圈子列表 ：【按当前用户的成员关系倒序浏览圈子】 */
     @GetMapping
     @Operation(summary = "查看本人圈子列表")
     @Parameters({
@@ -54,7 +55,7 @@ public class CircleController {
         return Result.ok(service.listMyCircles(userId, request));
     }
 
-    /** 查看圈子详情：不存在、已解散和非成员统一返回 404。 */
+    /** 查看圈子详情 ：【不存在、已解散和非成员统一返回 404】 */
     @GetMapping("/{circleId}")
     @Operation(summary = "查看圈子详情", description = "返回创建者公开资料及全部有效成员")
     @ApiResponse(responseCode = "404", description = "圈子不存在或不可访问")
@@ -65,7 +66,7 @@ public class CircleController {
         return Result.ok(service.getCircle(circleId, userId));
     }
 
-    /** 编辑圈子信息：创建者全量保存名称、介绍和头像，省略头像表示移除自定义头像。 */
+    /** 编辑圈子信息 ：【创建者全量保存名称、介绍和头像，省略头像表示移除自定义头像】 */
     @PutMapping("/{circleId}")
     @Operation(summary = "编辑圈子信息")
     @ApiResponse(responseCode = "403", description = "有效成员不是创建者")
@@ -138,6 +139,65 @@ public class CircleController {
         return Result.ok(null);
     }
 
+    /** 移除圈子成员 ：【同时撤回该成员的圈内分享并限制再次加入】 */
+    @DeleteMapping("/{circleId}/members/{userId}")
+    @Operation(summary = "移除圈子成员")
+    @ApiResponse(responseCode = "403", description = "无权移除成员或创建者尝试移除自己")
+    @ApiResponse(responseCode = "404", description = "圈子不存在或不可访问")
+    @ApiResponse(responseCode = "409", description = "目标用户不可移除")
+    public Result<Void> removeMember(
+            @PathVariable UUID circleId,
+            @PathVariable("userId") UUID targetId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        service.removeMember(circleId, targetId, userId);
+        return Result.ok(null);
+    }
+
+    /** 解除圈子加入限制 */
+    @DeleteMapping("/{circleId}/join-restrictions/{userId}")
+    @Operation(summary = "解除圈子加入限制")
+    @ApiResponse(responseCode = "403", description = "只有圈子创建者可以解除加入限制")
+    @ApiResponse(responseCode = "404", description = "圈子不存在或不可访问")
+    public Result<Void> clearJoinRestriction(@PathVariable UUID circleId, @PathVariable("userId") UUID targetId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        service.clearJoinRestriction(circleId, targetId, userId);
+        return Result.ok(null);
+    }
+
+    /** 查看被限制加入的用户 */
+    @GetMapping("/{circleId}/join-restrictions")
+    @Operation(summary = "查看被限制加入的用户")
+    @ApiResponse(responseCode = "403", description = "只有圈子创建者可以查看加入限制")
+    @ApiResponse(responseCode = "404", description = "圈子不存在或不可访问")
+    public Result<List<CircleJoinRestrictionResponse>> listJoinRestrictions(
+            @PathVariable UUID circleId, @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        return Result.ok(service.listJoinRestrictions(circleId, userId));
+    }
+
+    /** 退出圈子 ：【创建者不能直接退出】 */
+    @DeleteMapping("/{circleId}/members/me")
+    @Operation(summary = "退出圈子")
+    @ApiResponse(responseCode = "404", description = "圈子不存在或不可访问")
+    @ApiResponse(responseCode = "409", description = "创建者不能直接退出")
+    public Result<Void> leaveCircle(
+            @PathVariable UUID circleId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        service.leaveCircle(circleId, userId);
+        return Result.ok(null);
+    }
+
+    /** 解散圈子 ：【同时使邀请、成员关系和圈内分享失效】 */
+    @DeleteMapping("/{circleId}")
+    @Operation(summary = "解散圈子")
+    @ApiResponse(responseCode = "403", description = "只有圈子创建者可以解散圈子")
+    @ApiResponse(responseCode = "404", description = "圈子不存在或不可访问")
+    public Result<Void> dissolveCircle(
+            @PathVariable UUID circleId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        service.dissolveCircle(circleId, userId);
+        return Result.ok(null);
+    }
+
     /** 分享到多个圈子 */
     @PostMapping("/shares")
     @Operation(summary = "分享到多个圈子")
@@ -162,7 +222,7 @@ public class CircleController {
         return Result.ok(null);
     }
 
-    /** 分页浏览圈子分享：查下一页时传上一页最后一条分享的时间和 ID。 */
+    /** 分页浏览圈子分享 ：【查下一页时传上一页最后一条分享的时间和 ID】 */
     @GetMapping("/{circleId}/shares")
     @Operation(summary = "分页浏览圈子分享")
     @ApiResponse(responseCode = "404", description = "圈子或分享不存在或不可访问")
@@ -178,7 +238,7 @@ public class CircleController {
         return Result.ok(service.browseShares(circleId, userId, request));
     }
 
-    /** 分页浏览圈子共享时光中的瞬间：查下一页时传上一页最后一个瞬间的发生时间和 ID。 */
+    /** 分页浏览圈子共享时光中的瞬间 ：【查下一页时传上一页最后一个瞬间的发生时间和 ID】 */
     @GetMapping("/{circleId}/shares/{shareId}/moments")
     @Operation(summary = "分页浏览圈子共享时光中的瞬间")
     @ApiResponse(responseCode = "404", description = "圈子或分享不存在或不可访问")

@@ -3,6 +3,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.circle.entity.Circle;
 import org.apache.ibatis.annotations.Mapper;
+import java.time.LocalDateTime;
 import java.util.UUID;
 /** 圈子读写，沿用全局逻辑删除。 */
 @Mapper
@@ -33,5 +34,13 @@ public interface CircleMapper extends BaseMapper<Circle> {
                 .eq(Circle::getCreatorUserId, circle.getCreatorUserId())
                 .set(Circle::getName, circle.getName()).set(Circle::getDescription, circle.getDescription())
                 .set(Circle::getAvatarFileId, circle.getAvatarFileId()).set(Circle::getUpdatedAt, circle.getUpdatedAt()));
+    }
+
+    /** 标记圈子已解散，同时关闭邀请。 */
+    default int dissolve(UUID circleId, UUID creatorId, LocalDateTime now) {
+        return update(Wrappers.<Circle>lambdaUpdate().eq(Circle::getId, circleId)
+                .eq(Circle::getCreatorUserId, creatorId)
+                .set(Circle::getInviteEnabled, false)
+                .set(Circle::getDeletedAt, now).set(Circle::getUpdatedAt, now));
     }
 }

@@ -68,15 +68,14 @@ public interface CircleShareMapper extends BaseMapper<CircleShare> {
 
     /**
      * 撤回指定成员在这个圈子里的全部有效分享。
-     * TODO 实现退出或移除成员时，在更新成员状态的同一事务里调用，防止重新加入后旧分享恢复可见。
      */
     default int invalidateMemberShares(UUID circleId, UUID userId, LocalDateTime now) {
-        return update(withdrawal(now).eq(CircleShare::getCircleId, circleId)
+        return update(withdrawal(now)
+                .eq(CircleShare::getCircleId, circleId)
                 .eq(CircleShare::getSharerUserId, userId));
     }
     /**
      * 撤回这个圈子里的全部有效分享。
-     * TODO 实现解散圈子时，在更新圈子状态的同一事务里调用。
      */
     default int invalidateCircleShares(UUID circleId, LocalDateTime now) {
         return update(withdrawal(now).eq(CircleShare::getCircleId, circleId));

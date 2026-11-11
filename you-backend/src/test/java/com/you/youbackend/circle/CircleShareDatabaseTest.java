@@ -6,6 +6,7 @@ import com.you.youbackend.circle.entity.*;
 import com.you.youbackend.circle.mapper.*;
 import com.you.youbackend.circle.model.*;
 import com.you.youbackend.circle.request.CreateCircleSharesRequest;
+import com.you.youbackend.circle.request.JoinCircleRequest;
 import com.you.youbackend.album.entity.*;
 import com.you.youbackend.album.mapper.*;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
@@ -174,6 +175,56 @@ class CircleShareDatabaseTest {
         albums.softDelete(album, time);
         assertTrue(service.browseShares(circle, viewer, new PageRequest<>(null, 20)).items().isEmpty());
         assertEquals(404, assertThrows(BusinessException.class, () -> service.browseSharedAlbumMoments(circle, shareId, viewer, new PageRequest<>(null, 20))).getStatus().value());
+    }
+
+    @Test void removalRestrictsRejoinAndDissolutionInvalidatesAllCircleReferences() {
+        long code = circles.selectById(circle).getInviteCode();
+        UUID viewerMoment = newMoment(time, time);
+        jdbc.update("UPDATE moment SET author_user_id=? WHERE id=?", bytes(viewer), bytes(viewerMoment));
+        var viewerShareRequest = request(CircleShareObjectType.moment, viewerMoment, List.of(circle));
+        service.shareToCircles(viewerShareRequest, viewer);
+        UUID viewerShare = shares.selectHistory(viewerShareRequest.objectType(), viewerMoment, List.of(circle)).get(0).getId();
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> service.removeMember(circle, owner, viewer)).getStatus().value());
+
+        service.removeMember(circle, viewer, owner);
+        service.removeMember(circle, viewer, owner);
+        assertFalse(members.isActiveMember(circle, viewer));
+        assertNotNull(shares.selectHistoryById(circle, viewerShare).getWithdrawnAt());
+        assertEquals("JOIN_RESTRICTED", assertThrows(BusinessException.class,
+                () -> service.join(new JoinCircleRequest(code), viewer)).getCode());
+
+        UUID second = UUID.randomUUID();
+        service.join(new JoinCircleRequest(code), second);
+        service.removeMember(circle, second, owner);
+        var restrictedUsers = service.listJoinRestrictions(circle, owner);
+        assertEquals(2, restrictedUsers.size());
+        assertEquals(Set.of(viewer, second),
+                Set.of(restrictedUsers.get(0).user().id(), restrictedUsers.get(1).user().id()));
+
+        service.clearJoinRestriction(circle, viewer, owner);
+        service.clearJoinRestriction(circle, viewer, owner);
+        assertFalse(members.isActiveMember(circle, viewer));
+        service.join(new JoinCircleRequest(code), viewer);
+        assertNotNull(shares.selectHistoryById(circle, viewerShare).getWithdrawnAt());
+        assertEquals("CREATOR_CANNOT_LEAVE", assertThrows(BusinessException.class,
+                () -> service.leaveCircle(circle, owner)).getCode());
+        service.leaveCircle(circle, viewer);
+        assertEquals("TARGET_UNAVAILABLE", assertThrows(BusinessException.class,
+                () -> service.removeMember(circle, viewer, owner)).getCode());
+        service.join(new JoinCircleRequest(code), viewer);
+
+        UUID ownerMoment = newMoment(time, time);
+        service.shareToCircles(request(CircleShareObjectType.moment, ownerMoment, List.of(circle)), owner);
+        var ownerShare = shares.selectHistory(CircleShareObjectType.moment, ownerMoment, List.of(circle)).get(0);
+        service.dissolveCircle(circle, owner);
+        assertNull(circles.selectById(circle));
+        assertEquals(0, members.countActiveMembers(circle));
+        assertNotNull(shares.selectHistoryById(circle, ownerShare.getId()).getWithdrawnAt());
+        assertNotNull(moments.selectById(viewerMoment));
+        assertNotNull(moments.selectById(ownerMoment));
+        assertEquals(404, assertThrows(BusinessException.class,
+                () -> service.join(new JoinCircleRequest(code), viewer)).getStatus().value());
     }
 
     private CreateCircleSharesRequest request(CircleShareObjectType type, UUID id, List<UUID> targets) {
