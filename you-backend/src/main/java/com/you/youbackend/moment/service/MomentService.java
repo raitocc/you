@@ -254,16 +254,16 @@ public class MomentService {
     }
 
     /**
-     * 为已授权的完整瞬间批量加载图片、标签及作者，不判断用户是否能访问。
-     * @param page 调用方已完成业务权限校验的完整有效瞬间，允许为空
-     * @return 保持输入顺序的完整详情，作者资料查不到时为 null
+     * 为已通过访问检查的瞬间批量加载图片、标签和作者资料，返回完整详情。调用方负责检查权限。
+     * @param page 已经检查访问权限的瞬间列表，可以为空
+     * @return 按输入顺序返回瞬间详情，找不到作者资料时该字段为 null
      */
-    private List<MomentResponse> loadAuthorizedResponses(List<Moment> page) {
-        // 1. 调用方已确认每条瞬间的业务访问资格，空页不访问关联表。
+    public List<MomentResponse> loadAuthorizedResponses(List<Moment> page) {
+        // 1. 空列表直接返回，避免再查图片、标签和作者。
         if (page.isEmpty()) {
             return List.of();
         }
-        // 2. 批量加载图片关联和有效媒体对象键，保留每条瞬间的图片展示顺序。
+        // 2. 批量查找可用图片，保留每条瞬间原有的图片顺序。
         List<UUID> ids = page.stream().map(Moment::getId).toList();
         List<MomentImage> images = momentImageMapper.selectFeedImages(ids);
         Map<UUID, String> imageKeys = mediaService.findImageKeys(
@@ -272,7 +272,7 @@ public class MomentService {
                 .filter(image -> imageKeys.containsKey(image.getFileId()))
                 .collect(Collectors.groupingBy(MomentImage::getMomentId,
                         Collectors.mapping(MomentImage::getFileId, Collectors.toList())));
-        // 3. 批量加载标签并按瞬间分组，使用与单条详情相同的转换方法组装响应。
+        // 3. 批量读取标签和作者资料，按瞬间详情的格式组装结果。
         Map<UUID, List<String>> tagsByMoment = momentTagMapper.selectPageTags(ids).stream()
                 .collect(Collectors.groupingBy(MomentTag::getMomentId,
                         Collectors.mapping(MomentTag::getTagName, Collectors.toList())));

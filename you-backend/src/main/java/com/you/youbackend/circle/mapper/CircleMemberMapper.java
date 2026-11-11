@@ -45,4 +45,13 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
         </script>
         """)
     List<CircleMemberCount> countActiveMembers(@Param("ids") Collection<UUID> ids);
+    /** 从指定圈子中查出用户仍是成员且圈子未解散的 ID。传入的 ID 列表不能为空。 */
+    default List<UUID> selectActiveCircleIds(UUID userId, Collection<UUID> ids) {
+        return selectList(Wrappers.<CircleMember>lambdaQuery()
+                .select(CircleMember::getCircleId)
+                .eq(CircleMember::getUserId, userId)
+                .in(CircleMember::getCircleId, ids)
+                .inSql(CircleMember::getCircleId, "SELECT id FROM circle WHERE deleted_at IS NULL"))
+                .stream().map(CircleMember::getCircleId).toList();
+    }
 }
