@@ -5,6 +5,8 @@ import com.you.youbackend.circle.controller.CircleController;
 import com.you.youbackend.circle.service.CircleService;
 import com.you.youbackend.circle.request.*;
 import com.you.youbackend.circle.model.*;
+import com.you.youbackend.circle.response.CircleInvitationResponse;
+import com.you.youbackend.circle.response.CircleJoinPreviewResponse;
 import com.you.youbackend.circle.response.CircleListResponse;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
@@ -12,6 +14,7 @@ import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageQueryArgumentResolver;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.user.filter.JwtAuthFilter;
+import com.you.youbackend.user.response.PublicUserResponse;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -33,6 +36,50 @@ class CircleValidationTest {
             .setControllerAdvice(new GlobalExceptionHandler())
             .setCustomArgumentResolvers(new PageQueryArgumentResolver(JsonMapper.builder().build())).build();
 
+    @Test void invitationRequiresExplicitSwitchAndReturnsNullCodeWhenDisabled() throws Exception {
+        UUID circleId = UUID.randomUUID();
+        when(service.updateInvitation(circleId, new UpdateCircleInvitationRequest(false), user))
+                .thenReturn(new CircleInvitationResponse(false, null));
+        mvc.perform(put("/circles/{id}/invitation", circleId).requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
+                .contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isBadRequest());
+        mvc.perform(put("/circles/{id}/invitation", circleId).requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inviteEnabled\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.inviteEnabled").value(false))
+                .andExpect(jsonPath("$.data.inviteCode").hasJsonPath())
+                .andExpect(jsonPath("$.data.inviteCode").doesNotExist());
+    }
+
+    @Test void joinEndpointsValidateCodeAndPreviewSerializesIsMember() throws Exception {
+        for (String route : List.of("/circles/join-preview", "/circles/join")) {
+            for (String invalid : List.of("9999", "10000.5", "\"10000\"")) {
+                mvc.perform(post(route).requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":" + invalid + "}"))
+                        .andExpect(status().isBadRequest());
+            }
+        }
+        var summary = new CircleJoinPreviewResponse.CircleSummary(UUID.randomUUID(), "家人", null,
+                new PublicUserResponse(user, "成员", null),
+                null, "https://example.test/default.png");
+        when(service.previewJoin(new CircleJoinPreviewRequest(10000L), user))
+                .thenReturn(new CircleJoinPreviewResponse(summary, false));
+        mvc.perform(post("/circles/join-preview").requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":10000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.isMember").value(false))
+                .andExpect(jsonPath("$.data.circle.id").value(summary.id().toString()));
+    }
+
+    @Test void joinReturnsSuccessWithNullData() throws Exception {
+        mvc.perform(post("/circles/join").requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":10000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data").hasJsonPath())
+                .andExpect(jsonPath("$.data").doesNotExist());
+        verify(service).join(new JoinCircleRequest(10000L), user);
+    }
+
     @Test void unicodeLengthsAndUuidVersionAreValidated() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
             var validator = factory.getValidator();
@@ -47,11 +94,12 @@ class CircleValidationTest {
 
     @Test void createsOnceAndReturns409ForDuplicateSubmission() throws Exception {
         UUID id = UuidCreator.getTimeOrderedEpoch();
-        when(service.createCircle(any(), eq(user))).thenReturn(null)
-                .thenThrow(BusinessException.conflict("RESOURCE_CONFLICT", "圈子 ID 已被占用"));
+        doNothing().doThrow(BusinessException.conflict("RESOURCE_CONFLICT", "圈子 ID 已被占用"))
+                .when(service).createCircle(any(), eq(user));
         String body = "{\"id\":\"" + id + "\",\"name\":\"  家人  \"}";
         mvc.perform(post("/circles").requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
-                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").hasJsonPath()).andExpect(jsonPath("$.data").doesNotExist());
         mvc.perform(post("/circles").requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict())
                 .andExpect(jsonPath("code").value("RESOURCE_CONFLICT"));
@@ -69,7 +117,8 @@ class CircleValidationTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(put("/circles/{id}", id).requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"家人\",\"description\":null}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").hasJsonPath()).andExpect(jsonPath("$.data").doesNotExist());
         verify(service).updateCircle(id, new UpdateCircleRequest("家人", null, null), user);
     }
 

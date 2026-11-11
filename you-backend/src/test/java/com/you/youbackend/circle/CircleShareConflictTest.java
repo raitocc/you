@@ -1,5 +1,6 @@
 package com.you.youbackend.circle;
 import com.you.youbackend.circle.service.*;
+import com.you.youbackend.circle.entity.Circle;
 import com.you.youbackend.circle.entity.CircleShare;
 import com.you.youbackend.circle.mapper.*;
 import com.you.youbackend.circle.model.CircleShareObjectType;
@@ -23,14 +24,16 @@ class CircleShareConflictTest {
     final CircleMemberMapper members = mock(CircleMemberMapper.class);
     final MomentMapper moments = mock(MomentMapper.class);
     final UserService users = mock(UserService.class);
-    final CircleService service = new CircleService(mock(CircleMapper.class), members, users, mock(MediaService.class), shares, moments,
-            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), "defaults/circle-avatar.png");
+    final CircleMapper circles = mock(CircleMapper.class);
+    final CircleService service = new CircleService(circles, members, users, mock(MediaService.class), shares, moments,
+            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), mock(CircleMemberHistoryMapper.class), mock(CircleIdentityMapper.class), mock(CircleInviteNumberMapper.class), "defaults/circle-avatar.png");
     final UUID user = UUID.randomUUID(), circle = UUID.randomUUID(), object = UUID.randomUUID();
     final CreateCircleSharesRequest request = new CreateCircleSharesRequest(CircleShareObjectType.moment, object, List.of(circle));
     void setup() {
         Moment moment = new Moment(); moment.setAuthorUserId(user);
         when(moments.selectById(object)).thenReturn(moment);
         when(members.selectActiveCircleIds(user, List.of(circle))).thenReturn(List.of(circle));
+        when(circles.selectByIds(List.of(circle))).thenReturn(List.of(new Circle()));
     }
     @Test void duplicateKeyReturns409WithCauseWithoutRetry() {
         setup();

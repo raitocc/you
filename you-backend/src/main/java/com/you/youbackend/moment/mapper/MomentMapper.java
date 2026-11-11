@@ -19,6 +19,20 @@ import java.util.UUID;
  */
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
+    /** 从一批共享时光关联的瞬间中按游标读取有效记录。 */
+    default List<Moment> selectSharedPage(List<UUID> ids, LocalDateTime time, UUID id, int limit) {
+        return selectList(Wrappers.<Moment>lambdaQuery().in(Moment::getId, ids)
+                .and(time != null, boundary -> boundary.gt(Moment::getMemoryTime, time)
+                        .or(tie -> tie.eq(Moment::getMemoryTime, time).gt(Moment::getId, id)))
+                .orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + limit));
+    }
+
+    /** 批量读取有效瞬间的作者，仅返回用于关联计数的字段。 */
+    default List<Moment> selectActiveAuthors(List<UUID> ids) {
+        return selectList(Wrappers.<Moment>lambdaQuery().select(Moment::getId, Moment::getAuthorUserId)
+                .in(Moment::getId, ids));
+    }
+
     /** 退出时解除本人在指定同行的全部关联，包含已删除瞬间，原内容保留。 */
     @Update("""
             UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}

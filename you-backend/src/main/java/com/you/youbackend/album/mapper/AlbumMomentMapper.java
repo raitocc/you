@@ -179,28 +179,10 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
                 AND m.deleted_at IS NULL AND m.author_user_id = #{userId}
             """)
     long countValidMoments(@Param("albumId") UUID albumId, @Param("userId") UUID userId);
-    /** 查共享时光的第一页。取仍在时光里且未删除的瞬间，按发生时间和瞬间 ID 正序。 */
-    @Select("""
-        <script>SELECT m.* FROM album_moment am JOIN moment m ON m.id=am.moment_id
-        WHERE am.album_id=#{albumId} AND am.deleted_at IS NULL AND m.deleted_at IS NULL
- ORDER BY m.memory_time ASC,m.id ASC LIMIT #{rowCount}</script>
-        """)
-    List<Moment> selectFirstSharedPage(@Param("albumId") UUID albumId,@Param("rowCount") int rowCount);
-    /** 按第一页的筛选和排序规则，从游标之后继续查。发生时间相同时，只取瞬间 ID 大于游标 ID 的记录。 */
-    @Select("""
-        <script>SELECT m.* FROM album_moment am JOIN moment m ON m.id=am.moment_id
-        WHERE am.album_id=#{albumId} AND am.deleted_at IS NULL AND m.deleted_at IS NULL
- AND (m.memory_time &gt; #{time} OR (m.memory_time=#{time} AND m.id &gt; #{id})) ORDER BY m.memory_time ASC,m.id ASC LIMIT #{rowCount}</script>
-        """)
-    List<Moment> selectNextSharedPage(@Param("albumId") UUID albumId,@Param("time") LocalDateTime time,@Param("id") UUID id,@Param("rowCount") int rowCount);
-    /** 批量统计每个共享时光里仍有效的瞬间，只计入时光所有者发布的瞬间。 */
-    @Select("""
-        <script>SELECT am.album_id,COUNT(*) AS moment_count FROM album_moment am
-        JOIN album a ON a.id=am.album_id AND a.deleted_at IS NULL
-        JOIN moment m ON m.id=am.moment_id AND m.deleted_at IS NULL AND m.author_user_id=a.owner_user_id
-        WHERE am.deleted_at IS NULL AND am.album_id IN
-        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-        GROUP BY am.album_id</script>
-        """)
-    List<AlbumMomentCount> countSharedAlbumMoments(@Param("ids") List<UUID> ids);
+    /** 读取目标时光的有效关联，仅投影用于查询共享瞬间的两个 ID。 */
+    default List<AlbumMoment> selectActiveLinks(List<UUID> albumIds) {
+        return selectList(Wrappers.<AlbumMoment>lambdaQuery()
+                .select(AlbumMoment::getAlbumId, AlbumMoment::getMomentId)
+                .in(AlbumMoment::getAlbumId, albumIds));
+    }
 }

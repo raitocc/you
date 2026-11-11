@@ -1,10 +1,10 @@
 package com.you.youbackend.circle;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.circle.service.CircleService;
 import com.you.youbackend.circle.request.*;
 import com.you.youbackend.circle.model.*;
-import com.you.youbackend.circle.response.CircleResponse;
 import com.you.youbackend.circle.mapper.*;
 import com.you.youbackend.circle.entity.CircleMember;
 import com.you.youbackend.common.request.PageRequest;
@@ -27,6 +27,7 @@ import static org.mockito.Mockito.*;
 class CircleDatabaseTest {
     @Autowired CircleService service;
     @Autowired CircleMapper circles;
+    @Autowired CircleIdentityMapper identities;
     @Autowired CircleMemberMapper members;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean UserService users;
@@ -60,8 +61,76 @@ class CircleDatabaseTest {
         return id;
     }
 
-    private CircleResponse create(UUID id) {
-        return service.createCircle(new CreateCircleRequest(id, "  家人  ", "介绍", null), user);
+    private void create(UUID id) {
+        service.createCircle(new CreateCircleRequest(id, "  家人  ", "介绍", null), user);
+    }
+
+    @Test void invitationLifecycleRevalidatesAndRestoresMembership() {
+        UUID id = newId();
+        UUID guest = UUID.randomUUID();
+        create(id);
+        long code = service.getInvitation(id, user).inviteCode();
+        var preview = service.previewJoin(new CircleJoinPreviewRequest(code), guest);
+        assertEquals(id, preview.circle().id());
+        assertFalse(preview.isMember());
+        assertEquals(1, members.countActiveMembers(id));
+
+        assertNull(service.updateInvitation(id, new UpdateCircleInvitationRequest(false), user).inviteCode());
+        assertEquals("INVITATION_DISABLED", assertThrows(BusinessException.class,
+                () -> service.join(new JoinCircleRequest(code), guest)).getCode());
+        assertNull(service.resetInvitation(id, user).inviteCode());
+        long replacement = service.updateInvitation(id, new UpdateCircleInvitationRequest(true), user).inviteCode();
+        assertTrue(code >= 10000);
+        assertTrue(replacement > code);
+        assertEquals(404, assertThrows(BusinessException.class,
+                () -> service.join(new JoinCircleRequest(code), guest)).getStatus().value());
+
+        var join = new JoinCircleRequest(replacement);
+        service.join(join, guest);
+        assertEquals(2, members.countActiveMembers(id));
+        service.join(join, guest);
+        assertEquals(2, members.countActiveMembers(id));
+        assertTrue(service.previewJoin(new CircleJoinPreviewRequest(replacement), guest).isMember());
+        assertEquals(replacement, service.getInvitation(id, guest).inviteCode());
+        assertEquals(403, assertThrows(BusinessException.class, () -> service.resetInvitation(id, guest)).getStatus().value());
+
+        var membership = members.selectList(Wrappers.<CircleMember>lambdaQuery()
+                .eq(CircleMember::getCircleId, id).eq(CircleMember::getUserId, guest)).get(0);
+        members.update(Wrappers.<CircleMember>lambdaUpdate()
+                .eq(CircleMember::getId, membership.getId()).set(CircleMember::getJoinRestricted, true)
+                .set(CircleMember::getDeletedAt, membership.getCreatedAt()));
+        assertEquals("JOIN_RESTRICTED", assertThrows(BusinessException.class, () -> service.join(join, guest)).getCode());
+        assertEquals("JOIN_RESTRICTED", assertThrows(BusinessException.class,
+                () -> service.previewJoin(new CircleJoinPreviewRequest(replacement), guest)).getCode());
+        jdbc.update("UPDATE circle_member SET join_restricted = 0 WHERE id = UNHEX(REPLACE(?, '-', ''))",
+                membership.getId().toString());
+        service.join(join, guest);
+        assertEquals(2, members.countActiveMembers(id));
+        assertEquals(membership.getCreatedAt(), members.selectById(membership.getId()).getCreatedAt());
+    }
+
+    @Test void concurrentJoinsCreateOnlyOneMembership() throws Exception {
+        UUID id = newId();
+        UUID guest = UUID.randomUUID();
+        create(id);
+        var request = new JoinCircleRequest(service.getInvitation(id, user).inviteCode());
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Callable<Void> join = () -> {
+                start.await();
+                service.join(request, guest);
+                return null;
+            };
+            var first = pool.submit(join);
+            var second = pool.submit(join);
+            start.countDown();
+            first.get(20, TimeUnit.SECONDS);
+            second.get(20, TimeUnit.SECONDS);
+            assertEquals(2, members.countActiveMembers(id));
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test void concurrentCreationCommitsOnceAndRejectsDuplicates() throws Exception {
@@ -71,20 +140,20 @@ class CircleDatabaseTest {
         try {
             Callable<Object> task = () -> {
                 start.await();
-                try { return create(id); } catch (BusinessException exception) { return exception; }
+                try { create(id); return Boolean.TRUE; } catch (BusinessException exception) { return exception; }
             };
             Future<Object> one = pool.submit(task), two = pool.submit(task);
             start.countDown();
             var first = one.get(20, TimeUnit.SECONDS);
             var second = two.get(20, TimeUnit.SECONDS);
             var results = List.of(first, second);
-            assertEquals(1, results.stream().filter(CircleResponse.class::isInstance).count());
+            assertEquals(1, results.stream().filter(Boolean.TRUE::equals).count());
             assertEquals(1, results.stream().filter(BusinessException.class::isInstance).count());
             var conflict = (BusinessException) results.stream().filter(BusinessException.class::isInstance).findFirst().orElseThrow();
             assertEquals("RESOURCE_CONFLICT", conflict.getCode());
             assertEquals(409, conflict.getStatus().value());
             assertEquals("家人", circles.selectById(id).getName());
-            assertEquals(1, members.countActiveMembers(List.of(id)).get(0).memberCount());
+            assertEquals(1, members.countActiveMembers(id));
             UUID badAvatar = UUID.randomUUID();
             assertEquals("RESOURCE_CONFLICT", assertThrows(BusinessException.class, () ->
                     service.createCircle(new CreateCircleRequest(id, "覆盖", null, badAvatar), user)).getCode());
@@ -99,24 +168,28 @@ class CircleDatabaseTest {
         }
     }
 
-    @Test void rollsBackBothRecordsWhenResponseLoadingFails() {
+    @Test void writesCircleWithoutLoadingDisplayData() {
         UUID id = newId();
-        when(media.createReadUrl(anyString())).thenThrow(new IllegalStateException("模拟签名失败"));
-        assertThrows(IllegalStateException.class, () -> create(id));
-        assertNull(circles.selectIncludingDeleted(id));
-        assertFalse(members.isActiveMember(id, user));
+        create(id);
+        service.updateCircle(id, new UpdateCircleRequest("新名称", null, null), user);
+        assertTrue(identities.isOccupied(id));
+        assertTrue(members.isActiveMember(id, user));
+        verify(users, never()).getPublicUsers(anyCollection());
+        verify(media, never()).createReadUrl(anyString());
+        verify(media, never()).getReadUrls(anyCollection());
     }
 
     @Test void preservesInvalidAvatarReferenceAndClearsNullableFields() {
         UUID id = newId(), avatar = UUID.randomUUID();
         create(id);
-        var updated = service.updateCircle(id, new UpdateCircleRequest("新名称", null, avatar), user);
+        service.updateCircle(id, new UpdateCircleRequest("新名称", null, avatar), user);
+        var updated = service.getCircle(id, user);
         assertEquals(avatar, updated.avatarFileId());
         assertEquals("https://example.test/default.png", updated.avatarUrl());
         assertNull(updated.description());
-        updated = service.updateCircle(id, new UpdateCircleRequest("新名称", null, null), user);
+        service.updateCircle(id, new UpdateCircleRequest("新名称", null, null), user);
         assertNull(circles.selectById(id).getAvatarFileId());
-        assertNull(updated.avatarFileId());
+        assertNull(service.getCircle(id, user).avatarFileId());
         assertEquals(404, assertThrows(BusinessException.class,
                 () -> service.getCircle(id, UUID.randomUUID())).getStatus().value());
         UUID other = UUID.randomUUID();
@@ -124,13 +197,23 @@ class CircleDatabaseTest {
         member.setId(UuidCreator.getTimeOrderedEpoch());
         member.setCircleId(id);
         member.setUserId(other);
-        member.setCreatedAt(circles.selectById(id).getCreatedAt());
+        member.setCreatedAt(circles.selectById(id).getCreatedAt().plusSeconds(1));
         member.setUpdatedAt(member.getCreatedAt());
         members.insert(member);
-        assertFalse(service.getCircle(id, other).isCreator());
+        var detail = service.getCircle(id, other);
+        assertFalse(detail.isCreator());
+        assertEquals(user, detail.creator().id());
+        assertEquals(2, detail.memberCount());
+        assertEquals(List.of(user, other), detail.members().stream().map(entry -> entry.user().id()).toList());
+        assertTrue(detail.members().get(0).isCreator());
+        assertFalse(detail.members().get(1).isCreator());
+        assertEquals(member.getCreatedAt().toInstant(java.time.ZoneOffset.UTC), detail.members().get(1).joinedAt());
         assertEquals(403, assertThrows(BusinessException.class, () -> service.updateCircle(id,
                 new UpdateCircleRequest("禁止", null, null), other)).getStatus().value());
         members.deleteById(member.getId());
+        var afterRemoval = service.getCircle(id, user);
+        assertEquals(1, afterRemoval.memberCount());
+        assertEquals(List.of(user), afterRemoval.members().stream().map(entry -> entry.user().id()).toList());
         assertEquals(404, assertThrows(BusinessException.class,
                 () -> service.getCircle(id, other)).getStatus().value());
     }
@@ -141,7 +224,7 @@ class CircleDatabaseTest {
                 .when(media).validateOwnedImage(avatar, user);
         assertEquals("FILE_NOT_USABLE", assertThrows(BusinessException.class, () -> service.createCircle(
                 new CreateCircleRequest(id, "家人", null, avatar), user)).getCode());
-        assertNull(circles.selectIncludingDeleted(id));
+        assertFalse(identities.isOccupied(id));
         create(id);
         assertThrows(BusinessException.class, () -> service.updateCircle(id,
                 new UpdateCircleRequest("不能保存", null, avatar), user));

@@ -5,7 +5,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import org.hibernate.validator.constraints.CodePointLength;
 import java.util.UUID;
-/** 圈子请求；名称去首尾空白，介绍最多 5000 Unicode 码点，头像省略或 null 使用默认头像。 */
 public record CreateCircleRequest(
     @NotNull @UUIDv7 @Schema(description = "客户端预生成 UUIDv7，重试保持不变") UUID id,
     @NotBlank @CodePointLength(max = 128)

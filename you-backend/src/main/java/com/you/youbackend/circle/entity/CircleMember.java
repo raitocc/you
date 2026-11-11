@@ -20,6 +20,8 @@ public class CircleMember {
     private LocalDateTime createdAt;
     /** 修改时间，UTC 毫秒精度。 */
     private LocalDateTime updatedAt;
+    /** 是否限制再次加入，新增关系由数据库默认为 false。 */
+    private Boolean joinRestricted;
     /** 删除时间，null 表示有效。 */
     private LocalDateTime deletedAt;
 }

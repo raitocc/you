@@ -1,6 +1,11 @@
 package com.you.youbackend.circle;
 
+import com.you.youbackend.circle.entity.Circle;
+import com.you.youbackend.circle.entity.CircleMember;
 import com.you.youbackend.circle.mapper.CircleMapper;
+import com.you.youbackend.circle.mapper.CircleIdentityMapper;
+import com.you.youbackend.circle.mapper.CircleInviteNumberMapper;
+import com.you.youbackend.circle.mapper.CircleMemberHistoryMapper;
 import com.you.youbackend.circle.mapper.CircleMemberMapper;
 import com.you.youbackend.circle.model.CircleListRow;
 import com.you.youbackend.circle.mapper.CircleShareMapper;
@@ -28,7 +33,7 @@ class CircleListTest {
     private final MediaService media = mock(MediaService.class);
     private final CircleService service = new CircleService(circles, members, users, media, mock(CircleShareMapper.class),
             mock(MomentMapper.class), mock(AlbumMapper.class),
-            mock(AlbumMomentMapper.class), mock(MomentService.class), "defaults/circle-avatar.png");
+            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(CircleMemberHistoryMapper.class), mock(CircleIdentityMapper.class), mock(CircleInviteNumberMapper.class), "defaults/circle-avatar.png");
     private final UUID user = UUID.randomUUID();
 
     @Test void loadsOnlyVisiblePageAvatarsWithoutProfilesOrMemberCounts() {
@@ -36,7 +41,11 @@ class CircleListTest {
         var first = row(custom);
         var second = row(invalid);
         var third = row(null);
-        when(members.selectFirstPage(user, 4)).thenReturn(List.of(first, second, third, row(extra)));
+        var candidates = List.of(first, second, third, row(extra));
+        when(members.selectPageCandidates(user, null, null, 4))
+                .thenReturn(candidates.stream().map(this::membership).toList());
+        when(circles.selectByIds(candidates.stream().map(CircleListRow::getId).toList()))
+                .thenReturn(candidates.stream().map(this::circle).toList());
         when(media.getReadUrls(List.of(custom, invalid))).thenReturn(Map.of(custom, "custom-url"));
         when(media.createReadUrl("defaults/circle-avatar.png")).thenReturn("default-url");
 
@@ -51,18 +60,34 @@ class CircleListTest {
         assertTrue(result.hasMore());
         assertEquals(third.getMembershipId(), result.nextCursor().id());
         verify(media).getReadUrls(List.of(custom, invalid));
-        verify(members, never()).countActiveMembers(anyCollection());
-        verifyNoInteractions(users, circles);
+        verify(members, never()).countActiveMembers(any(UUID.class));
+        verifyNoInteractions(users);
     }
 
     @Test void emptyPageSkipsAllDisplayDependencies() {
-        when(members.selectFirstPage(user, 21)).thenReturn(List.of());
+        when(members.selectPageCandidates(user, null, null, 21)).thenReturn(List.of());
         var result = service.listMyCircles(user, new PageRequest<>(null, 20));
         assertTrue(result.items().isEmpty());
         assertFalse(result.hasMore());
         assertNull(result.nextCursor());
         verifyNoInteractions(users, circles, media);
-        verify(members, never()).countActiveMembers(anyCollection());
+        verify(members, never()).countActiveMembers(any(UUID.class));
+    }
+
+    private CircleMember membership(CircleListRow row) {
+        var member = new CircleMember();
+        member.setId(row.getMembershipId());
+        member.setCircleId(row.getId());
+        member.setCreatedAt(row.getJoinedAt());
+        return member;
+    }
+
+    private Circle circle(CircleListRow row) {
+        var circle = new Circle();
+        circle.setId(row.getId());
+        circle.setName(row.getName());
+        circle.setAvatarFileId(row.getAvatarFileId());
+        return circle;
     }
 
     private CircleListRow row(UUID avatar) {

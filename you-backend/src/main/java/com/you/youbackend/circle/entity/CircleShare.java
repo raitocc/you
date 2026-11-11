@@ -26,5 +26,14 @@ public class CircleShare {
     /** 分享记录最后更新的时间，使用 UTC。 */
     private LocalDateTime updatedAt;
     /** 撤回或失效的时间，使用 UTC。null 表示这条记录尚未标记撤回或失效。 */
-    private LocalDateTime deletedAt;
+    @TableField("deleted_at")
+    private LocalDateTime withdrawnAt;
+
+    public LocalDateTime getDeletedAt() {
+        return withdrawnAt;
+    }
+
+    public void setDeletedAt(LocalDateTime deletedAt) {
+        this.withdrawnAt = deletedAt;
+    }
 }

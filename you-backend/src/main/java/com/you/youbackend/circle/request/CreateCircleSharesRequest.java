@@ -9,4 +9,5 @@ import java.util.UUID;
 public record CreateCircleSharesRequest(
         @NotNull @Schema(description = "分享类型，moment 或 album") CircleShareObjectType objectType,
         @NotNull @Schema(description = "分享的原始对象（瞬间、时光）的 ID") UUID objectId,
-        @NotEmpty @UniqueElements @Schema(description = "目标圈子 ID，至少一个且不重复") List<@NotNull UUID> circleIds) {}
+        @NotEmpty @UniqueElements @Schema(description = "目标圈子 ID，至少一个且不重复") List<@NotNull UUID> circleIds
+) {}

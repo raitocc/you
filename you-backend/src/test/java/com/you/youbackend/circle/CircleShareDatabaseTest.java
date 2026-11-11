@@ -39,6 +39,7 @@ class CircleShareDatabaseTest {
     @Autowired CircleMemberMapper members;
     @Autowired MomentMapper moments;
     @Autowired AlbumMapper albums;
+    @Autowired CircleInviteNumberMapper inviteNumbers;
     @Autowired AlbumMomentMapper associations;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
@@ -180,7 +181,7 @@ class CircleShareDatabaseTest {
     }
     private UUID newCircle() {
         Circle row = new Circle(); row.setId(UuidCreator.getTimeOrderedEpoch()); circleIds.add(row.getId());
-        row.setCreatorUserId(owner); row.setName("测试圈子"); row.setInviteCode(row.getId().toString().replace("-", "").substring(16));
+        row.setCreatorUserId(owner); row.setName("测试圈子"); row.setInviteCode(inviteNumbers.allocate(row.getId()));
         row.setInviteEnabled(true); row.setCreatedAt(time); row.setUpdatedAt(time); circles.insert(row);
         for (UUID user : List.of(owner, viewer)) {
             CircleMember member = new CircleMember(); member.setId(UuidCreator.getTimeOrderedEpoch());

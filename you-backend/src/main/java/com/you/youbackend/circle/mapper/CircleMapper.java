@@ -2,14 +2,29 @@ package com.you.youbackend.circle.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.circle.entity.Circle;
-import org.apache.ibatis.annotations.*;
+import org.apache.ibatis.annotations.Mapper;
 import java.util.UUID;
-/** 圈子读写；自定义查询显式声明软删除范围。 */
+/** 圈子读写，沿用全局逻辑删除。 */
 @Mapper
 public interface CircleMapper extends BaseMapper<Circle> {
-    /** 包含解散记录以识别被占用的客户端 ID，创建时直接拒绝重复提交。 */
-    @Select("SELECT * FROM circle WHERE id = #{id}")
-    Circle selectIncludingDeleted(@Param("id") UUID id);
+    /** 通过邀请码唯一索引定位有效圈子。 */
+    default Circle findByInviteCode(long code) {
+        return selectOne(Wrappers.<Circle>lambdaQuery().eq(Circle::getInviteCode, code));
+    }
+
+    /** 仅写入邀请开关和修改时间。 */
+    default int updateInviteEnabled(Circle circle) {
+        return update(Wrappers.<Circle>lambdaUpdate().eq(Circle::getId, circle.getId())
+                .set(Circle::getInviteEnabled, circle.getInviteEnabled())
+                .set(Circle::getUpdatedAt, circle.getUpdatedAt()));
+    }
+
+    /** 仅写入新邀请码和修改时间。 */
+    default int updateInviteCode(Circle circle) {
+        return update(Wrappers.<Circle>lambdaUpdate().eq(Circle::getId, circle.getId())
+                .set(Circle::getInviteCode, circle.getInviteCode())
+                .set(Circle::getUpdatedAt, circle.getUpdatedAt()));
+    }
 
     /** 显式更新可空字段，保留创建者、邀请信息及创建时间。 */
     default int updateContent(Circle circle) {

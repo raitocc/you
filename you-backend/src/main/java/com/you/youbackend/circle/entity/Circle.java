@@ -22,8 +22,8 @@ public class Circle {
     private UUID avatarFileId;
     /** 邀请开关。 */
     private Boolean inviteEnabled;
-    /** 内部长期邀请码。 */
-    private String inviteCode;
+    /** 从 10000 开始分配的自增数字邀请码。 */
+    private Long inviteCode;
     /** 创建时间，UTC 毫秒精度。 */
     private LocalDateTime createdAt;
     /** 修改时间，UTC 毫秒精度。 */
