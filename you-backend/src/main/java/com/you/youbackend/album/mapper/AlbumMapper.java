@@ -4,8 +4,6 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.album.entity.Album;
 import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,14 +23,6 @@ public interface AlbumMapper extends BaseMapper<Album> {
         return update(Wrappers.<Album>lambdaUpdate().eq(Album::getId, id)
                 .set(Album::getUpdatedAt, updatedAt));
     }
-
-    /**
-     * 删除专用查询，包含已软删除记录，以便校验归属并识别本人重复删除。
-     * @param id 时光 ID
-     * @return 完整实体，不存在返回 null
-     */
-    @Select("SELECT * FROM album WHERE id = #{id}")
-    Album selectIncludingDeleted(@Param("id") UUID id);
 
     /**
      * 全量保存已校验的展示信息，显式 set 确保 null 能清空介绍和封面。
