@@ -81,10 +81,20 @@ void main() {
     });
   }
 
-  test('join sends a numeric invite code', () async {
-    await repository.join(10000);
+  test('invitation reads a string code and preserves disabled null', () async {
+    response = {'inviteEnabled': true, 'inviteCode': 'ABCD1234EFGH5678'};
+    final enabled = await repository.invitation('circle');
+    expect(enabled.code, 'ABCD1234EFGH5678');
+    response = {'inviteEnabled': false, 'inviteCode': null};
+    final disabled = await repository.invitation('circle');
+    expect(disabled.enabled, isFalse);
+    expect(disabled.code, isNull);
+  });
+
+  test('join sends a string invite code', () async {
+    await repository.join('ABCD1234EFGH5678');
     expect(requests.single.path, '/circles/join');
-    expect(requests.single.data, {'inviteCode': 10000});
+    expect(requests.single.data, {'inviteCode': 'ABCD1234EFGH5678'});
   });
 
   test(

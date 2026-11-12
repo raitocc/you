@@ -95,9 +95,9 @@ class CircleActions {
   final Ref _ref;
   CircleRepository get _repository => _ref.read(circleRepositoryProvider);
 
-  Future<CirclePreview> preview(int code) => _repository.preview(code);
+  Future<CirclePreview> preview(String code) => _repository.preview(code);
 
-  Future<void> join(int code) async {
+  Future<void> join(String code) async {
     await _repository.join(code);
     _ref.invalidate(circlesProvider);
   }

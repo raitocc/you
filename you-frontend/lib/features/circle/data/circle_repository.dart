@@ -66,11 +66,11 @@ class CircleRepository {
   Future<CircleDetails> detail(String id) async =>
       circleDetails(await _remote.get('/$id') as Json);
 
-  Future<CirclePreview> preview(int code) async => circlePreview(
+  Future<CirclePreview> preview(String code) async => circlePreview(
     await _remote.post('/join-preview', {'inviteCode': code}) as Json,
   );
 
-  Future<void> join(int code) async {
+  Future<void> join(String code) async {
     await _remote.post('/join', {'inviteCode': code});
   }
 

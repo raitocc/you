@@ -40,8 +40,10 @@ CirclePreview circlePreview(Json json) {
   );
 }
 
-CircleInvitation circleInvitation(Json json) =>
-    (enabled: json['inviteEnabled'] as bool, code: json['inviteCode'] as int?);
+CircleInvitation circleInvitation(Json json) => (
+  enabled: json['inviteEnabled'] as bool,
+  code: json['inviteCode'] as String?,
+);
 
 CircleMoment circleMoment(Json json) => (
   id: json['id'] as String,

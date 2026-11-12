@@ -1,5 +1,6 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -227,9 +228,9 @@ class _CircleJoinPageState extends ConsumerState<CircleJoinPage> {
 
   Future<void> submit() async {
     if (busy) return;
-    final number = int.tryParse(code.text);
-    if (number == null || number < 10000) {
-      setState(() => error = '请输入有效的数字邀请码');
+    final inviteCode = code.text.trim();
+    if (inviteCode.isEmpty || inviteCode.length > 16) {
+      setState(() => error = '请输入有效的邀请码，最多 16 个字符');
       return;
     }
     final current = preview;
@@ -240,10 +241,10 @@ class _CircleJoinPageState extends ConsumerState<CircleJoinPage> {
     });
     try {
       if (current == null) {
-        final result = await actions.preview(number);
+        final result = await actions.preview(inviteCode);
         if (mounted) setState(() => preview = result);
       } else {
-        if (!current.isMember) await actions.join(number);
+        if (!current.isMember) await actions.join(inviteCode);
         if (!mounted) return;
         if (current.isMember) {
           context.go('/circles?selected=${current.circle.id}');
@@ -273,8 +274,10 @@ class _CircleJoinPageState extends ConsumerState<CircleJoinPage> {
         TextField(
           controller: code,
           enabled: !busy,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          keyboardType: TextInputType.text,
+          textCapitalization: TextCapitalization.characters,
+          autocorrect: false,
+          maxLength: 16,
           decoration: InputDecoration(labelText: '邀请码', errorText: error),
           onChanged: (_) => setState(() {
             preview = null;

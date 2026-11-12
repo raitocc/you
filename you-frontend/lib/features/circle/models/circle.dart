@@ -14,7 +14,7 @@ typedef CirclePreview = ({
   CirclePerson creator,
   bool isMember,
 });
-typedef CircleInvitation = ({bool enabled, int? code});
+typedef CircleInvitation = ({bool enabled, String? code});
 typedef CircleCursor = ({String time, String id});
 typedef CircleMoment = ({
   String id,
