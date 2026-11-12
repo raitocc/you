@@ -58,34 +58,24 @@ public interface AlbumMapper extends BaseMapper<Album> {
     }
 
     /**
-     * 读取本人有效时光首屏，按创建时间、ID 倒序。
+     * 分页读取本人有效时光，按创建时间、ID 倒序排列。
      * @param userId 当前所有者 ID
+     * @param cursorTime 游标创建时间，UTC 毫秒精度；null 表示首屏
+     * @param cursorId 游标时光 ID，与 cursorTime 成对提供
      * @param rowCount 已校验页大小加一，用于判断下一页
-     * @return 有序的完整时光实体列表
+     * @return 有序的完整时光实体列表，沿用全局逻辑删除过滤
      */
-    default List<Album> selectFirstPage(UUID userId, int rowCount) {
-        // 首屏只限定所有者，按统一排序读取页大小加一条。
-        return selectList(Wrappers.<Album>lambdaQuery()
-                .eq(Album::getOwnerUserId, userId)
-                .orderByDesc(Album::getCreatedAt, Album::getId)
-                .last("LIMIT " + rowCount));
+    default List<Album> selectPage(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
+        // 1. 基础查询只读取当前用户的有效时光。
+        var query = Wrappers.<Album>lambdaQuery().eq(Album::getOwnerUserId, userId);
+        // 2. 有游标时读取更早时间，或相同时间下更小的 ID；首屏不加边界。
+        if (cursorTime != null) {
+            query.and(boundary -> boundary.lt(Album::getCreatedAt, cursorTime)
+                    .or(sameTime -> sameTime.eq(Album::getCreatedAt, cursorTime)
+                            .lt(Album::getId, cursorId)));
+        }
+        // 3. 统一排序并多读取一条，供业务层判断下一页。
+        return selectList(query.orderByDesc(Album::getCreatedAt, Album::getId).last("LIMIT " + rowCount));
     }
 
-    /**
-     * 读取本人有效时光后续页，排除游标记录及其之前的位置。
-     * @param userId 当前所有者 ID
-     * @param createdAt 游标创建时间，非空，UTC 毫秒精度
-     * @param id 与创建时间成对提供的游标 ID
-     * @param rowCount 已校验页大小加一
-     * @return 按创建时间、ID 倒序排列的完整时光实体列表
-     */
-    default List<Album> selectNextPage(UUID userId, LocalDateTime createdAt, UUID id, int rowCount) {
-        // 后续页读取更早的创建时间，或相同时间下更小的 ID；排序与首屏一致。
-        return selectList(Wrappers.<Album>lambdaQuery()
-                .eq(Album::getOwnerUserId, userId)
-                .and(boundary -> boundary.lt(Album::getCreatedAt, createdAt)
-                        .or(sameTime -> sameTime.eq(Album::getCreatedAt, createdAt).lt(Album::getId, id)))
-                .orderByDesc(Album::getCreatedAt, Album::getId)
-                .last("LIMIT " + rowCount));
-    }
 }

@@ -85,7 +85,7 @@ class GatheringMomentReadTest {
     @Test
     void pageLoadsOnlyReturnedRowsAndDeduplicatesAuthors() {
         Moment first = moment(), second = moment(), extra = moment();
-        when(moments.selectGatheringFirstPage(gatheringId, 3)).thenReturn(List.of(first, second, extra));
+        when(moments.selectGatheringPage(gatheringId, null, null, 3)).thenReturn(List.of(first, second, extra));
         var profile = new PublicUserResponse(author, "作者", null);
         when(users.getPublicUsers(List.of(author))).thenReturn(Map.of(author, profile));
         var page = service.browseGatheringMoments(gatheringId, new PageRequest<>(null, 2), viewer);
@@ -105,7 +105,7 @@ class GatheringMomentReadTest {
         verifyNoInteractions(images, users);
         Moment moment = moment();
         var cursor = new GatheringMomentCursor(moment.getMemoryTime().toInstant(ZoneOffset.UTC), moment.getId());
-        when(moments.selectGatheringNextPage(gatheringId, moment.getMemoryTime(), moment.getId(), 21)).thenReturn(List.of(moment));
+        when(moments.selectGatheringPage(gatheringId, moment.getMemoryTime(), moment.getId(), 21)).thenReturn(List.of(moment));
         var last = service.browseGatheringMoments(gatheringId, new PageRequest<>(cursor, 20), viewer);
         assertNull(last.items().get(0).author()); assertNull(last.nextCursor()); assertFalse(last.hasMore());
     }
@@ -123,7 +123,7 @@ class GatheringMomentReadTest {
         mvc.perform(get("/gatherings/{g}/moments", gatheringId).requestAttr("currentUserId", viewer)
                 .param("cursor.memoryTime", "2026-01-01T00:00:00Z").param("cursor.id", moment.getId().toString()))
                 .andExpect(status().isOk());
-        verify(moments).selectGatheringNextPage(gatheringId, moment.getMemoryTime(), moment.getId(), 21);
+        verify(moments).selectGatheringPage(gatheringId, moment.getMemoryTime(), moment.getId(), 21);
         mvc.perform(get("/gatherings/{g}/moments", gatheringId).requestAttr("currentUserId", viewer)
                 .param("cursor.id", moment.getId().toString())).andExpect(status().isBadRequest());
     }

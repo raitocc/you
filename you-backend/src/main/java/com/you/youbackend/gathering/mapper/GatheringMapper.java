@@ -1,6 +1,9 @@
 package com.you.youbackend.gathering.mapper;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Constants;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.gathering.entity.Gathering;
 import com.you.youbackend.gathering.model.GatheringStatus;
@@ -42,42 +45,49 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
 
 
     /**
-     * 读取本人有效成员关系对应的同行首屏。
+     * 分页读取本人已加入的有效同行，按同行创建时间、ID 倒序排列。
      * @param userId 当前用户 ID
-     * @param rowCount 页大小加一
-     * @return 按同行创建时间和 ID 倒序的完整实体
+     * @param cursorTime 游标同行创建时间，UTC；null 表示首屏
+     * @param cursorId 游标同行 ID，与创建时间成对提供
+     * @param rowCount 页大小加一，用于判断下一页
+     * @return 有序完整同行实体
      */
-    @Select("""
-            SELECT g.id, g.created_at, g.updated_at, g.creator_user_id, g.name, g.description,
-                   g.status, g.invite_enabled, g.invite_code, g.face_code, g.deleted_at
-            FROM gathering g
-            WHERE g.deleted_at IS NULL
-              AND EXISTS (SELECT 1 FROM gathering_member m
-                          WHERE m.gathering_id = g.id AND m.user_id = #{userId} AND m.deleted_at IS NULL)
-            ORDER BY g.created_at DESC, g.id DESC LIMIT #{rowCount}
-            """)
-    List<Gathering> selectFirstPage(@Param("userId") UUID userId, @Param("rowCount") int rowCount);
+    default List<Gathering> selectPage(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
+        // 1. 过滤已解散同行，成员子查询限定本人仍有有效成员关系。
+        var query = new QueryWrapper<Gathering>()
+                .isNull("g.deleted_at")
+                .exists("""
+                        SELECT 1
+                        FROM gathering_member m
+                        WHERE m.gathering_id = g.id
+                          AND m.user_id = {0}
+                          AND m.deleted_at IS NULL
+                        """, userId);
+        // 2. 有游标时读取更早时间，或相同时间下更小的 ID；首屏不加边界。
+        if (cursorTime != null) {
+            query.and(boundary -> boundary.lt("g.created_at", cursorTime)
+                    .or(sameTime -> sameTime.eq("g.created_at", cursorTime).lt("g.id", cursorId)));
+        }
+        // 3. 统一排序，交给固定 SQL 多取一条判断下一页。
+        query.orderByDesc("g.created_at", "g.id");
+        return selectPageRows(query, rowCount);
+    }
 
     /**
-     * 读取本人同行后续页，严格排除上一页末项及其之前的位置。
-     * @param userId 当前用户 ID
-     * @param createdAt 上一页末项创建时间，UTC
-     * @param id 上一页末项同行 ID
-     * @param rowCount 页大小加一
-     * @return 与首屏排序一致的完整实体
+     * 执行同行列表查询，筛选与排序由 selectPage 统一构造。
+     * @param query 后端构造的带表别名条件，含有效成员 EXISTS、软删除过滤及排序
+     * @param rowCount 已校验页大小加一
+     * @return 有序完整同行实体
      */
     @Select("""
             SELECT g.id, g.created_at, g.updated_at, g.creator_user_id, g.name, g.description,
                    g.status, g.invite_enabled, g.invite_code, g.face_code, g.deleted_at
             FROM gathering g
-            WHERE g.deleted_at IS NULL
-              AND EXISTS (SELECT 1 FROM gathering_member m
-                          WHERE m.gathering_id = g.id AND m.user_id = #{userId} AND m.deleted_at IS NULL)
-              AND (g.created_at < #{createdAt} OR (g.created_at = #{createdAt} AND g.id < #{id}))
-            ORDER BY g.created_at DESC, g.id DESC LIMIT #{rowCount}
+            ${ew.customSqlSegment}
+            LIMIT #{rowCount}
             """)
-    List<Gathering> selectNextPage(@Param("userId") UUID userId, @Param("createdAt") LocalDateTime createdAt,
-                                   @Param("id") UUID id, @Param("rowCount") int rowCount);
+    List<Gathering> selectPageRows(@Param(Constants.WRAPPER) Wrapper<Gathering> query,
+                                   @Param("rowCount") int rowCount);
 
     /**
      * 保存名称、介绍与修改时间，null 介绍显式写入数据库。

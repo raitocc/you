@@ -296,13 +296,11 @@ public class AlbumService {
      * @return 最多页大小加一条的完整时光实体
      */
     private List<Album> queryAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
-        // 首屏和后续页各用一条固定查询，Service 只决定查询入口。
+        // 将游标转换为数据库 UTC 时间，首屏不提供边界。
         AlbumListCursor cursor = request.cursor();
-        int rowCount = request.limit() + 1;
-        if (cursor == null) {
-            return albumMapper.selectFirstPage(userId, rowCount);
-        }
-        return albumMapper.selectNextPage(userId, toCursorTime(cursor.createdAt()), cursor.id(), rowCount);
+        LocalDateTime cursorTime = cursor == null ? null : toCursorTime(cursor.createdAt());
+        UUID cursorId = cursor == null ? null : cursor.id();
+        return albumMapper.selectPage(userId, cursorTime, cursorId, request.limit() + 1);
     }
 
     /**
@@ -313,14 +311,13 @@ public class AlbumService {
      * @return 最多页大小加一条的完整瞬间实体
      */
     private List<Moment> queryTimeline(UUID albumId, UUID userId, PageRequest<AlbumMomentCursor> request) {
-        // 首屏不传边界；后续页将三个游标字段转换后传给固定查询。
+        // 两个时间字段转换为数据库 UTC 时间，首屏不提供边界。
         AlbumMomentCursor cursor = request.cursor();
-        int rowCount = request.limit() + 1;
-        if (cursor == null) {
-            return albumMomentMapper.selectFirstTimelinePage(albumId, userId, rowCount);
-        }
-        return albumMomentMapper.selectNextTimelinePage(albumId, userId,
-                toCursorTime(cursor.memoryTime()), toCursorTime(cursor.createdAt()), cursor.id(), rowCount);
+        LocalDateTime cursorTime = cursor == null ? null : toCursorTime(cursor.memoryTime());
+        LocalDateTime cursorCreatedAt = cursor == null ? null : toCursorTime(cursor.createdAt());
+        UUID cursorId = cursor == null ? null : cursor.id();
+        return albumMomentMapper.selectTimelinePage(albumId, userId, cursorTime, cursorCreatedAt,
+                cursorId, request.limit() + 1);
     }
 
     /**

@@ -50,37 +50,28 @@ public interface MomentMapper extends BaseMapper<Moment> {
 
 
     /**
-     * 读取指定同行的有效瞬间首屏，按发生时间、ID 正序。
+     * 分页读取同行中的有效瞬间摘要，按发生时间、ID 正序排列。
      * @param gatheringId 已校验访问权限的同行 ID
-     * @param rowCount 页大小加一
-     * @return 仅含摘要及作者字段的投影
+     * @param cursorTime 游标发生时间，UTC；null 表示首屏
+     * @param cursorId 游标瞬间 ID，与 cursorTime 成对提供
+     * @param rowCount 页大小加一，用于判断下一页
+     * @return 仅含 id、authorUserId、title、body、mood、memoryTime 的摘要投影
      */
-    default List<Moment> selectGatheringFirstPage(UUID gatheringId, int rowCount) {
-        // 摘要查询包含作者 ID，供批量加载公开资料。
-        return selectList(Wrappers.<Moment>lambdaQuery()
+    default List<Moment> selectGatheringPage(UUID gatheringId, LocalDateTime cursorTime,
+                                            UUID cursorId, int rowCount) {
+        // 1. 限定同行，读取摘要及批量加载作者资料所需字段。
+        var query = Wrappers.<Moment>lambdaQuery()
                 .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody,
                         Moment::getMood, Moment::getMemoryTime)
-                .eq(Moment::getGatheringId, gatheringId)
-                .orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
-    }
-
-    /**
-     * 读取指定同行的后续页，严格排除上一页末项及之前的记录。
-     * @param gatheringId 已校验访问权限的同行 ID
-     * @param memoryTime 上一页末项发生时间，UTC
-     * @param id 上一页末项 ID
-     * @param rowCount 页大小加一
-     * @return 仅含摘要及作者字段的投影，排序与首屏一致
-     */
-    default List<Moment> selectGatheringNextPage(UUID gatheringId, LocalDateTime memoryTime, UUID id, int rowCount) {
-        // 正序分页取更晚时间，或相同时间下更大的 ID。
-        return selectList(Wrappers.<Moment>lambdaQuery()
-                .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody,
-                        Moment::getMood, Moment::getMemoryTime)
-                .eq(Moment::getGatheringId, gatheringId)
-                .and(boundary -> boundary.gt(Moment::getMemoryTime, memoryTime)
-                        .or(sameTime -> sameTime.eq(Moment::getMemoryTime, memoryTime).gt(Moment::getId, id)))
-                .orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
+                .eq(Moment::getGatheringId, gatheringId);
+        // 2. 有游标时读取更晚时间，或相同时间下更大的 ID；首屏不加边界。
+        if (cursorTime != null) {
+            query.and(boundary -> boundary.gt(Moment::getMemoryTime, cursorTime)
+                    .or(sameTime -> sameTime.eq(Moment::getMemoryTime, cursorTime)
+                            .gt(Moment::getId, cursorId)));
+        }
+        // 3. 按稳定顺序多读取一条，供业务层判断下一页。
+        return selectList(query.orderByAsc(Moment::getMemoryTime, Moment::getId).last("LIMIT " + rowCount));
     }
 
     /**

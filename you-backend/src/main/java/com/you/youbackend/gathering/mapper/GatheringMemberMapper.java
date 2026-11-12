@@ -35,35 +35,27 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
 
 
     /**
-     * 读取同行有效成员首屏，按关系创建时间、用户 ID 正序。
+     * 分页读取同行有效成员，按关系创建时间、用户 ID 正序排列。
      * @param gatheringId 已校验访问资格的同行 ID
-     * @param rowCount 页大小加一
+     * @param cursorTime 游标关系创建时间，UTC；null 表示首屏
+     * @param cursorUserId 游标用户 ID，与 cursorTime 成对提供
+     * @param rowCount 页大小加一，用于判断下一页
      * @return 完整成员关系，用户资料由 Service 批量加载
      */
-    default List<GatheringMember> selectFirstPage(UUID gatheringId, int rowCount) {
-        // 关系的逻辑删除由全局配置过滤，重新加入保持原创建时间。
-        return selectList(Wrappers.<GatheringMember>lambdaQuery()
-                .eq(GatheringMember::getGatheringId, gatheringId)
-                .orderByAsc(GatheringMember::getCreatedAt, GatheringMember::getUserId).last("LIMIT " + rowCount));
-    }
-
-    /**
-     * 读取同行有效成员后续页。
-     * @param gatheringId 已校验访问资格的同行 ID
-     * @param createdAt 上一页末项关系创建时间，UTC
-     * @param userId 上一页末项用户 ID
-     * @param rowCount 页大小加一
-     * @return 与首屏相同排序的完整成员关系
-     */
-    default List<GatheringMember> selectNextPage(UUID gatheringId, LocalDateTime createdAt,
-                                                  UUID userId, int rowCount) {
-        // 正序分页读取更晚的时间，或同时间下更大的用户 ID。
-        return selectList(Wrappers.<GatheringMember>lambdaQuery()
-                .eq(GatheringMember::getGatheringId, gatheringId)
-                .and(boundary -> boundary.gt(GatheringMember::getCreatedAt, createdAt)
-                        .or(sameTime -> sameTime.eq(GatheringMember::getCreatedAt, createdAt)
-                                .gt(GatheringMember::getUserId, userId)))
-                .orderByAsc(GatheringMember::getCreatedAt, GatheringMember::getUserId).last("LIMIT " + rowCount));
+    default List<GatheringMember> selectPage(UUID gatheringId, LocalDateTime cursorTime,
+                                            UUID cursorUserId, int rowCount) {
+        // 1. 限定同行，沿用全局逻辑删除过滤有效成员关系。
+        var query = Wrappers.<GatheringMember>lambdaQuery()
+                .eq(GatheringMember::getGatheringId, gatheringId);
+        // 2. 有游标时读取更晚时间，或相同时间下更大的用户 ID；首屏不加边界。
+        if (cursorTime != null) {
+            query.and(boundary -> boundary.gt(GatheringMember::getCreatedAt, cursorTime)
+                    .or(sameTime -> sameTime.eq(GatheringMember::getCreatedAt, cursorTime)
+                            .gt(GatheringMember::getUserId, cursorUserId)));
+        }
+        // 3. 统一排序并多读取一条，重新加入仍保持原关系创建时间。
+        return selectList(query.orderByAsc(GatheringMember::getCreatedAt, GatheringMember::getUserId)
+                .last("LIMIT " + rowCount));
     }
 
     /**

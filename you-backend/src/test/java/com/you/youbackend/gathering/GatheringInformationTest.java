@@ -57,7 +57,7 @@ class GatheringInformationTest {
         Gathering first = gathering(), extra = gathering();
         String original = "😀".repeat(101);
         first.setDescription(original);
-        when(gatherings.selectFirstPage(userId, 2)).thenReturn(List.of(first, extra));
+        when(gatherings.selectPage(userId, null, null, 2)).thenReturn(List.of(first, extra));
         when(members.countByGatherings(List.of(first.getId()))).thenReturn(List.of(count(first.getId(), 3)));
         when(moments.countByGatherings(List.of(first.getId()))).thenReturn(List.of());
         var creator = new PublicUserResponse(userId, "创建者", "https://example.test/avatar");
@@ -75,7 +75,7 @@ class GatheringInformationTest {
 
     @Test
     void emptyPageSkipsCountsAndLastPageHasNoCursor() {
-        when(gatherings.selectFirstPage(userId, 21)).thenReturn(List.of());
+        when(gatherings.selectPage(userId, null, null, 21)).thenReturn(List.of());
         var empty = service.browseGatherings(new PageRequest<>(null, 20), userId);
         assertTrue(empty.items().isEmpty());
         assertNull(empty.nextCursor());
@@ -83,7 +83,7 @@ class GatheringInformationTest {
         Gathering last = gathering();
         when(users.getPublicUsers(List.of(userId))).thenReturn(Map.of(userId, new PublicUserResponse(userId, "创建者", null)));
         var cursor = new GatheringListCursor(Instant.parse("2026-01-01T00:00:00Z"), last.getId());
-        when(gatherings.selectNextPage(userId, LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC), cursor.id(), 21))
+        when(gatherings.selectPage(userId, LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC), cursor.id(), 21))
                 .thenReturn(List.of(last));
         var result = service.browseGatherings(new PageRequest<>(cursor, 20), userId);
         assertFalse(result.hasMore());
@@ -153,7 +153,7 @@ class GatheringInformationTest {
         Gathering gathering = gathering();
         arrangeReadable(gathering);
         GatheringMember first = membership(userId), second = membership(UuidCreator.getTimeOrderedEpoch());
-        when(members.selectFirstPage(gathering.getId(), 2)).thenReturn(List.of(first, second));
+        when(members.selectPage(gathering.getId(), null, null, 2)).thenReturn(List.of(first, second));
         var result = service.browseMembers(gathering.getId(), new PageRequest<>(null, 1), userId);
         assertEquals(userId, result.items().get(0).id());
         assertTrue(result.hasMore());
@@ -171,7 +171,7 @@ class GatheringInformationTest {
         assertTrue(result.items().isEmpty());
         assertFalse(result.hasMore());
         assertNull(result.nextCursor());
-        verify(members).selectNextPage(gathering.getId(), LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC), userId, 21);
+        verify(members).selectPage(gathering.getId(), LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC), userId, 21);
         verify(users).getPublicUsers(List.of());
     }
 
@@ -181,12 +181,12 @@ class GatheringInformationTest {
         when(gatherings.selectById(gathering.getId())).thenReturn(gathering);
         when(members.isActiveMember(gathering.getId(), userId)).thenReturn(true);
         when(users.getPublicUsers(List.of(userId))).thenReturn(Map.of());
-        when(members.selectFirstPage(gathering.getId(), 21)).thenReturn(List.of(membership(userId)));
+        when(members.selectPage(gathering.getId(), null, null, 21)).thenReturn(List.of(membership(userId)));
         var membersPage = service.browseMembers(gathering.getId(), new PageRequest<>(null, 20), userId);
         assertEquals(1, membersPage.items().size());
         assertNull(membersPage.items().get(0));
         assertNull(service.getGathering(gathering.getId(), userId).creator());
-        when(gatherings.selectFirstPage(userId, 21)).thenReturn(List.of(gathering));
+        when(gatherings.selectPage(userId, null, null, 21)).thenReturn(List.of(gathering));
         var gatheringsPage = service.browseGatherings(new PageRequest<>(null, 20), userId);
         assertEquals(1, gatheringsPage.items().size());
         assertNull(gatheringsPage.items().get(0).creator());

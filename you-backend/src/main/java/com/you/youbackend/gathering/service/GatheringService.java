@@ -429,13 +429,11 @@ public class GatheringService {
 
     /** 按首屏或后续页意图读取本人同行，分页参数已由请求边界校验。 */
     private List<Gathering> findGatheringPage(PageRequest<GatheringListCursor> request, UUID userId) {
-        // 后续页将 UTC 时间转换成数据库时间，游标成组校验由 PageQuery 完成。
+        // 将游标转换为数据库 UTC 时间，首屏不提供边界。
         GatheringListCursor cursor = request.cursor();
-        if (cursor == null) {
-            return gatheringMapper.selectFirstPage(userId, request.limit() + 1);
-        }
-        return gatheringMapper.selectNextPage(userId, LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC),
-                cursor.id(), request.limit() + 1);
+        LocalDateTime cursorTime = cursor == null ? null : LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC);
+        UUID cursorId = cursor == null ? null : cursor.id();
+        return gatheringMapper.selectPage(userId, cursorTime, cursorId, request.limit() + 1);
     }
 
     /** 为非空本页批量加载创建者资料、成员数及瞬间数，空页直接返回空列表。 */
@@ -495,13 +493,11 @@ public class GatheringService {
 
     /** 根据已校验的分页参数读取完整成员关系，供后续批量补齐资料。 */
     private List<GatheringMember> findMemberPage(UUID gatheringId, PageRequest<GatheringMemberCursor> request) {
-        // 首屏和后续页分开调用，排序边界与 Mapper 查询保持一致。
+        // 将游标转换为数据库 UTC 时间，首屏不提供边界。
         GatheringMemberCursor cursor = request.cursor();
-        if (cursor == null) {
-            return gatheringMemberMapper.selectFirstPage(gatheringId, request.limit() + 1);
-        }
-        return gatheringMemberMapper.selectNextPage(gatheringId,
-                LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC), cursor.userId(), request.limit() + 1);
+        LocalDateTime cursorTime = cursor == null ? null : LocalDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC);
+        UUID cursorUserId = cursor == null ? null : cursor.userId();
+        return gatheringMemberMapper.selectPage(gatheringId, cursorTime, cursorUserId, request.limit() + 1);
     }
 
     /** 已校验访问权限后，加载详情所需创建者及数量，创建者资料查不到时返回 null。 */

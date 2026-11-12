@@ -284,13 +284,11 @@ public class MomentService {
 
     /** 按同行时间线首屏或后续页读取摘要投影，调用方已确认成员资格。 */
     private List<Moment> queryGatheringMoments(UUID gatheringId, PageRequest<GatheringMomentCursor> request) {
-        // 首屏与后续页意图分开表达，时间转换沿用数据库 UTC 规则。
+        // 将游标转换为数据库 UTC 时间，首屏不提供边界。
         GatheringMomentCursor cursor = request.cursor();
-        if (cursor == null) {
-            return momentMapper.selectGatheringFirstPage(gatheringId, request.limit() + 1);
-        }
-        return momentMapper.selectGatheringNextPage(gatheringId, toDatabaseMemoryTime(cursor.memoryTime()),
-                cursor.id(), request.limit() + 1);
+        LocalDateTime cursorTime = cursor == null ? null : toDatabaseMemoryTime(cursor.memoryTime());
+        UUID cursorId = cursor == null ? null : cursor.id();
+        return momentMapper.selectGatheringPage(gatheringId, cursorTime, cursorId, request.limit() + 1);
     }
 
     /** 为已授权的摘要投影批量加载图片与作者，空页直接结束，保持输入顺序。 */
