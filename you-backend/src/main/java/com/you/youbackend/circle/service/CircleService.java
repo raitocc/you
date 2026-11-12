@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 
 /** 圈子创建、访问控制、展示信息与分享引用维护；各写入入口明确事务边界。 */
 @Log4j2
-/** 处理圈子资料、成员访问和圈子分享。 */
+/* 处理圈子资料、成员访问和圈子分享。 */
 @Service
 public class CircleService {
     /** 单次 IN 查询的最大瞬间 ID 数。 */
@@ -81,7 +81,9 @@ public class CircleService {
     public void createCircle(CreateCircleRequest request, UUID userId) {
         // 校验账号和自定义图片后，使用统一 UTC 毫秒时间创建圈子和成员关系。
         userService.getCurrentUser(userId);
-        if (request.avatarFileId() != null) mediaService.validateOwnedImage(request.avatarFileId(), userId);
+        if (request.avatarFileId() != null){
+            mediaService.validateOwnedImage(request.avatarFileId(), userId);
+        }
         LocalDateTime now = utcNow();
         Circle circle = new Circle();
         circle.setId(request.id());
@@ -653,7 +655,7 @@ public class CircleService {
     }
 
     /** 取当前 UTC 时间，保留到毫秒，与数据库 DATETIME(3) 一致。 */
-    private LocalDateTime utcNow() {
+    private LocalDateTime utcNow() { //TODO 很多地方都用到了，可以考虑单独拿出来放到 common 包里
         return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
     }
 

@@ -442,6 +442,7 @@ public class GatheringService {
         if (page.isEmpty()) {
             return List.of();
         }
+        // 需要 creator momentCount memberCount
         List<UUID> ids = page.stream().map(Gathering::getId).toList();
         Map<UUID, Long> memberCounts = toCountMap(gatheringMemberMapper.countByGatherings(ids));
         Map<UUID, Long> momentCounts = toCountMap(momentMapper.countByGatherings(ids));
@@ -651,7 +652,7 @@ public class GatheringService {
      */
     private GatheringResponse toResponse(Gathering gathering, PublicUserResponse creator,
                                          long memberCount, long momentCount) {
-        // 数量由具体业务确定，统一转换数据库时间和响应字段。
+        // 数量由具体业务确定，统一转换数据库时间和响应字段。s
         return new GatheringResponse(gathering.getId(), gathering.getName(), gathering.getDescription(),
                 creator, memberCount, momentCount, gathering.getInviteCode(),
                 gathering.getCreatedAt().toInstant(ZoneOffset.UTC),
