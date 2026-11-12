@@ -151,7 +151,7 @@ class AlbumMomentsViewModel extends Notifier<AlbumMomentsState> {
           ? await repository.removeMoments(selection.id, ids)
           : await repository.addMoments(selection.id, ids);
       if (!current()) return false;
-      ref.read(recentAlbumsProvider.notifier).remember(album);
+      ref.read(recentAlbumsProvider.notifier).remember(album, changed: true);
       ref.invalidate(albumDetailProvider(selection.id));
       ref.invalidate(albumTimelineProvider(selection.id));
       state = state.copy(busy: false, selected: const {});

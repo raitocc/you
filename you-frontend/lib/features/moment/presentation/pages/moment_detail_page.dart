@@ -102,11 +102,19 @@ class _MomentDetailPageState extends ConsumerState<MomentDetailPage> {
         ),
       if (moment.canEdit)
         IconButton(
-          tooltip: '分享到同行或圈子',
+          tooltip: '分享到圈子',
+          onPressed: _deleting
+              ? null
+              : () => context.push('/circles/share/moment/${moment.id}'),
+          icon: const Icon(Icons.ios_share_outlined),
+        ),
+      if (moment.canEdit)
+        IconButton(
+          tooltip: '关联同行',
           onPressed: _deleting
               ? null
               : () => context.push('/moments/${moment.id}/edit?focus=sharing'),
-          icon: const Icon(Icons.ios_share_outlined),
+          icon: const Icon(Icons.group_outlined),
         ),
       if (moment.canDelete)
         PopupMenuButton<String>(

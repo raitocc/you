@@ -4,45 +4,16 @@ import '../../../../app/theme/app_theme.dart';
 import '../../models/moment.dart';
 import '../../models/moment_mood.dart';
 
+import '../../../../shared/ui/mood_badge.dart';
+
+export '../../../../shared/ui/mood_badge.dart';
+
 String momentDate(DateTime time) {
   final local = time.toLocal();
   return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
 }
 
 final momentMoods = momentMoodCodes.keys;
-
-class MoodBadge extends StatelessWidget {
-  const MoodBadge(this.mood, {super.key});
-  final String mood;
-
-  @override
-  Widget build(BuildContext context) {
-    final (icon, color) = switch (mood) {
-      '开心' => (Icons.sentiment_very_satisfied, const Color(0xFFF8EBCB)),
-      '心动' => (Icons.favorite_border, const Color(0xFFF6E3E5)),
-      '惊喜' => (Icons.auto_awesome_outlined, const Color(0xFFF4EACF)),
-      '低落' => (Icons.sentiment_dissatisfied, const Color(0xFFE4E9F0)),
-      _ => (Icons.sentiment_satisfied_alt, Tokens.green),
-    };
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: Tokens.accent),
-            const SizedBox(width: 4),
-            Text(mood, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class MomentNetworkImage extends StatelessWidget {
   const MomentNetworkImage(

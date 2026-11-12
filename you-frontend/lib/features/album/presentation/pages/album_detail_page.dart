@@ -6,9 +6,10 @@ import '../../../../core/network/api_client.dart';
 import '../../../../shared/ui/page_state.dart';
 import '../viewmodels/album_viewmodels.dart';
 import '../widgets/album_cover.dart';
+import '../widgets/album_timeline_gallery.dart';
 import '../widgets/album_moments_sheet.dart';
-import '../../../moment/presentation/widgets/moment_card.dart';
-import '../../../moment/models/moment_mood.dart';
+import '../../../../shared/ui/mood_badge.dart';
+import '../../../../shared/models/moment_mood.dart';
 
 class AlbumDetailPage extends ConsumerWidget {
   const AlbumDetailPage({super.key, required this.id});
@@ -73,6 +74,13 @@ class AlbumDetailPage extends ConsumerWidget {
                 : () => context.push('/albums/$id/edit'),
             icon: const Icon(Icons.image_outlined),
           ),
+          IconButton(
+            tooltip: '分享时光到圈子',
+            onPressed: value.asData == null || deletion.busy
+                ? null
+                : () => context.push('/circles/share/album/$id'),
+            icon: const Icon(Icons.ios_share_outlined),
+          ),
           PopupMenuButton<String>(
             tooltip: '管理时光',
             enabled: value.asData != null && !deletion.busy,
@@ -126,7 +134,7 @@ class AlbumDetailPage extends ConsumerWidget {
                   fit: StackFit.expand,
                   children: [
                     AlbumCover(url: album.coverUrl, height: 370, radius: 0),
-                    const DecoratedBox(
+                    DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
@@ -135,7 +143,7 @@ class AlbumDetailPage extends ConsumerWidget {
                           colors: [
                             Colors.transparent,
                             Color(0x55FFFFFF),
-                            Colors.white,
+                            Theme.of(context).colorScheme.surface,
                           ],
                         ),
                       ),
@@ -243,16 +251,15 @@ class _AlbumTimeline extends ConsumerWidget {
                               style: Theme.of(context).textTheme.labelSmall,
                             ),
                           ),
-                        for (final image in item.images)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: AlbumCover(url: image, radius: 15),
+                        if (item.images.isNotEmpty)
+                          AlbumTimelineGallery(
+                            key: ValueKey(item.id),
+                            images: item.images,
                           ),
                         if (item.body != null)
-                          Text(
-                            item.body!,
-                            maxLines: 4,
-                            overflow: TextOverflow.ellipsis,
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text(item.body!),
                           ),
                       ],
                     ),

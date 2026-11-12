@@ -13,7 +13,9 @@ class AlbumPage extends ConsumerWidget {
     final value = ref.watch(albumListProvider);
     Future<void> refresh() async {
       ref.invalidate(albumListProvider);
-      await ref.read(albumListProvider.future);
+      try {
+        await ref.read(albumListProvider.future);
+      } catch (_) {}
     }
 
     return value.when(
@@ -31,7 +33,10 @@ class AlbumPage extends ConsumerWidget {
           children: [
             Text(
               '把瞬间，串成时光。',
-              style: Theme.of(context).textTheme.headlineMedium,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+              ),
             ),
             const SizedBox(height: 8),
             const Text('那些不经意的记录，正在慢慢成为故事'),
@@ -68,7 +73,7 @@ class AlbumPage extends ConsumerWidget {
                             AlbumCover(
                               url: data.items[i].coverUrl,
                               height: 275,
-                              radius: 20,
+                              radius: 24,
                             ),
                             Positioned(
                               left: 0,
@@ -92,10 +97,22 @@ class AlbumPage extends ConsumerWidget {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      '${data.items[i].momentCount} 个瞬间',
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                    DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black45,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 5,
+                                        ),
+                                        child: Text(
+                                          '${data.items[i].momentCount} 个瞬间',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(height: 8),
@@ -109,7 +126,7 @@ class AlbumPage extends ConsumerWidget {
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      '${data.items[i].createdAt.toLocal().year}.${data.items[i].createdAt.toLocal().month.toString().padLeft(2, '0')} — 至今',
+                                      '${data.items[i].createdAt.toLocal().year}.${data.items[i].createdAt.toLocal().month.toString().padLeft(2, '0')} — 至今  →',
                                       style: const TextStyle(
                                         color: Colors.white,
                                       ),
@@ -120,39 +137,48 @@ class AlbumPage extends ConsumerWidget {
                             ),
                           ],
                         )
-                      : Row(
-                          children: [
-                            SizedBox(
-                              width: 90,
-                              child: AlbumCover(
-                                url: data.items[i].coverUrl,
-                                height: 100,
-                                radius: 15,
+                      : Ink(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 90,
+                                child: AlbumCover(
+                                  url: data.items[i].coverUrl,
+                                  height: 100,
+                                  radius: 15,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('${data.items[i].momentCount} 个瞬间'),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    data.items[i].name,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleMedium,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  const Text(
-                                    '每一个片段，都值得被记得',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                ],
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('${data.items[i].momentCount} 个瞬间'),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      data.items[i].name,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    const Text(
+                                      '每一个片段，都值得被记得',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const Icon(Icons.arrow_forward, size: 18),
-                          ],
+                              const Icon(Icons.arrow_forward, size: 18),
+                            ],
+                          ),
                         ),
                 ),
               ),

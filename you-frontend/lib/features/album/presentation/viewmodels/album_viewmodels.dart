@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/auth/session.dart';
 import '../../data/album_repository.dart';
-import '../../../moment/data/moment_repository.dart';
+import '../../../../shared/models/content_revision.dart';
 import '../../models/album.dart';
 import '../states/album_editor_state.dart';
 
@@ -18,11 +18,15 @@ class RecentAlbums extends Notifier<List<Album>> {
     return [];
   }
 
-  void remove(String id) =>
-      state = state.where((album) => album.id != id).toList();
+  void remove(String id) {
+    state = state.where((album) => album.id != id).toList();
+    ref.read(albumRevisionProvider.notifier).changed();
+  }
 
-  void remember(Album album) =>
-      state = [album, ...state.where((a) => a.id != album.id)];
+  void remember(Album album, {bool changed = false}) {
+    state = [album, ...state.where((a) => a.id != album.id)];
+    if (changed) ref.read(albumRevisionProvider.notifier).changed();
+  }
 }
 
 final albumDetailProvider = FutureProvider.autoDispose.family<Album, String>((
@@ -133,7 +137,7 @@ class AlbumEditorViewModel extends Notifier<AlbumEditorState> {
       if (!ref.mounted || ref.read(sessionProvider).asData?.value != token) {
         return null;
       }
-      ref.read(recentAlbumsProvider.notifier).remember(album);
+      ref.read(recentAlbumsProvider.notifier).remember(album, changed: true);
       state = state.copy(busy: false);
       return album;
     } catch (e) {

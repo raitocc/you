@@ -13,6 +13,9 @@ import 'mappers/moment_draft_mapper.dart';
 import 'mappers/moment_mapper.dart';
 import 'remote/moment_remote_data_source.dart';
 
+export '../../../shared/models/content_revision.dart'
+    show momentRevisionProvider;
+
 final momentRepositoryProvider = Provider(
   (ref) => MomentRepository(
     ref.watch(momentRemoteDataSourceProvider),
@@ -20,19 +23,6 @@ final momentRepositoryProvider = Provider(
     ref.watch(userRepositoryProvider),
   ),
 );
-
-/// 跨页面变更只在当前会话内生效。
-final momentRevisionProvider = NotifierProvider<MomentRevision, int>(
-  MomentRevision.new,
-);
-
-class MomentRevision extends Notifier<int> {
-  @override
-  int build() => 0;
-
-  /// 通知当前会话内的页面刷新。
-  void changed() => state++;
-}
 
 class MomentRepository {
   MomentRepository(this._remote, this._local, this._users);

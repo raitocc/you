@@ -14,6 +14,10 @@ import '../../features/album/presentation/pages/album_editor_page.dart';
 import '../../features/album/presentation/pages/album_detail_page.dart';
 import '../../features/gathering/presentation/pages/gathering_page.dart';
 import '../../features/circle/presentation/pages/circle_page.dart';
+import '../../features/circle/presentation/pages/circle_editor_page.dart';
+import '../../features/circle/presentation/pages/circle_manage_page.dart';
+import '../../features/circle/presentation/pages/circle_share_page.dart';
+import '../../features/circle/models/circle.dart';
 import '../shell/app_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -104,7 +108,16 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           StatefulShellBranch(
             routes: [
-              GoRoute(path: '/circles', builder: (_, _) => const CirclePage()),
+              GoRoute(
+                path: '/circles',
+                builder: (_, state) {
+                  final selected = state.uri.queryParameters['selected'];
+                  return CirclePage(
+                    key: ValueKey(selected),
+                    initialCircle: selected,
+                  );
+                },
+              ),
             ],
           ),
         ],
@@ -134,11 +147,32 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/albums/:id',
         builder: (_, state) => AlbumDetailPage(id: state.pathParameters['id']!),
       ),
+      GoRoute(path: '/circles/new', builder: (_, _) => const CircleNewPage()),
+      GoRoute(path: '/circles/join', builder: (_, _) => const CircleJoinPage()),
+      for (final type in CircleShareType.values)
+        GoRoute(
+          path: '/circles/share/${type.name}/:id',
+          builder: (_, state) =>
+              CircleSharePage(type: type, id: state.pathParameters['id']!),
+        ),
+      GoRoute(
+        path: '/circles/:id/shares/:shareId',
+        builder: (_, state) => SharedTimelinePage(
+          share: (
+            circleId: state.pathParameters['id']!,
+            shareId: state.pathParameters['shareId']!,
+          ),
+          title: state.extra is String ? state.extra as String : null,
+        ),
+      ),
+      GoRoute(
+        path: '/circles/:id',
+        builder: (_, state) =>
+            CircleManagePage(id: state.pathParameters['id']!),
+      ),
       for (final path in [
         '/gatherings/new',
         '/gatherings/:id',
-        '/circles/new',
-        '/circles/:id',
         '/search',
         '/messages',
         '/ai/tasks',

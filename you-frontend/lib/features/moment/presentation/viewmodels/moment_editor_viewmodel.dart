@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../shared/models/uuid_v7.dart';
 
 import '../../../../core/auth/session.dart';
 import '../../../../core/errors/app_exception.dart';
@@ -45,7 +45,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
     final draft =
         saved ??
         (original == null
-            ? MomentDraft(id: _uuidV7())
+            ? MomentDraft(id: uuidV7())
             : repository.editDraft(original));
     return (
       draft: draft,
@@ -99,7 +99,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
         _imageType(bytes);
         final path = await ref
             .read(momentRepositoryProvider)
-            .saveDraftImage(owner, draft.id, _uuidV7(), bytes);
+            .saveDraftImage(owner, draft.id, uuidV7(), bytes);
         added.add(DraftImage(localPath: path));
       }
       _checkSession(token);
@@ -315,20 +315,4 @@ String _imageType(Uint8List bytes) {
     return 'image/webp';
   }
   throw const AppException('INVALID_IMAGE', '请选择 JPEG、PNG 或 WebP 图片');
-}
-
-String _uuidV7() {
-  final random = Random.secure();
-  final bytes = List.generate(16, (_) => random.nextInt(256));
-  final milliseconds = DateTime.now().millisecondsSinceEpoch;
-  for (var index = 0; index < 6; index++) {
-    bytes[index] = (milliseconds >> ((5 - index) * 8)) & 255;
-  }
-  bytes[6] = 0x70 | (bytes[6] & 0x0f);
-  bytes[8] = 0x80 | (bytes[8] & 0x3f);
-  final hex = bytes
-      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-      .join();
-  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
-      '${hex.substring(16, 20)}-${hex.substring(20)}';
 }
