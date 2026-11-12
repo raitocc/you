@@ -9,7 +9,7 @@ import java.util.UUID;
 @Mapper
 public interface CircleMapper extends BaseMapper<Circle> {
     /** 通过邀请码唯一索引定位有效圈子。 */
-    default Circle findByInviteCode(long code) {
+    default Circle findByInviteCode(String code) {
         return selectOne(Wrappers.<Circle>lambdaQuery().eq(Circle::getInviteCode, code));
     }
 

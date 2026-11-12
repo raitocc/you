@@ -1,12 +1,14 @@
 package com.you.youbackend.circle.request;
 
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Min;
+import com.you.youbackend.common.util.InviteCodeGenerator;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
-/** 圈子加入预览请求；邀请码必填，为大于等于 10000 的整数。 */
+/** 圈子加入预览请求，使用与同行相同规则的长期字符串邀请码。 */
 public record CircleJoinPreviewRequest(
-        @NotNull @Min(10000)
-        @Schema(description = "自增数字邀请码", example = "10000")
-        Long inviteCode
+        @NotBlank
+        @Size(max = InviteCodeGenerator.LENGTH)
+        @Schema(description = "系统生成的长期邀请码，最多 16 字符", example = "ABCD1234EFGH5678")
+        String inviteCode
 ) {}

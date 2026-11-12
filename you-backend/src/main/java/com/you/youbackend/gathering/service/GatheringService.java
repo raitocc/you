@@ -4,6 +4,7 @@ import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.common.util.InviteCodeGenerator;
 import com.you.youbackend.gathering.entity.Gathering;
 import com.you.youbackend.gathering.entity.GatheringMember;
 import com.you.youbackend.gathering.mapper.GatheringMapper;
@@ -33,7 +34,6 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -50,12 +50,6 @@ import java.util.stream.Collectors;
 public class GatheringService {
     /** 列表介绍摘要的最大 Unicode 码点数。 */
     private static final int SUMMARY_DESCRIPTION_LENGTH = 100;
-    /** 长期邀请码长度，与 gathering.invite_code 的字段长度一致。 */
-    private static final int INVITE_CODE_LENGTH = 16;
-    /** 使用大写字母与数字，避免 MySQL 默认忽略大小写导致随机空间缩水。 */
-    private static final String INVITE_CODE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    private static final SecureRandom INVITE_CODE_RANDOM = new SecureRandom();
-
     private final GatheringMapper gatheringMapper;
     private final GatheringMemberMapper gatheringMemberMapper;
     private final UserService userService;
@@ -590,7 +584,7 @@ public class GatheringService {
         gathering.setDescription(request.description());
         gathering.setStatus(GatheringStatus.ONGOING);
         gathering.setInviteEnabled(true);
-        gathering.setInviteCode(generateInviteCode());
+        gathering.setInviteCode(InviteCodeGenerator.generate());
         gathering.setCreatedAt(savedAt);
         gathering.setUpdatedAt(savedAt);
         // 2. 以唯一索引作为最终约束，冲突后终止本次事务，提示重新创建。
@@ -630,16 +624,6 @@ public class GatheringService {
         member.setCreatedAt(savedAt);
         member.setUpdatedAt(savedAt);
         return member;
-    }
-
-    /** 生成固定长度的随机长期邀请码，唯一性由保存时的数据库约束保证。 */
-    private String generateInviteCode() {
-        // 从统一字符集中逐位选择，面对面短码由后续独立流程处理。
-        StringBuilder code = new StringBuilder(INVITE_CODE_LENGTH);
-        for (int i = 0; i < INVITE_CODE_LENGTH; i++) {
-            code.append(INVITE_CODE_CHARACTERS.charAt(INVITE_CODE_RANDOM.nextInt(INVITE_CODE_CHARACTERS.length())));
-        }
-        return code.toString();
     }
 
     /**

@@ -356,4 +356,6 @@ public class GatheringController {
         // 使用认证用户创建同行，业务层统一维护初始成员和事务。
         return Result.ok(gatheringService.createGathering(request, userId));
     }
+
+    // TODO 缺少重置邀请码的业务
 }

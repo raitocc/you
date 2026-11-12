@@ -68,7 +68,7 @@ class CircleDatabaseTest {
         UUID id = newId();
         UUID guest = UUID.randomUUID();
         create(id);
-        long code = service.getInvitation(id, user).inviteCode();
+        String code = service.getInvitation(id, user).inviteCode();
         var preview = service.previewJoin(new CircleJoinPreviewRequest(code), guest);
         assertEquals(id, preview.circle().id());
         assertFalse(preview.isMember());
@@ -78,9 +78,10 @@ class CircleDatabaseTest {
         assertEquals("INVITATION_DISABLED", assertThrows(BusinessException.class,
                 () -> service.join(new JoinCircleRequest(code), guest)).getCode());
         assertNull(service.resetInvitation(id, user).inviteCode());
-        long replacement = service.updateInvitation(id, new UpdateCircleInvitationRequest(true), user).inviteCode();
-        assertTrue(code >= 10000);
-        assertTrue(replacement > code);
+        String replacement = service.updateInvitation(id, new UpdateCircleInvitationRequest(true), user).inviteCode();
+        assertTrue(code.matches("[A-Z0-9]{16}"));
+        assertNotEquals(code, replacement);
+        assertTrue(replacement.matches("[A-Z0-9]{16}"));
         assertEquals(404, assertThrows(BusinessException.class,
                 () -> service.join(new JoinCircleRequest(code), guest)).getStatus().value());
 

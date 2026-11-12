@@ -52,7 +52,7 @@ class CircleValidationTest {
 
     @Test void joinEndpointsValidateCodeAndPreviewSerializesIsMember() throws Exception {
         for (String route : List.of("/circles/join-preview", "/circles/join")) {
-            for (String invalid : List.of("9999", "null", "\"invalid\"")) {
+            for (String invalid : List.of("null", "\"\"", "\"   \"", "\"ABCDEFGHIJKLMNOPQ\"")) {
                 mvc.perform(post(route).requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":" + invalid + "}"))
                         .andExpect(status().isBadRequest());
@@ -61,10 +61,10 @@ class CircleValidationTest {
         var summary = new CircleJoinPreviewResponse.CircleSummary(UUID.randomUUID(), "家人", null,
                 new PublicUserResponse(user, "成员", null),
                 null, "https://example.test/default.png");
-        when(service.previewJoin(new CircleJoinPreviewRequest(10000L), user))
+        when(service.previewJoin(new CircleJoinPreviewRequest("ABCD1234EFGH5678"), user))
                 .thenReturn(new CircleJoinPreviewResponse(summary, false));
         mvc.perform(post("/circles/join-preview").requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":10000}"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":\"ABCD1234EFGH5678\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.isMember").value(false))
                 .andExpect(jsonPath("$.data.circle.id").value(summary.id().toString()));
@@ -72,12 +72,12 @@ class CircleValidationTest {
 
     @Test void joinReturnsSuccessWithNullData() throws Exception {
         mvc.perform(post("/circles/join").requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":10000}"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":\"ABCD1234EFGH5678\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data").hasJsonPath())
                 .andExpect(jsonPath("$.data").doesNotExist());
-        verify(service).join(new JoinCircleRequest(10000L), user);
+        verify(service).join(new JoinCircleRequest("ABCD1234EFGH5678"), user);
     }
 
     @Test void unicodeLengthsAndUuidVersionAreValidated() {

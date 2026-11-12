@@ -40,7 +40,6 @@ class CircleShareDatabaseTest {
     @Autowired CircleMemberMapper members;
     @Autowired MomentMapper moments;
     @Autowired AlbumMapper albums;
-    @Autowired CircleInviteNumberMapper inviteNumbers;
     @Autowired AlbumMomentMapper associations;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
@@ -178,7 +177,7 @@ class CircleShareDatabaseTest {
     }
 
     @Test void removalRestrictsRejoinAndDissolutionInvalidatesAllCircleReferences() {
-        long code = circles.selectById(circle).getInviteCode();
+        String code = circles.selectById(circle).getInviteCode();
         UUID viewerMoment = newMoment(time, time);
         jdbc.update("UPDATE moment SET author_user_id=? WHERE id=?", bytes(viewer), bytes(viewerMoment));
         var viewerShareRequest = request(CircleShareObjectType.moment, viewerMoment, List.of(circle));
@@ -232,7 +231,7 @@ class CircleShareDatabaseTest {
     }
     private UUID newCircle() {
         Circle row = new Circle(); row.setId(UuidCreator.getTimeOrderedEpoch()); circleIds.add(row.getId());
-        row.setCreatorUserId(owner); row.setName("测试圈子"); row.setInviteCode(inviteNumbers.allocate(row.getId()));
+        row.setCreatorUserId(owner); row.setName("测试圈子"); row.setInviteCode(com.you.youbackend.common.util.InviteCodeGenerator.generate());
         row.setInviteEnabled(true); row.setCreatedAt(time); row.setUpdatedAt(time); circles.insert(row);
         for (UUID user : List.of(owner, viewer)) {
             CircleMember member = new CircleMember(); member.setId(UuidCreator.getTimeOrderedEpoch());

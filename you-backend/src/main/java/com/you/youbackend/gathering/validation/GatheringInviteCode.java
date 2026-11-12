@@ -1,5 +1,6 @@
 package com.you.youbackend.gathering.validation;
 
+import com.you.youbackend.common.util.InviteCodeGenerator;
 import jakarta.validation.Constraint;
 import jakarta.validation.Payload;
 import jakarta.validation.ReportAsSingleViolation;
@@ -18,7 +19,7 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Constraint(validatedBy = {})
 @NotBlank
-@Size(max = 16)
+@Size(max = InviteCodeGenerator.LENGTH)
 @ReportAsSingleViolation
 public @interface GatheringInviteCode {
     /** 参数校验失败时的提示。 */

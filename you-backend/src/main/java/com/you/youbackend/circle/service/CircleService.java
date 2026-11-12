@@ -16,6 +16,7 @@ import com.you.youbackend.circle.request.*;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.common.util.InviteCodeGenerator;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
@@ -46,7 +47,6 @@ public class CircleService {
     private static final Comparator<Moment> SHARED_MOMENT_ORDER = Comparator.comparing(Moment::getMemoryTime)
             .thenComparing(Moment::getId, BINARY_UUID_ORDER);
     private final CircleMapper circleMapper;
-    private final CircleInviteNumberMapper circleInviteNumberMapper;
     private final CircleMemberMapper circleMemberMapper;
     private final UserService userService;
     private final MediaService mediaService;
@@ -55,16 +55,14 @@ public class CircleService {
     private final AlbumMapper albumMapper;
     private final AlbumMomentMapper albumMomentMapper;
     private final MomentService momentService;
-    private final String defaultAvatarKey;
+    private final String defaultAvatarKey; // TODO 不给默认值，直接null，默认值可以交给前端显示
 
     /** 注入圈子与分享持久化、内容加载、公开资料、媒体签名及默认头像配置。 */
     public CircleService(CircleMapper circlesMapper, CircleMemberMapper circleMemberMapper, UserService userService, MediaService mediaService,
                          CircleShareMapper circleShareMapper, MomentMapper momentMapper, AlbumMapper albumMapper,
                          AlbumMomentMapper albumMomentMapper, MomentService momentService,
-                         CircleInviteNumberMapper circleInviteNumberMapper,
                          @Value("${storage.default-circle-avatar-key}") String defaultAvatarKey) {
         this.circleMapper = circlesMapper;
-        this.circleInviteNumberMapper = circleInviteNumberMapper;
         this.circleMemberMapper = circleMemberMapper;
         this.userService = userService;
         this.mediaService = mediaService;
@@ -92,7 +90,7 @@ public class CircleService {
         circle.setDescription(request.description());
         circle.setAvatarFileId(request.avatarFileId());
         circle.setInviteEnabled(true);
-        circle.setInviteCode(circleInviteNumberMapper.allocate(circle.getId()));
+        circle.setInviteCode(InviteCodeGenerator.generate());
         circle.setCreatedAt(now);
         circle.setUpdatedAt(now);
         // 由数据库唯一约束检测重复提交，冲突时回滚创建事务。
@@ -202,10 +200,14 @@ public class CircleService {
     public CircleInvitationResponse resetInvitation(UUID circleId, UUID userId) {
         // 1. 校验圈子访问资格和创建者身份。
         Circle circle = requireCircleCreator(circleId, userId, "只有圈子创建者可以管理邀请");
-        // 2. 分配新号码并替换当前码，保留邀请开关。
-        circle.setInviteCode(circleInviteNumberMapper.allocate(circleId));
+        // 2. 生成新的随机邀请码并替换当前码，保留邀请开关。
+        circle.setInviteCode(InviteCodeGenerator.generate());
         circle.setUpdatedAt(utcNow());
-        if (circleMapper.updateInviteCode(circle) == 0) throw unavailable();
+        try {
+            if (circleMapper.updateInviteCode(circle) == 0) throw unavailable();
+        } catch (DuplicateKeyException exception) {
+            throw BusinessException.conflict("RESOURCE_CONFLICT", "邀请码生成冲突，请重新重置", exception);
+        }
         log.info("已写入新圈子邀请码，circleId={}", circleId);
         return invitationResponse(circle);
     }
@@ -547,8 +549,8 @@ public class CircleService {
     }
 
     /** 过滤圈子：检查圈子是否解散、邀请是否关闭 */
-    private Circle requireInvitingCircle(long inviteCode) {
-        // 按数字邀请码查找圈子，已解散记录由 Mapper 过滤。
+    private Circle requireInvitingCircle(String inviteCode) {
+        // 按长期邀请码查找圈子，已解散记录由 Mapper 过滤。
         Circle circle = circleMapper.findByInviteCode(inviteCode);
         if (circle == null) throw unavailable();
         if (!circle.getInviteEnabled()) {

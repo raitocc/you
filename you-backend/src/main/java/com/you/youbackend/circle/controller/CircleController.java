@@ -231,7 +231,7 @@ public class CircleController {
         @Parameter(name = "cursor.sharedAt", in = ParameterIn.QUERY, description = "末项排序时间", schema = @Schema(type = "string", format = "date-time")),
         @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "末项 ID", schema = @Schema(type = "string", format = "uuid"))
     })
-    public Result<ResultPage<CircleShareFeedResponse, CircleShareCursor>> browse(
+    public Result<ResultPage<CircleShareFeedResponse, CircleShareCursor>> browse( // TODO 好像没有专门的浏览单独的具体的分享的时光和瞬间的接口
             @PathVariable UUID circleId,
             @Parameter(hidden = true) @PageQuery PageRequest<CircleShareCursor> request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {

@@ -26,7 +26,7 @@ class CircleShareConflictTest {
     final UserService users = mock(UserService.class);
     final CircleMapper circles = mock(CircleMapper.class);
     final CircleService service = new CircleService(circles, members, users, mock(MediaService.class), shares, moments,
-            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), mock(CircleInviteNumberMapper.class), "defaults/circle-avatar.png");
+            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), "defaults/circle-avatar.png");
     final UUID user = UUID.randomUUID(), circle = UUID.randomUUID(), object = UUID.randomUUID();
     final CreateCircleSharesRequest request = new CreateCircleSharesRequest(CircleShareObjectType.moment, object, List.of(circle));
     void setup() {
