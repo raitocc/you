@@ -3,10 +3,7 @@ package com.you.youbackend.album.service;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.album.entity.Album;
 import com.you.youbackend.album.entity.AlbumMoment;
-import com.you.youbackend.album.entity.AlbumMomentHistory;
 import com.you.youbackend.album.mapper.AlbumMapper;
-import com.you.youbackend.album.mapper.AlbumHistoryMapper;
-import com.you.youbackend.album.mapper.AlbumMomentHistoryMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
@@ -52,9 +49,6 @@ public class AlbumService {
     private final MomentMapper momentMapper;
     private final MediaService mediaService;
     private final MomentService momentService;
-    private final AlbumHistoryMapper albumHistoryMapper;
-    private final AlbumMomentHistoryMapper albumMomentHistoryMapper;
-    private final AlbumMomentReader albumMomentReader;
 
     /**
      * 整批校验后新增、保留或恢复关联，关联及修改时间在同一事务中保存。
@@ -114,7 +108,7 @@ public class AlbumService {
         // 2. 只保存可编辑展示字段，可空字段显式清空，不调整瞬间关联。
         updateAlbumContent(album, request);
         // 3. 读取当前有效瞬间数量，签名失败时由事务回滚本次信息修改。
-        long count = albumMomentReader.countValidMoments(albumId, userId);
+        long count = albumMomentMapper.countValidMoments(albumId, userId);
         AlbumResponse response = toResponse(album, coverKey, count);
         log.info("已写入时光信息修改，albumId={}，userId={}", albumId, userId);
         return response;
@@ -128,9 +122,8 @@ public class AlbumService {
     @Transactional
     public void deleteAlbum(UUID albumId, UUID userId) {
         // 1. 包含软删除记录查询，先校验归属再判断幂等，避免他人记录被当作成功。
-        var album = albumHistoryMapper.selectById(albumId);
-        requireAlbumOwner(albumId, album == null ? null : album.getOwnerUserId(), userId);
-        if (album.getRemovedAt() != null) {
+        Album album = requireOwnedAlbum(albumMapper.selectIncludingDeleted(albumId), userId);
+        if (album.getDeletedAt() != null) {
             log.debug("时光已删除，跳过重复操作，albumId={}，userId={}", albumId, userId);
             return;
         }
@@ -216,7 +209,7 @@ public class AlbumService {
         Album album = saveNewAlbum(request, userId, savedAt);
         saveMomentAssociations(album.getId(), momentIds, savedAt);
         // 4. 按有效本人瞬间统计数量，复用已校验的封面对象键生成响应。
-        long momentCount = albumMomentReader.countValidMoments(album.getId(), userId);
+        long momentCount = albumMomentMapper.countValidMoments(album.getId(), userId);
         AlbumResponse response = toResponse(album, coverKey, momentCount);
         log.info("已写入时光，albumId={}，userId={}，associationCount={}", album.getId(), userId, momentIds.size());
         return response;
@@ -234,7 +227,7 @@ public class AlbumService {
         // 1. 先确认时光存在且属于当前用户，通过后才加载详情相关资源。
         Album album = requireOwnedAlbum(albumMapper.selectById(albumId), userId);
         // 2. 排除已移除关联、已删除或非本人瞬间，并读取当前仍有效的封面。
-        long momentCount = albumMomentReader.countValidMoments(albumId, userId);
+        long momentCount = albumMomentMapper.countValidMoments(albumId, userId);
         String coverKey = findCoverKey(album.getCoverFileId(), userId);
         log.debug("查询时光信息，albumId={}，userId={}，momentCount={}", albumId, userId, momentCount);
         // 3. 组装详情；封面失效时保留文件 ID，签名 URL 返回 null。
@@ -249,15 +242,15 @@ public class AlbumService {
      */
     private void addOrRestoreAssociations(UUID albumId, List<UUID> ids, LocalDateTime savedAt) {
         // 1. 包含历史关联批量读取，按瞬间 ID 识别已有关系，避免逐项查询。
-        Map<UUID, AlbumMomentHistory> existing = albumMomentHistoryMapper.selectIncludingDeleted(albumId, ids).stream()
-                .collect(Collectors.toMap(AlbumMomentHistory::getMomentId, row -> row));
+        Map<UUID, AlbumMoment> existing = albumMomentMapper.selectIncludingDeleted(albumId, ids).stream()
+                .collect(Collectors.toMap(AlbumMoment::getMomentId, row -> row));
         List<UUID> added = ids.stream().filter(id -> !existing.containsKey(id)).toList();
         List<UUID> restored = ids.stream().filter(id -> existing.containsKey(id)
-                && existing.get(id).getRemovedAt() != null).toList();
+                && existing.get(id).getDeletedAt() != null).toList();
         // 2. 新关系复用批量构造及插入，历史关系清空移出时间，有效关系不写入。
         saveMomentAssociations(albumId, added, savedAt);
         if (!restored.isEmpty()) {
-            albumMomentHistoryMapper.restoreAssociations(albumId, restored, savedAt);
+            albumMomentMapper.restoreAssociations(albumId, restored, savedAt);
         }
     }
 
@@ -275,7 +268,7 @@ public class AlbumService {
         }
         album.setUpdatedAt(savedAt);
         // 2. 按有效本人瞬间统计，并沿用现有封面降级与签名规则。
-        long count = albumMomentReader.countValidMoments(album.getId(), userId);
+        long count = albumMomentMapper.countValidMoments(album.getId(), userId);
         return toResponse(album, findCoverKey(album.getCoverFileId(), userId), count);
     }
 
@@ -324,9 +317,9 @@ public class AlbumService {
         AlbumMomentCursor cursor = request.cursor();
         int rowCount = request.limit() + 1;
         if (cursor == null) {
-            return albumMomentReader.selectFirstTimelinePage(albumId, userId, rowCount);
+            return albumMomentMapper.selectFirstTimelinePage(albumId, userId, rowCount);
         }
-        return albumMomentReader.selectNextTimelinePage(albumId, userId,
+        return albumMomentMapper.selectNextTimelinePage(albumId, userId,
                 toCursorTime(cursor.memoryTime()), toCursorTime(cursor.createdAt()), cursor.id(), rowCount);
     }
 
@@ -356,7 +349,7 @@ public class AlbumService {
      */
     private List<AlbumListItem> loadAlbumItems(List<Album> page, UUID userId) {
         // 1. 一次统计本页全部有效本人瞬间数量，避免逐个时光查库。
-        Map<UUID, Long> counts = albumMomentReader.countValidMomentsByAlbum(
+        Map<UUID, Long> counts = albumMomentMapper.countValidMomentsByAlbum(
                 page.stream().map(Album::getId).toList(), userId).stream()
                 .collect(Collectors.toMap(AlbumMomentCount::albumId, AlbumMomentCount::momentCount));
         // 2. 合并非空封面 ID 后批量校验文件，未就绪、非本人和已删除文件不会返回对象键。
@@ -478,21 +471,16 @@ public class AlbumService {
      * @return 原时光实体
      */
     private Album requireOwnedAlbum(Album album, UUID userId) {
-        // 普通查询已过滤软删除，归属校验与删除入口共用。
-        requireAlbumOwner(album == null ? null : album.getId(), album == null ? null : album.getOwnerUserId(), userId);
-        return album;
-    }
-
-    /** 校验时光存在且属于当前用户，删除入口同样检查历史记录的归属。 */
-    private void requireAlbumOwner(UUID albumId, UUID ownerId, UUID userId) {
-        // 先区分不存在，再处理越权。
-        if (ownerId == null) {
+        // 1. 查询无结果时按资源不存在处理，常规查询已过滤软删除记录。
+        if (album == null) {
             throw BusinessException.notFound("ALBUM_NOT_FOUND", "时光不存在或已删除");
         }
-        if (!userId.equals(ownerId)) {
-            log.warn("时光访问被拒绝，albumId={}，userId={}，reason=非本人时光", albumId, userId);
+        // 2. 时光存在时继续校验所有者，拒绝访问他人时光。
+        if (!userId.equals(album.getOwnerUserId())) {
+            log.warn("时光访问被拒绝，albumId={}，userId={}，reason=非本人时光", album.getId(), userId);
             throw BusinessException.forbidden("仅所有者可以操作此时光");
         }
+        return album;
     }
 
     /**

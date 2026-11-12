@@ -4,9 +4,6 @@ import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.album.controller.AlbumController;
 import com.you.youbackend.album.entity.Album;
 import com.you.youbackend.album.mapper.AlbumMapper;
-import com.you.youbackend.album.mapper.AlbumHistoryMapper;
-import com.you.youbackend.album.mapper.AlbumMomentHistoryMapper;
-import com.you.youbackend.album.service.AlbumMomentReader;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumListCursor;
 import com.you.youbackend.album.model.AlbumMomentCursor;
@@ -49,10 +46,7 @@ class AlbumPaginationTest {
     private final MomentMapper moments = mock(MomentMapper.class);
     private final MediaService media = mock(MediaService.class);
     private final MomentService details = mock(MomentService.class);
-    private final AlbumHistoryMapper albumHistory = mock(AlbumHistoryMapper.class);
-    private final AlbumMomentHistoryMapper associationHistory = mock(AlbumMomentHistoryMapper.class);
-    private final AlbumMomentReader reader = mock(AlbumMomentReader.class);
-    private final AlbumService service = new AlbumService(albums, associations, moments, media, details, albumHistory, associationHistory, reader);
+    private final AlbumService service = new AlbumService(albums, associations, moments, media, details);
 
     @Test
     void firstPagesDefaultTo20AndReturnStructuredCursor() throws Exception {
@@ -115,12 +109,12 @@ class AlbumPaginationTest {
         first.setCoverFileId(cover);
         extra.setCoverFileId(UUID.randomUUID());
         when(albums.selectFirstPage(user, 2)).thenReturn(List.of(first, extra));
-        when(reader.countValidMomentsByAlbum(List.of(id), user)).thenReturn(List.of());
+        when(associations.countValidMomentsByAlbum(List.of(id), user)).thenReturn(List.of());
         when(media.findOwnedImageKeys(user, List.of(cover))).thenReturn(Map.of());
         var result = service.browseAlbums(user, new PageRequest<>(null, 1));
         assertEquals(1, result.items().size());
         assertEquals(id, result.nextCursor().id());
-        verify(reader).countValidMomentsByAlbum(List.of(id), user);
+        verify(associations).countValidMomentsByAlbum(List.of(id), user);
         verify(media).findOwnedImageKeys(user, List.of(cover));
     }
 
@@ -168,20 +162,20 @@ class AlbumPaginationTest {
     void timelineSelectsFirstOrNextQueryWithoutChangingCursorFields() {
         // 每次先校验时光归属；首屏无边界，后续页保留三个排序字段。
         when(albums.selectById(id)).thenReturn(album(id));
-        when(reader.selectFirstTimelinePage(id, user, 3)).thenReturn(List.of());
+        when(associations.selectFirstTimelinePage(id, user, 3)).thenReturn(List.of());
         service.browseAlbumMoments(id, user, new PageRequest<>(null, 2));
-        verify(reader).selectFirstTimelinePage(id, user, 3);
-        verify(reader, never()).selectNextTimelinePage(any(), any(), any(), any(), any(), anyInt());
+        verify(associations).selectFirstTimelinePage(id, user, 3);
+        verify(associations, never()).selectNextTimelinePage(any(), any(), any(), any(), any(), anyInt());
 
         Instant memoryTime = Instant.parse("2026-01-01T08:00:00+08:00");
         Instant createdAt = Instant.parse("2026-01-02T08:00:00+08:00");
         LocalDateTime memoryUtc = LocalDateTime.parse("2026-01-01T00:00:00");
         LocalDateTime createdUtc = LocalDateTime.parse("2026-01-02T00:00:00");
-        when(reader.selectNextTimelinePage(id, user, memoryUtc, createdUtc, id, 3)).thenReturn(List.of());
+        when(associations.selectNextTimelinePage(id, user, memoryUtc, createdUtc, id, 3)).thenReturn(List.of());
         service.browseAlbumMoments(id, user,
                 new PageRequest<>(new AlbumMomentCursor(memoryTime, createdAt, id), 2));
-        verify(reader).selectNextTimelinePage(id, user, memoryUtc, createdUtc, id, 3);
-        verify(reader, times(1)).selectFirstTimelinePage(any(), any(), anyInt());
+        verify(associations).selectNextTimelinePage(id, user, memoryUtc, createdUtc, id, 3);
+        verify(associations, times(1)).selectFirstTimelinePage(any(), any(), anyInt());
         verifyNoInteractions(details, media);
     }
 

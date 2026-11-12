@@ -1,13 +1,8 @@
 package com.you.youbackend.album;
 
 import com.you.youbackend.album.entity.Album;
-import com.you.youbackend.album.entity.AlbumHistory;
-import com.you.youbackend.album.entity.AlbumMomentHistory;
 import com.you.youbackend.album.entity.AlbumMoment;
 import com.you.youbackend.album.mapper.AlbumMapper;
-import com.you.youbackend.album.mapper.AlbumHistoryMapper;
-import com.you.youbackend.album.mapper.AlbumMomentHistoryMapper;
-import com.you.youbackend.album.service.AlbumMomentReader;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
@@ -38,10 +33,7 @@ class AlbumServiceTest {
     private final AlbumMomentMapper associations = mock(AlbumMomentMapper.class);
     private final MomentMapper moments = mock(MomentMapper.class);
     private final MediaService media = mock(MediaService.class);
-    private final AlbumHistoryMapper albumHistory = mock(AlbumHistoryMapper.class);
-    private final AlbumMomentHistoryMapper associationHistory = mock(AlbumMomentHistoryMapper.class);
-    private final AlbumMomentReader reader = mock(AlbumMomentReader.class);
-    private final AlbumService service = new AlbumService(albums, associations, moments, media, mock(MomentService.class), albumHistory, associationHistory, reader);
+    private final AlbumService service = new AlbumService(albums, associations, moments, media, mock(MomentService.class));
     private final UUID userId = UUID.randomUUID();
 
     @Test
@@ -63,7 +55,7 @@ class AlbumServiceTest {
         when(moments.selectOwnedIds(userId, List.of(momentId))).thenReturn(List.of(momentId));
         when(media.findOwnedImageKeys(userId, List.of(cover))).thenReturn(Map.of(cover, "key"));
         when(media.createReadUrl("key")).thenReturn("signed-url");
-        when(reader.countValidMoments(any(), eq(userId))).thenReturn(1L);
+        when(associations.countValidMoments(any(), eq(userId))).thenReturn(1L);
         var result = service.createAlbum(new CreateAlbumRequest("旅行", "介绍", cover,
                 List.of(momentId, momentId)), userId);
         assertEquals(1, result.momentCount());
@@ -114,7 +106,7 @@ class AlbumServiceTest {
         album.setCoverFileId(cover);
         when(albums.selectById(id)).thenReturn(album);
         when(media.findOwnedImageKeys(userId, List.of(cover))).thenReturn(Map.of());
-        when(reader.countValidMoments(id, userId)).thenReturn(2L);
+        when(associations.countValidMoments(id, userId)).thenReturn(2L);
         var result = service.getAlbum(id, userId);
         assertEquals(cover, result.coverFileId());
         assertNull(result.coverUrl());
@@ -130,7 +122,7 @@ class AlbumServiceTest {
         album.setCoverFileId(UUID.randomUUID());
         when(albums.selectById(id)).thenReturn(album);
         when(albums.updateContent(any())).thenReturn(1);
-        when(reader.countValidMoments(id, userId)).thenReturn(3L);
+        when(associations.countValidMoments(id, userId)).thenReturn(3L);
         var result = service.updateAlbum(id, new UpdateAlbumRequest("  新名称  ", null, null), userId);
         assertEquals("新名称", result.name());
         assertNull(result.description());
@@ -164,16 +156,14 @@ class AlbumServiceTest {
         UUID id = UUID.randomUUID();
         assertEquals(HttpStatus.NOT_FOUND, assertThrows(BusinessException.class,
                 () -> service.deleteAlbum(id, userId)).getStatus());
-        var album = new AlbumHistory();
-        album.setId(id);
-        album.setOwnerUserId(userId);
-        when(albumHistory.selectById(id)).thenReturn(album);
+        Album album = album(id);
+        when(albums.selectIncludingDeleted(id)).thenReturn(album);
         service.deleteAlbum(id, userId);
         var time = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(albums).softDelete(eq(id), time.capture());
         verify(associations).removeAssociations(id, time.getValue());
         clearInvocations(albums, associations);
-        album.setRemovedAt(time.getValue());
+        album.setDeletedAt(time.getValue());
         service.deleteAlbum(id, userId);
         verify(albums, never()).softDelete(any(), any());
         verifyNoInteractions(associations, moments, media);
@@ -190,12 +180,12 @@ class AlbumServiceTest {
         when(albums.touch(eq(id), any())).thenReturn(1);
         var ids = List.of(active, restored, added);
         when(moments.selectOwnedIds(userId, ids)).thenReturn(ids);
-        AlbumMomentHistory activeRow = new AlbumMomentHistory(), removedRow = new AlbumMomentHistory();
+        AlbumMoment activeRow = new AlbumMoment(), removedRow = new AlbumMoment();
         activeRow.setMomentId(active);
         removedRow.setMomentId(restored);
-        removedRow.setRemovedAt(album.getCreatedAt());
-        when(associationHistory.selectIncludingDeleted(id, ids)).thenReturn(List.of(activeRow, removedRow));
-        when(reader.countValidMoments(id, userId)).thenReturn(3L);
+        removedRow.setDeletedAt(album.getCreatedAt());
+        when(associations.selectIncludingDeleted(id, ids)).thenReturn(List.of(activeRow, removedRow));
+        when(associations.countValidMoments(id, userId)).thenReturn(3L);
         var result = service.addAlbumMoments(id, new AddAlbumMomentsRequest(List.of(active, restored, added, added)), userId);
         assertEquals(3, result.momentCount());
         var rows = ArgumentCaptor.forClass(List.class);
@@ -203,7 +193,7 @@ class AlbumServiceTest {
         AlbumMoment inserted = (AlbumMoment) rows.getValue().get(0);
         assertEquals(1, rows.getValue().size());
         assertEquals(added, inserted.getMomentId());
-        verify(associationHistory).restoreAssociations(id, List.of(restored), inserted.getCreatedAt());
+        verify(associations).restoreAssociations(id, List.of(restored), inserted.getCreatedAt());
         verify(albums).touch(id, inserted.getCreatedAt());
         verifyNoInteractions(media);
     }

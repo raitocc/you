@@ -3,11 +3,7 @@ package com.you.youbackend.album;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.album.entity.AlbumMoment;
-import com.you.youbackend.album.entity.AlbumMomentHistory;
 import com.you.youbackend.album.mapper.AlbumMapper;
-import com.you.youbackend.album.mapper.AlbumHistoryMapper;
-import com.you.youbackend.album.mapper.AlbumMomentHistoryMapper;
-import com.you.youbackend.album.service.AlbumMomentReader;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import com.you.youbackend.album.request.CreateAlbumRequest;
@@ -43,9 +39,6 @@ class AlbumDatabaseTest {
     @Autowired private AlbumService service;
     @Autowired private AlbumMapper albums;
     @MockitoSpyBean private AlbumMomentMapper associations;
-    @Autowired private AlbumHistoryMapper albumHistory;
-    @Autowired private AlbumMomentHistoryMapper associationHistory;
-    @MockitoSpyBean private AlbumMomentReader reader;
     @Autowired private MomentMapper moments;
     @Autowired private JdbcTemplate jdbc;
     @MockitoBean private MediaService media;
@@ -128,17 +121,17 @@ class AlbumDatabaseTest {
         assertNull(saved.getCoverFileId());
         assertEquals(first.createdAt(), saved.getCreatedAt().toInstant(ZoneOffset.UTC));
         service.deleteAlbum(first.id(), user);
-        var deleted = albumHistory.selectById(first.id());
-        assertNotNull(deleted.getRemovedAt());
+        var deleted = albums.selectIncludingDeleted(first.id());
+        assertNotNull(deleted.getDeletedAt());
         service.deleteAlbum(first.id(), user);
-        assertEquals(deleted.getRemovedAt(), albumHistory.selectById(first.id()).getRemovedAt());
+        assertEquals(deleted.getDeletedAt(), albums.selectIncludingDeleted(first.id()).getDeletedAt());
         assertThrows(BusinessException.class, () -> service.getAlbum(first.id(), user));
-        assertEquals(0, reader.countValidMoments(first.id(), user));
+        assertEquals(0, associations.countValidMoments(first.id(), user));
         assertEquals(1, service.getAlbum(second.id(), user).momentCount());
         assertNotNull(moments.selectById(moment.getId()));
         assertEquals(1, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM album_moment WHERE album_id = ? AND deleted_at = ? AND updated_at = ?",
-                Integer.class, bytes(first.id()), deleted.getRemovedAt(), deleted.getRemovedAt()));
+                Integer.class, bytes(first.id()), deleted.getDeletedAt(), deleted.getDeletedAt()));
     }
 
     @Test
@@ -171,7 +164,7 @@ class AlbumDatabaseTest {
                 .removeAssociations(eq(album.id()), any(LocalDateTime.class));
         try {
             assertThrows(IllegalStateException.class, () -> service.deleteAlbum(album.id(), user));
-            assertNull(albumHistory.selectById(album.id()).getRemovedAt());
+            assertNull(albums.selectIncludingDeleted(album.id()).getDeletedAt());
             assertEquals(album.updatedAt(), albums.selectById(album.id()).getUpdatedAt().toInstant(ZoneOffset.UTC));
             assertEquals(1, service.getAlbum(album.id(), user).momentCount());
             assertNotNull(moments.selectById(moment.getId()));
@@ -190,17 +183,17 @@ class AlbumDatabaseTest {
         Moment active = saveMoment(user), removed = saveMoment(user), added = saveMoment(user);
         var album = service.createAlbum(new CreateAlbumRequest("关联测试", null, null,
                 List.of(active.getId(), removed.getId())), user);
-        var before = associationHistory.selectIncludingDeleted(album.id(), List.of(active.getId(), removed.getId()));
+        var before = associations.selectIncludingDeleted(album.id(), List.of(active.getId(), removed.getId()));
         var activeBefore = before.stream().filter(row -> row.getMomentId().equals(active.getId())).findFirst().orElseThrow();
         var removedBefore = before.stream().filter(row -> row.getMomentId().equals(removed.getId())).findFirst().orElseThrow();
         service.removeAlbumMoments(album.id(), new RemoveAlbumMomentsRequest(List.of(removed.getId())), user);
         var result = service.addAlbumMoments(album.id(), new AddAlbumMomentsRequest(
                 List.of(active.getId(), removed.getId(), added.getId(), added.getId())), user);
         assertEquals(3, result.momentCount());
-        var after = associationHistory.selectIncludingDeleted(album.id(), List.of(active.getId(), removed.getId(), added.getId()));
+        var after = associations.selectIncludingDeleted(album.id(), List.of(active.getId(), removed.getId(), added.getId()));
         assertEquals(3, after.size());
-        for (AlbumMomentHistory row : after) {
-            assertNull(row.getRemovedAt());
+        for (AlbumMoment row : after) {
+            assertNull(row.getDeletedAt());
             if (row.getMomentId().equals(active.getId())) {
                 assertEquals(activeBefore.getId(), row.getId());
                 assertEquals(activeBefore.getUpdatedAt(), row.getUpdatedAt());
@@ -231,13 +224,13 @@ class AlbumDatabaseTest {
         assertNotNull(albums.selectById(album.id()));
         assertNotNull(moments.selectById(first.getId()));
         assertEquals(1, service.getAlbum(other.id(), user).momentCount());
-        var rows = associationHistory.selectIncludingDeleted(album.id(), List.of(first.getId(), second.getId()));
-        for (AlbumMomentHistory row : rows) {
-            assertEquals(result.updatedAt(), row.getRemovedAt().toInstant(ZoneOffset.UTC));
+        var rows = associations.selectIncludingDeleted(album.id(), List.of(first.getId(), second.getId()));
+        for (AlbumMoment row : rows) {
+            assertEquals(result.updatedAt(), row.getDeletedAt().toInstant(ZoneOffset.UTC));
         }
         service.removeAlbumMoments(album.id(), request, user);
-        for (AlbumMomentHistory row : associationHistory.selectIncludingDeleted(album.id(), List.of(first.getId(), second.getId()))) {
-            assertEquals(result.updatedAt(), row.getRemovedAt().toInstant(ZoneOffset.UTC));
+        for (AlbumMoment row : associations.selectIncludingDeleted(album.id(), List.of(first.getId(), second.getId()))) {
+            assertEquals(result.updatedAt(), row.getDeletedAt().toInstant(ZoneOffset.UTC));
         }
     }
 
@@ -251,7 +244,7 @@ class AlbumDatabaseTest {
         for (UUID invalid : List.of(foreign.getId(), deleted.getId(), UUID.randomUUID())) {
             assertThrows(BusinessException.class, () -> service.addAlbumMoments(album.id(),
                     new AddAlbumMomentsRequest(List.of(valid.getId(), invalid)), user));
-            assertTrue(associationHistory.selectIncludingDeleted(album.id(), List.of(valid.getId())).isEmpty());
+            assertTrue(associations.selectIncludingDeleted(album.id(), List.of(valid.getId())).isEmpty());
             assertEquals(album.updatedAt(), albums.selectById(album.id()).getUpdatedAt().toInstant(ZoneOffset.UTC));
         }
         service.deleteAlbum(album.id(), user);
@@ -269,17 +262,17 @@ class AlbumDatabaseTest {
                 List.of(retained.getId(), removed.getId())), user);
         service.removeAlbumMoments(album.id(), new RemoveAlbumMomentsRequest(List.of(removed.getId())), user);
         // 在关联写入后制造异常，验证真实 Spring 代理事务恢复新增、恢复及移出操作。
-        doThrow(new IllegalStateException("模拟数量查询失败")).when(reader).countValidMoments(album.id(), user);
+        doThrow(new IllegalStateException("模拟数量查询失败")).when(associations).countValidMoments(album.id(), user);
         var before = albums.selectById(album.id()).getUpdatedAt();
         try {
             assertThrows(IllegalStateException.class, () -> service.addAlbumMoments(album.id(),
                     new AddAlbumMomentsRequest(List.of(removed.getId(), added.getId())), user));
-            assertTrue(associationHistory.selectIncludingDeleted(album.id(), List.of(added.getId())).isEmpty());
-            assertNotNull(associationHistory.selectIncludingDeleted(album.id(), List.of(removed.getId())).get(0).getRemovedAt());
+            assertTrue(associations.selectIncludingDeleted(album.id(), List.of(added.getId())).isEmpty());
+            assertNotNull(associations.selectIncludingDeleted(album.id(), List.of(removed.getId())).get(0).getDeletedAt());
             assertEquals(before, albums.selectById(album.id()).getUpdatedAt());
             assertThrows(IllegalStateException.class, () -> service.removeAlbumMoments(album.id(),
                     new RemoveAlbumMomentsRequest(List.of(retained.getId())), user));
-            assertNull(associationHistory.selectIncludingDeleted(album.id(), List.of(retained.getId())).get(0).getRemovedAt());
+            assertNull(associations.selectIncludingDeleted(album.id(), List.of(retained.getId())).get(0).getDeletedAt());
             assertEquals(before, albums.selectById(album.id()).getUpdatedAt());
         } finally {
             // 仅清理本测试生成的资源。

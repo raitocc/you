@@ -19,27 +19,6 @@ import java.util.UUID;
  */
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
-    /** 从一批时光关联中读取本人有效瞬间 ID，用于统计。 */
-    default List<UUID> selectOwnedActiveIds(List<UUID> ids, UUID userId) {
-        // 只读取统计所需的 ID，逻辑删除由 MP 过滤。
-        return selectList(Wrappers.<Moment>lambdaQuery().select(Moment::getId)
-                .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids))
-                .stream().map(Moment::getId).toList();
-    }
-
-    /** 从一批关联中按时光线游标读取本人有效瞬间。 */
-    default List<Moment> selectOwnedAlbumTimeline(List<UUID> ids, UUID userId,
-            LocalDateTime memoryTime, LocalDateTime createdAt, UUID id, int limit) {
-        // 边界与发生时间、发布时间和 ID 的正序排列一致。
-        return selectList(Wrappers.<Moment>lambdaQuery().in(Moment::getId, ids)
-                .eq(Moment::getAuthorUserId, userId)
-                .and(memoryTime != null, q -> q.gt(Moment::getMemoryTime, memoryTime)
-                        .or(tie -> tie.eq(Moment::getMemoryTime, memoryTime).gt(Moment::getCreatedAt, createdAt))
-                        .or(tie -> tie.eq(Moment::getMemoryTime, memoryTime).eq(Moment::getCreatedAt, createdAt)
-                                .gt(Moment::getId, id)))
-                .orderByAsc(Moment::getMemoryTime, Moment::getCreatedAt, Moment::getId).last("LIMIT " + limit));
-    }
-
     /** 从一批共享时光关联的瞬间中按游标读取有效记录。 */
     default List<Moment> selectSharedPage(List<UUID> ids, LocalDateTime time, UUID id, int limit) {
         return selectList(Wrappers.<Moment>lambdaQuery().in(Moment::getId, ids)
