@@ -3,9 +3,11 @@ import com.you.youbackend.circle.model.CircleShareObjectType;
 import com.you.youbackend.moment.response.MomentResponse;
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 import java.time.Instant;
 import java.util.UUID;
 /** 圈子分享列表中的一条记录。分享瞬间时填 moment，分享时光时填 album，另一个字段为 null。 */
+@Builder
 public record CircleShareFeedResponse(
         @Schema(description = "分享关系 UUIDv7") UUID id,
         @Schema(description = "目标圈子 UUID") UUID circleId,

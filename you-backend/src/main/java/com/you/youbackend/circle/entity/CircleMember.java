@@ -4,12 +4,11 @@ import lombok.Getter;
 import lombok.Setter;
 import java.time.LocalDateTime;
 import java.util.UUID;
-/** circle_member 持久化记录，软删除沿用全局配置。 */
 @Getter
 @Setter
 @TableName("circle_member")
 public class CircleMember {
-    /** UUIDv7 标识。 */
+    /** 成员关系 ID。 */
     @TableId(type = IdType.INPUT)
     private UUID id;
     /** 圈子 ID。 */

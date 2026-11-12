@@ -46,10 +46,8 @@ public class CircleService {
     private static final Comparator<Moment> SHARED_MOMENT_ORDER = Comparator.comparing(Moment::getMemoryTime)
             .thenComparing(Moment::getId, BINARY_UUID_ORDER);
     private final CircleMapper circleMapper;
-    private final CircleIdentityMapper circleIdentityMapper;
     private final CircleInviteNumberMapper circleInviteNumberMapper;
     private final CircleMemberMapper circleMemberMapper;
-    private final CircleMemberHistoryMapper memberHistoryMapper;
     private final UserService userService;
     private final MediaService mediaService;
     private final CircleShareMapper circleShareMapper;
@@ -62,14 +60,12 @@ public class CircleService {
     /** 注入圈子与分享持久化、内容加载、公开资料、媒体签名及默认头像配置。 */
     public CircleService(CircleMapper circlesMapper, CircleMemberMapper circleMemberMapper, UserService userService, MediaService mediaService,
                          CircleShareMapper circleShareMapper, MomentMapper momentMapper, AlbumMapper albumMapper,
-                         AlbumMomentMapper albumMomentMapper, MomentService momentService, CircleMemberHistoryMapper memberHistoryMapper,
-                         CircleIdentityMapper circleIdentityMapper, CircleInviteNumberMapper circleInviteNumberMapper,
+                         AlbumMomentMapper albumMomentMapper, MomentService momentService,
+                         CircleInviteNumberMapper circleInviteNumberMapper,
                          @Value("${storage.default-circle-avatar-key}") String defaultAvatarKey) {
         this.circleMapper = circlesMapper;
-        this.circleIdentityMapper = circleIdentityMapper;
         this.circleInviteNumberMapper = circleInviteNumberMapper;
         this.circleMemberMapper = circleMemberMapper;
-        this.memberHistoryMapper = memberHistoryMapper;
         this.userService = userService;
         this.mediaService = mediaService;
         this.defaultAvatarKey = defaultAvatarKey;
@@ -83,11 +79,7 @@ public class CircleService {
     /** 创建圈子 ：【重复 ID 返回 409，不覆盖已有圈子】 */
     @Transactional
     public void createCircle(CreateCircleRequest request, UUID userId) {
-        // 1. 已占用 ID 直接拒绝，不读取已有圈子作为成功结果。
-        if (circleIdentityMapper.isOccupied(request.id())) {
-            throw BusinessException.conflict("RESOURCE_CONFLICT", "圈子 ID 已被占用，请勿重复提交");
-        }
-        // 2. 校验账号和自定义图片后，使用统一 UTC 毫秒时间写入两个记录。
+        // 校验账号和自定义图片后，使用统一 UTC 毫秒时间创建圈子和成员关系。
         userService.getCurrentUser(userId);
         if (request.avatarFileId() != null) mediaService.validateOwnedImage(request.avatarFileId(), userId);
         LocalDateTime now = utcNow();
@@ -101,7 +93,7 @@ public class CircleService {
         circle.setInviteCode(circleInviteNumberMapper.allocate(circle.getId()));
         circle.setCreatedAt(now);
         circle.setUpdatedAt(now);
-        // 3. 唯一约束兜底并发重复提交，冲突异常向外抛出，由事务代理回滚。
+        // 由数据库唯一约束检测重复提交，冲突时回滚创建事务。
         try {
             circleMapper.insert(circle);
             insertMembership(circle.getId(), userId, now);
@@ -116,23 +108,37 @@ public class CircleService {
     public CircleDetailResponse getCircle(UUID circleId, UUID userId) {
         // 1. 确认访问资格，再读取全部有效成员关系。
         Circle circle = requireAccessibleCircle(circleId, userId);
+        // 获取全部成员关系
         var memberships = circleMemberMapper.selectActiveMembers(circleId);
         // 2. 一次加载创建者和成员的公开资料，再组装响应。
+        // 取出所有成员的 ID 集合
         Set<UUID> profileIds = memberships.stream().map(CircleMember::getUserId)
                 .collect(Collectors.toSet());
         UUID creatorId = circle.getCreatorUserId();
-        profileIds.add(creatorId);
+        // 获取用户响应对象（id，name，avatar）列表
         var profiles = userService.getPublicUsers(profileIds);
+        //
         var members = memberships.stream().map(member -> {
             UUID memberId = member.getUserId();
+            // 把每一个 member 转化为 Member 对象，并封装为 list，得到 CircleDetailResponse 的 members 成员
             return new CircleDetailResponse.Member(requirePublicProfile(profiles, memberId),
                     creatorId.equals(memberId), member.getCreatedAt().toInstant(ZoneOffset.UTC));
         }).toList();
-        return new CircleDetailResponse(circle.getId(), circle.getName(), circle.getDescription(),
-                requirePublicProfile(profiles, creatorId), members.size(), creatorId.equals(userId),
-                circle.getInviteEnabled(), circle.getCreatedAt().toInstant(ZoneOffset.UTC),
-                circle.getUpdatedAt().toInstant(ZoneOffset.UTC), circle.getAvatarFileId(),
-                loadCircleAvatar(circle), members);
+        // 构建 CircleDetailResponse 对象
+        return CircleDetailResponse.builder()
+                .id(circle.getId())
+                .name(circle.getName())
+                .description(circle.getDescription())
+                .creator(requirePublicProfile(profiles, creatorId))
+                .memberCount(members.size())
+                .isCreator(creatorId.equals(userId))
+                .inviteEnabled(circle.getInviteEnabled())
+                .createdAt(circle.getCreatedAt().toInstant(ZoneOffset.UTC))
+                .updatedAt(circle.getUpdatedAt().toInstant(ZoneOffset.UTC))
+                .avatarFileId(circle.getAvatarFileId())
+                .avatarUrl(loadCircleAvatar(circle))
+                .members(members)
+                .build();
     }
 
     /** 查看本人圈子列表 ：【按当前用户的成员关系倒序浏览圈子】 */
@@ -208,11 +214,17 @@ public class CircleService {
         // 1.1 检查圈子是否解散、邀请是否关闭
         Circle circle = requireInvitingCircle(request.inviteCode());
         // 1.2 检查用户是否被圈子限制
-        CircleMemberHistory membership = requireAllowedMembership(circle.getId(), userId);
+        CircleMember membership = requireAllowedMembership(circle.getId(), userId);
         // 2. 加载可公开展示的资料，并根据有效成员关系返回成员状态。
-        var summary = new CircleJoinPreviewResponse.CircleSummary(circle.getId(), circle.getName(),
-                circle.getDescription(), loadCreator(circle), circle.getAvatarFileId(), loadCircleAvatar(circle));
-        return new CircleJoinPreviewResponse(summary, membership != null && membership.getLeftAt() == null);
+        var summary = CircleJoinPreviewResponse.CircleSummary.builder()
+                .id(circle.getId())
+                .name(circle.getName())
+                .description(circle.getDescription())
+                .creator(loadCreator(circle))
+                .avatarFileId(circle.getAvatarFileId())
+                .avatarUrl(loadCircleAvatar(circle))
+                .build();
+        return new CircleJoinPreviewResponse(summary, membership != null && membership.getDeletedAt() == null);
     }
 
     /** 确认加入圈子 */
@@ -222,13 +234,13 @@ public class CircleService {
         Circle circle = requireInvitingCircle(request.inviteCode());
         UUID circleId = circle.getId();
         // 1.2 检查用户是否被圈子限制
-        CircleMemberHistory membership = requireAllowedMembership(circleId, userId);
+        CircleMember membership = requireAllowedMembership(circleId, userId);
         // 2. 首次加入时新增，已离开时恢复，仍为成员时直接复用。
         if (membership == null) {
             insertJoiningMember(circleId, userId);
-        } else if (membership.getLeftAt() != null) {
+        } else if (membership.getDeletedAt() != null) {
             // 恢复原关系，保留原 ID、创建时间及分享状态。
-            if (memberHistoryMapper.restore(membership.getId(), utcNow()) == 1) {
+            if (circleMemberMapper.restore(membership.getId(), utcNow()) == 1) {
                 log.info("已恢复圈子成员关系，circleId={}，userId={}", circleId, userId);
             } else if (!circleMemberMapper.isActiveMember(circleId, userId)) {
                 throw BusinessException.conflict("RESOURCE_CONFLICT", "圈子成员状态已变化，请重试");
@@ -246,8 +258,8 @@ public class CircleService {
         // 2. 仅变更有效成员关系；已被移除且仍受限时直接成功。
         LocalDateTime now = utcNow();
         if (circleMemberMapper.endMembership(circleId, targetId, true, now) == 0) {
-            CircleMemberHistory history = memberHistoryMapper.find(circleId, targetId);
-            if (history != null && history.getLeftAt() != null && Boolean.TRUE.equals(history.getJoinRestricted())) {
+            CircleMember history = circleMemberMapper.findIncludingDeleted(circleId, targetId);
+            if (history != null && history.getDeletedAt() != null && Boolean.TRUE.equals(history.getJoinRestricted())) {
                 return;
             }
             throw BusinessException.conflict("TARGET_UNAVAILABLE", "目标用户已不是可移除的圈子成员");
@@ -263,7 +275,7 @@ public class CircleService {
     public void clearJoinRestriction(UUID circleId, UUID targetId, UUID userId) {
         // 只清除已有的加入限制，成员身份和分享状态保持原样。
         requireCircleCreator(circleId, userId, "只有圈子创建者可以解除加入限制");
-        if (memberHistoryMapper.clearRestriction(circleId, targetId, utcNow()) > 0) {
+        if (circleMemberMapper.clearRestriction(circleId, targetId, utcNow()) > 0) {
             log.info("已解除圈子加入限制，circleId={}，userId={}", circleId, targetId);
         }
     }
@@ -273,13 +285,14 @@ public class CircleService {
     public List<CircleJoinRestrictionResponse> listJoinRestrictions(UUID circleId, UUID userId) {
         // 1. 校验管理权限，再读取全部受限用户。
         requireCircleCreator(circleId, userId, "只有圈子创建者可以查看加入限制");
-        var rows = memberHistoryMapper.selectRestrictions(circleId);
+        var rows = circleMemberMapper.selectRestrictions(circleId);
         if (rows.isEmpty()) return List.of();
 
         // 2. 批量加载用户公开资料，沿用查询顺序组装结果。
-        var profiles = userService.getPublicUsers(rows.stream().map(CircleMemberHistory::getUserId).toList());
+        var profiles = userService.getPublicUsers(rows.stream().map(CircleMember::getUserId).toList());
         return rows.stream().map(row -> new CircleJoinRestrictionResponse(
-                requirePublicProfile(profiles, row.getUserId()), row.getLeftAt().toInstant(ZoneOffset.UTC))).toList();
+                requirePublicProfile(profiles, row.getUserId()), row.getDeletedAt().toInstant(ZoneOffset.UTC)
+        )).toList();
     }
 
     /** 退出圈子 ：【创建者不能直接退出】 */
@@ -543,9 +556,9 @@ public class CircleService {
     }
 
     /** 检查用户是否被圈子限制 */
-    private CircleMemberHistory requireAllowedMembership(UUID circleId, UUID userId) {
-        // 加入限制记录在成员历史中，已离开成员也必须校验。
-        CircleMemberHistory membership = memberHistoryMapper.find(circleId, userId);
+    private CircleMember requireAllowedMembership(UUID circleId, UUID userId) {
+        // 已离开的成员也可能受到加入限制。
+        CircleMember membership = circleMemberMapper.findIncludingDeleted(circleId, userId);
         if (membership != null && Boolean.TRUE.equals(membership.getJoinRestricted())) {
             throw BusinessException.forbidden("JOIN_RESTRICTED", "当前用户被限制加入该圈子");
         }
@@ -603,6 +616,7 @@ public class CircleService {
     private List<CircleListResponse> loadListResponses(List<CircleListRow> page) {
         // 空页不访问媒体服务，实际展示的图片去重后批量读取。
         if (page.isEmpty()) return List.of();
+        // 图片 过滤 null/id 去重，获取图片 id 列表
         var avatarIds = page.stream().map(CircleListRow::getAvatarFileId)
                 .filter(Objects::nonNull).distinct().toList();
         var avatars = mediaService.getReadUrls(avatarIds);
@@ -737,21 +751,18 @@ public class CircleService {
             throw shareUnavailable();
         }
 
-        // 直接构造 Feed 响应对象
-        return new CircleShareFeedResponse(
-                row.getId(),                                                    // 关系 ID
-                row.getCircleId(),                                              // 圈子 ID
-                row.getObjectType(),                                            // 对象类型
-                row.getObjectId(),                                              // 对象 ID
-                sharer,                                                         // 分享者公开资料
-                row.getSharedAt().toInstant(ZoneOffset.UTC),                    // 分享时间
-                row.getUpdatedAt().toInstant(ZoneOffset.UTC),                   // 修改时间
-                canWithdraw(row, creatorId, userId),                            // 撤回权限
-                isMoment ? moment : null,                                       // 瞬间详情
-                isAlbum ? album : null                                          // 时光卡片详情
-        );
-
-
+        return CircleShareFeedResponse.builder()
+                .id(row.getId())
+                .circleId(row.getCircleId())
+                .objectType(row.getObjectType())
+                .objectId(row.getObjectId())
+                .sharer(sharer)
+                .sharedAt(row.getSharedAt().toInstant(ZoneOffset.UTC))
+                .updatedAt(row.getUpdatedAt().toInstant(ZoneOffset.UTC))
+                .canWithdraw(canWithdraw(row, creatorId, userId))
+                .moment(isMoment ? moment : null)
+                .album(isAlbum ? album : null)
+                .build();
     }
 
     /** 取出本页指定类型的原内容 ID，并去掉重复 ID。 */
@@ -769,8 +780,13 @@ public class CircleService {
         // 2. 生成封面的临时访问地址。封面不可用时填 null，没有瞬间时填 0。
         return rows.stream().collect(Collectors.toMap(Album::getId, album -> {
             String key = album.getCoverFileId() == null ? null : keys.get(album.getCoverFileId());
-            return new CircleSharedAlbumResponse(album.getId(), album.getName(), album.getDescription(),
-                    key == null ? null : mediaService.createReadUrl(key), counts.getOrDefault(album.getId(), 0L));
+            return CircleSharedAlbumResponse.builder()
+                    .id(album.getId())
+                    .name(album.getName())
+                    .description(album.getDescription())
+                    .coverUrl(key == null ? null : mediaService.createReadUrl(key))
+                    .momentCount(counts.getOrDefault(album.getId(), 0L))
+                    .build();
         }));
     }
 

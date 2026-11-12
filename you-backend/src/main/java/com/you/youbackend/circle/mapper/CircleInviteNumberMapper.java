@@ -4,7 +4,6 @@ import com.you.youbackend.circle.entity.CircleInviteNumber;
 import org.apache.ibatis.annotations.Mapper;
 import java.util.UUID;
 
-/** 使用 MyBatis-Plus 插入发码记录，并读取数据库生成的号码。 */
 @Mapper
 public interface CircleInviteNumberMapper extends BaseMapper<CircleInviteNumber> {
     /** 为指定圈子分配新的邀请码，分配记录参与调用方事务。 */

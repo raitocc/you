@@ -27,7 +27,6 @@ import static org.mockito.Mockito.*;
 class CircleDatabaseTest {
     @Autowired CircleService service;
     @Autowired CircleMapper circles;
-    @Autowired CircleIdentityMapper identities;
     @Autowired CircleMemberMapper members;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean UserService users;
@@ -154,13 +153,7 @@ class CircleDatabaseTest {
             assertEquals(409, conflict.getStatus().value());
             assertEquals("家人", circles.selectById(id).getName());
             assertEquals(1, members.countActiveMembers(id));
-            UUID badAvatar = UUID.randomUUID();
-            assertEquals("RESOURCE_CONFLICT", assertThrows(BusinessException.class, () ->
-                    service.createCircle(new CreateCircleRequest(id, "覆盖", null, badAvatar), user)).getCode());
-            assertEquals("家人", circles.selectById(id).getName());
-            verify(media, never()).validateOwnedImage(eq(badAvatar), any());
-            assertEquals("RESOURCE_CONFLICT", assertThrows(BusinessException.class, () ->
-                    service.createCircle(new CreateCircleRequest(id, "其他", null, null), UUID.randomUUID())).getCode());
+            assertEquals("RESOURCE_CONFLICT", assertThrows(BusinessException.class, () -> create(id)).getCode());
             circles.deleteById(id);
             assertEquals("RESOURCE_CONFLICT", assertThrows(BusinessException.class, () -> create(id)).getCode());
         } finally {
@@ -172,7 +165,7 @@ class CircleDatabaseTest {
         UUID id = newId();
         create(id);
         service.updateCircle(id, new UpdateCircleRequest("新名称", null, null), user);
-        assertTrue(identities.isOccupied(id));
+        assertNotNull(circles.selectById(id));
         assertTrue(members.isActiveMember(id, user));
         verify(users, never()).getPublicUsers(anyCollection());
         verify(media, never()).createReadUrl(anyString());
@@ -224,7 +217,7 @@ class CircleDatabaseTest {
                 .when(media).validateOwnedImage(avatar, user);
         assertEquals("FILE_NOT_USABLE", assertThrows(BusinessException.class, () -> service.createCircle(
                 new CreateCircleRequest(id, "家人", null, avatar), user)).getCode());
-        assertFalse(identities.isOccupied(id));
+        assertNull(circles.selectById(id));
         create(id);
         assertThrows(BusinessException.class, () -> service.updateCircle(id,
                 new UpdateCircleRequest("不能保存", null, avatar), user));

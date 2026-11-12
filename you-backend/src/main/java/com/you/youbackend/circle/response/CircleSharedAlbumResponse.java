@@ -1,7 +1,9 @@
 package com.you.youbackend.circle.response;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 import java.util.UUID;
 /** 圈子分享列表里的时光卡片。返回名称、简介、封面和当前瞬间数，简介和封面可以为空。 */
+@Builder
 public record CircleSharedAlbumResponse(
         @Schema(description = "时光 UUIDv7") UUID id,
         @Schema(description = "时光名称") String name,

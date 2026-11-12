@@ -11,7 +11,7 @@ public record CreateCircleRequest(
     @Schema(description = "名称，去首尾空白后 1～128 Unicode 码点") String name,
     @CodePointLength(max = 5000)
     @Schema(description = "介绍，null 清空", nullable = true) String description,
-    @Schema(description = "本人有效图片 ID，省略或 null 移除自定义头像", nullable = true) UUID avatarFileId
+    @Schema(description = "圈子头像", nullable = true) UUID avatarFileId
 ) {
     /** 在边界校验前整理名称，其他字段保留原始语义。 */
     public CreateCircleRequest {

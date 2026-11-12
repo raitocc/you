@@ -4,16 +4,54 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.circle.entity.CircleMember;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/** 有效成员关系读写，沿用全局逻辑删除。 */
+/** 圈子成员关系读写。 */
 @Mapper
 public interface CircleMemberMapper extends BaseMapper<CircleMember> {
+    /** 读取成员关系，包括已退出或被移除的记录。 */
+    @Select("""
+            SELECT id, circle_id, user_id, created_at, updated_at, join_restricted, deleted_at
+            FROM circle_member
+            WHERE circle_id = #{circleId} AND user_id = #{userId}
+            """)
+    CircleMember findIncludingDeleted(@Param("circleId") UUID circleId, @Param("userId") UUID userId);
+
+    /** 恢复已离开且允许重新加入的成员关系。 */
+    @Update("""
+            UPDATE circle_member
+            SET deleted_at = NULL, updated_at = #{now}
+            WHERE id = #{id} AND deleted_at IS NOT NULL AND join_restricted = FALSE
+            """)
+    int restore(@Param("id") UUID id, @Param("now") LocalDateTime now);
+
+    /** 按移除时间和用户 ID 倒序读取受限成员。 */
+    @Select("""
+            SELECT user_id, deleted_at
+            FROM circle_member
+            WHERE circle_id = #{circleId} AND join_restricted = TRUE AND deleted_at IS NOT NULL
+            ORDER BY deleted_at DESC, user_id DESC
+            """)
+    List<CircleMember> selectRestrictions(@Param("circleId") UUID circleId);
+
+    /** 清除加入限制，保留离开时间。 */
+    @Update("""
+            UPDATE circle_member
+            SET join_restricted = FALSE, updated_at = #{now}
+            WHERE circle_id = #{circleId} AND user_id = #{userId} AND join_restricted = TRUE
+            """)
+    int clearRestriction(@Param("circleId") UUID circleId, @Param("userId") UUID userId,
+                         @Param("now") LocalDateTime now);
+
     /** 判断指定用户是否为圈子当前成员。 */
     default boolean isActiveMember(UUID circleId, UUID userId) {
-        return exists(Wrappers.<CircleMember>lambdaQuery().eq(CircleMember::getCircleId, circleId)
+        return exists(Wrappers.<CircleMember>lambdaQuery()
+                .eq(CircleMember::getCircleId, circleId)
                 .eq(CircleMember::getUserId, userId));
     }
 

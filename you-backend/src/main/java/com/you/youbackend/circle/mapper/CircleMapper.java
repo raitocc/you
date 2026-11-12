@@ -15,14 +15,16 @@ public interface CircleMapper extends BaseMapper<Circle> {
 
     /** 仅写入邀请开关和修改时间。 */
     default int updateInviteEnabled(Circle circle) {
-        return update(Wrappers.<Circle>lambdaUpdate().eq(Circle::getId, circle.getId())
+        return update(Wrappers.<Circle>lambdaUpdate()
+                .eq(Circle::getId, circle.getId())
                 .set(Circle::getInviteEnabled, circle.getInviteEnabled())
                 .set(Circle::getUpdatedAt, circle.getUpdatedAt()));
     }
 
     /** 仅写入新邀请码和修改时间。 */
     default int updateInviteCode(Circle circle) {
-        return update(Wrappers.<Circle>lambdaUpdate().eq(Circle::getId, circle.getId())
+        return update(Wrappers.<Circle>lambdaUpdate()
+                .eq(Circle::getId, circle.getId())
                 .set(Circle::getInviteCode, circle.getInviteCode())
                 .set(Circle::getUpdatedAt, circle.getUpdatedAt()));
     }
@@ -38,7 +40,8 @@ public interface CircleMapper extends BaseMapper<Circle> {
 
     /** 标记圈子已解散，同时关闭邀请。 */
     default int dissolve(UUID circleId, UUID creatorId, LocalDateTime now) {
-        return update(Wrappers.<Circle>lambdaUpdate().eq(Circle::getId, circleId)
+        return update(Wrappers.<Circle>lambdaUpdate()
+                .eq(Circle::getId, circleId)
                 .eq(Circle::getCreatorUserId, creatorId)
                 .set(Circle::getInviteEnabled, false)
                 .set(Circle::getDeletedAt, now).set(Circle::getUpdatedAt, now));

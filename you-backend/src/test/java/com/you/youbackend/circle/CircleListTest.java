@@ -3,9 +3,7 @@ package com.you.youbackend.circle;
 import com.you.youbackend.circle.entity.Circle;
 import com.you.youbackend.circle.entity.CircleMember;
 import com.you.youbackend.circle.mapper.CircleMapper;
-import com.you.youbackend.circle.mapper.CircleIdentityMapper;
 import com.you.youbackend.circle.mapper.CircleInviteNumberMapper;
-import com.you.youbackend.circle.mapper.CircleMemberHistoryMapper;
 import com.you.youbackend.circle.mapper.CircleMemberMapper;
 import com.you.youbackend.circle.model.CircleListRow;
 import com.you.youbackend.circle.mapper.CircleShareMapper;
@@ -33,7 +31,7 @@ class CircleListTest {
     private final MediaService media = mock(MediaService.class);
     private final CircleService service = new CircleService(circles, members, users, media, mock(CircleShareMapper.class),
             mock(MomentMapper.class), mock(AlbumMapper.class),
-            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(CircleMemberHistoryMapper.class), mock(CircleIdentityMapper.class), mock(CircleInviteNumberMapper.class), "defaults/circle-avatar.png");
+            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(CircleInviteNumberMapper.class), "defaults/circle-avatar.png");
     private final UUID user = UUID.randomUUID();
 
     @Test void loadsOnlyVisiblePageAvatarsWithoutProfilesOrMemberCounts() {

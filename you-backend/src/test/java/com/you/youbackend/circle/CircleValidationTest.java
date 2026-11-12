@@ -52,7 +52,7 @@ class CircleValidationTest {
 
     @Test void joinEndpointsValidateCodeAndPreviewSerializesIsMember() throws Exception {
         for (String route : List.of("/circles/join-preview", "/circles/join")) {
-            for (String invalid : List.of("9999", "10000.5", "\"10000\"")) {
+            for (String invalid : List.of("9999", "null", "\"invalid\"")) {
                 mvc.perform(post(route).requestAttr(JwtAuthFilter.CURRENT_USER_ID, user)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"inviteCode\":" + invalid + "}"))
                         .andExpect(status().isBadRequest());

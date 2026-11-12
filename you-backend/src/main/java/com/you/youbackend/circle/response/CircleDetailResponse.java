@@ -1,10 +1,12 @@
 package com.you.youbackend.circle.response;
 import com.you.youbackend.user.response.PublicUserResponse;
+import lombok.Builder;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 /** 圈子详情，包含创建者公开资料和按加入时间排列的全部有效成员。 */
+@Builder
 public record CircleDetailResponse(
         UUID id,
         String name,
