@@ -289,6 +289,20 @@ public class MomentService {
                 tagsByMoment.getOrDefault(moment.getId(), List.of()), authors.get(moment.getAuthorUserId()))).toList();
     }
 
+    /**
+     * 批量补齐已授权瞬间的摘要；调用方完成访问筛选并统一加载公开资料。
+     * @param page 有效且已授权的完整实体或摘要投影，顺序即返回顺序
+     * @param authors 已加载的作者资料，缺失资料沿用 null
+     * @return 保持输入顺序的摘要，只批量查询图片关联与文件
+     */
+    public List<MomentSummaryResponse> loadAuthorizedSummaries(List<Moment> page, Map<UUID, PublicUserResponse> authors) {
+        // 空内容跳过图片查询；响应映射只使用本批已加载的数据。
+        if (page.isEmpty()) return List.of();
+        Map<UUID, List<String>> imageKeys = loadFeedImageKeys(page);
+        return page.stream().map(moment -> toFeedItem(moment,
+                imageKeys.getOrDefault(moment.getId(), List.of()), authors.get(moment.getAuthorUserId()))).toList();
+    }
+
     /** 按同行时间线首屏或后续页读取摘要投影，调用方已确认成员资格。 */
     private List<Moment> queryGatheringMoments(UUID gatheringId, PageRequest<GatheringMomentCursor> request) {
         // 将游标转换为数据库 UTC 时间，首屏不提供边界。
@@ -304,13 +318,7 @@ public class MomentService {
         if (page.isEmpty()) {
             return List.of();
         }
-        Map<UUID, List<String>> imageKeys = loadFeedImageKeys(page);
-        Map<UUID, PublicUserResponse> authors = loadAuthors(page);
-        return page.stream().map(moment -> toFeedItem(
-                moment,
-                imageKeys.getOrDefault(moment.getId(), List.of()),
-                authors.get(moment.getAuthorUserId()))
-        ).toList();
+        return loadAuthorizedSummaries(page, loadAuthors(page));
     }
 
     /** 按瞬间作者去重批量加载公开资料，缺失资料由响应映射为 null。 */
