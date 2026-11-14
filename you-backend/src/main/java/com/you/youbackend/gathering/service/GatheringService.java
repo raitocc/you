@@ -1,6 +1,7 @@
 package com.you.youbackend.gathering.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
+import com.you.youbackend.gathering.event.*;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
@@ -32,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -54,6 +56,7 @@ public class GatheringService {
     private final GatheringMemberMapper gatheringMemberMapper;
     private final UserService userService;
     private final MomentMapper momentMapper;
+    private final ApplicationEventPublisher events;
 
     /**
      * 普通成员主动退出并解除本人全部瞬间关联，两个写操作在同一事务中完成。
@@ -82,6 +85,7 @@ public class GatheringService {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
         gatheringMemberMapper.leaveGathering(member.getId(), now);
         int removed = momentMapper.removeAllOwnedGathering(gatheringId, userId, now);
+        events.publishEvent(new GatheringMemberLeftEvent(gatheringId, userId, now));
         log.info("已写入同行退出，gatheringId={}，userId={}，removedMomentCount={}", gatheringId, userId, removed);
     }
 
@@ -154,6 +158,8 @@ public class GatheringService {
         if (changed != pendingIds.size()) {
             throw BusinessException.conflict("MOMENT_ASSOCIATION_CHANGED", "瞬间关联状态已变化，请刷新后重试");
         }
+        // 4. 仅为新增关联投递动态，与关联写入共同提交。
+        events.publishEvent(new GatheringMomentsLinkedEvent(gatheringId, userId, pendingIds, updatedAt));
         log.info("已写入瞬间批量关联，gatheringId={}，userId={}，count={}", gatheringId, userId, changed);
     }
 
@@ -178,6 +184,7 @@ public class GatheringService {
         // 3. 一次清空符合条件的关联，原瞬间及媒体内容保留。
         LocalDateTime updatedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
         int changed = momentMapper.removeGathering(userId, gatheringId, pendingIds, updatedAt);
+        events.publishEvent(new GatheringMomentsUnlinkedEvent(gatheringId, pendingIds, updatedAt));
         log.info("已写入瞬间批量取消关联，gatheringId={}，userId={}，count={}", gatheringId, userId, changed);
     }
 

@@ -1,5 +1,6 @@
 package com.you.youbackend.circle;
 
+import org.springframework.context.ApplicationEventPublisher;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
@@ -36,7 +37,7 @@ class CircleInvitationTest {
     private final UserService users = mock(UserService.class);
     private final CircleService service = new CircleService(circles, members, users, mock(MediaService.class),
             mock(CircleShareMapper.class), mock(MomentMapper.class), mock(AlbumMapper.class),
-            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png");
+            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
     private final UUID userId = UUID.randomUUID();
     private final UUID circleId = UuidCreator.getTimeOrderedEpoch();
 

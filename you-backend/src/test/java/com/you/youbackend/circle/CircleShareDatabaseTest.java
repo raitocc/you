@@ -63,6 +63,7 @@ class CircleShareDatabaseTest {
     @AfterEach void cleanup() {
         // 仅清理测试生成的对象，已提交写入不依赖测试事务回滚。
         for (UUID id : circleIds) {
+            jdbc.update("DELETE FROM user_inbox WHERE source_type='circle' AND source_id=?", bytes(id));
             jdbc.update("DELETE FROM circle_share WHERE circle_id=?", bytes(id));
             jdbc.update("DELETE FROM circle_member WHERE circle_id=?", bytes(id));
             jdbc.update("DELETE FROM circle WHERE id=?", bytes(id));

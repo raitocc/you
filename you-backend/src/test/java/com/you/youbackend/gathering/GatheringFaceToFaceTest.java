@@ -1,5 +1,6 @@
 package com.you.youbackend.gathering;
 
+import org.springframework.context.ApplicationEventPublisher;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
@@ -49,7 +50,7 @@ class GatheringFaceToFaceTest {
     private final MomentMapper moments = mock(MomentMapper.class);
     private final GatheringFaceToFaceService service =
             new GatheringFaceToFaceService(redisService, gatherings, members, users);
-    private final GatheringService joinService = new GatheringService(gatherings, members, users, moments);
+    private final GatheringService joinService = new GatheringService(gatherings, members, users, moments, mock(ApplicationEventPublisher.class));
     private final UUID userId = UuidCreator.getTimeOrderedEpoch();
 
     @Test

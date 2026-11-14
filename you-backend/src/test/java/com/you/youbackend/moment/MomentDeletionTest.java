@@ -1,5 +1,6 @@
 package com.you.youbackend.moment;
 
+import org.springframework.context.ApplicationEventPublisher;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
@@ -24,7 +25,7 @@ class MomentDeletionTest {
     private final MomentImageMapper images = mock(MomentImageMapper.class);
     private final MomentTagMapper tags = mock(MomentTagMapper.class);
     private final MediaService media = mock(MediaService.class);
-    private final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class));
+    private final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class), mock(ApplicationEventPublisher.class));
     private final UUID id = UUID.randomUUID();
     private final UUID userId = UUID.randomUUID();
 

@@ -1,5 +1,6 @@
 package com.you.youbackend.gathering;
 
+import org.springframework.context.ApplicationEventPublisher;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
@@ -38,7 +39,7 @@ class GatheringMomentReadTest {
     final MediaService media = mock(MediaService.class);
     final GatheringService gatherings = mock(GatheringService.class);
     final UserService users = mock(UserService.class);
-    final MomentService service = new MomentService(moments, images, tags, media, gatherings, users);
+    final MomentService service = new MomentService(moments, images, tags, media, gatherings, users, mock(ApplicationEventPublisher.class));
     final UUID viewer = UuidCreator.getTimeOrderedEpoch(), author = UuidCreator.getTimeOrderedEpoch();
     final UUID gatheringId = UuidCreator.getTimeOrderedEpoch();
 

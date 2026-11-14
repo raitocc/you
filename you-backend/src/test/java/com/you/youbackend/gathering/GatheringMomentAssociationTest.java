@@ -1,5 +1,6 @@
 package com.you.youbackend.gathering;
 
+import org.springframework.context.ApplicationEventPublisher;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
@@ -35,7 +36,7 @@ class GatheringMomentAssociationTest {
     private final GatheringMapper gatherings = mock(GatheringMapper.class);
     private final GatheringMemberMapper members = mock(GatheringMemberMapper.class);
     private final MomentMapper moments = mock(MomentMapper.class);
-    private final GatheringService service = new GatheringService(gatherings, members, mock(UserService.class), moments);
+    private final GatheringService service = new GatheringService(gatherings, members, mock(UserService.class), moments, mock(ApplicationEventPublisher.class));
     private final UUID userId = UuidCreator.getTimeOrderedEpoch();
     private final UUID gatheringId = UuidCreator.getTimeOrderedEpoch();
 

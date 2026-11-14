@@ -1,5 +1,6 @@
 package com.you.youbackend.moment;
 
+import org.springframework.context.ApplicationEventPublisher;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
 import com.you.youbackend.common.request.PageQueryArgumentResolver;
 import com.you.youbackend.common.request.PageRequest;
@@ -102,7 +103,7 @@ class MomentPaginationTest {
         MomentMapper moments = mock(MomentMapper.class);
         MomentImageMapper images = mock(MomentImageMapper.class);
         MediaService media = mock(MediaService.class);
-        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class), mock(UserService.class));
+        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class), mock(UserService.class), mock(ApplicationEventPublisher.class));
         Moment first = moment(3), last = moment(2), extra = moment(1);
         when(moments.selectFeed(userId, null, null, 3)).thenReturn(List.of(first, last, extra));
         when(images.selectFeedImages(anyCollection())).thenReturn(List.of());
@@ -127,7 +128,7 @@ class MomentPaginationTest {
         MomentMapper moments = mock(MomentMapper.class);
         MomentImageMapper images = mock(MomentImageMapper.class);
         when(moments.selectFeed(userId, null, null, 21)).thenReturn(List.of());
-        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), mock(MediaService.class), mock(GatheringService.class), mock(UserService.class));
+        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), mock(MediaService.class), mock(GatheringService.class), mock(UserService.class), mock(ApplicationEventPublisher.class));
         var page = real.browseYours(userId, new PageRequest<>(null, null));
         assertTrue(page.items().isEmpty());
         assertFalse(page.hasMore());
@@ -140,7 +141,7 @@ class MomentPaginationTest {
         MomentMapper moments = mock(MomentMapper.class);
         MomentImageMapper images = mock(MomentImageMapper.class);
         MediaService media = mock(MediaService.class);
-        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class), mock(UserService.class));
+        MomentService real = new MomentService(moments, images, mock(MomentTagMapper.class), media, mock(GatheringService.class), mock(UserService.class), mock(ApplicationEventPublisher.class));
         Moment first = moment(3), second = moment(2), extra = moment(1);
         first.setBody("😊".repeat(101));
         when(moments.selectFeed(userId, null, null, 3)).thenReturn(List.of(first, second, extra));

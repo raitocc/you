@@ -56,7 +56,7 @@ YOU 是用户记录、整理和分享个人经历的平台。本设计以“瞬�
 ## 浏览与共享规则
 
 - **Yours**：查询本人发布且未删除的瞬间。
-- **Related**：查询有效同行中的瞬间，以及有效圈子直接分享的瞬间；按瞬间 ID 去重，并保留当前有效来源。本人已经分享的瞬间可以同时出现在 Yours 和 Related。
+- **Related**：读取本人信箱中的瞬间、时光动态，按分享时间与信箱 ID 倒序。每次分享行为保留独立来源卡片，包含本人分享；有效重复分享保持原卡片，撤回后重新分享生成新卡片。首次加入只接收此后动态，退出后按当前成员资格隐藏，重新加入恢复以前收到且仍有效的动态。
 - **搜索**：在上述两类可访问瞬间的并集中查找，不受当前浏览 Tab 限制。当前字段支持普通条件查询；自然语言理解和语义检索由相应服务及检索索引实现。
 - **集合入口**：分享到圈子的时光仍按原瞬间权限展示内容；分享到圈子的同行，非同行成员只进入介绍及加入入口，确认加入后才建立同行资格。
 - **内容与消息**：成员及分享关系决定当前访问范围；信箱、通知只是入口。新发布到同行或新分享到圈子可生成信箱动态，已有内容编辑不重复刷出新动态。成员变化、空间解散和 AI 完成等生成对应站内通知。
@@ -274,9 +274,11 @@ circle_share 表为圈子分享表，用于三种内容在圈子中的分享关�
 
 ### 13. user_inbox
 
-user_inbox 表为用户信箱表，用于来自相关空间的新内容动态及已读状态。
+user_inbox 表为用户信箱表，保存同行瞬间关联、圈子瞬间与时光分享产生的动态入口。
 
-保存相关同行、圈子中的新内容动态，例如同行新增瞬间、圈子分享时光。每条记录属于一个接收者，`source_type` 与 `source_id` 表示来源空间，`object_type` 与 `object_id` 表示打开的内容，两者可以分别导航。本表只保存动态入口，不复制图文，也不代替成员或分享关系。`read_at` 记录用户是否读过；查看动态及打开内容时仍按当前空间和原对象权限判断。
+一条分享按当前有效成员分别投递，包含分享者本人；同一内容经不同空间分享时保留独立记录。`shared_at` 保存关联或分享发生时间，`created_at` 保存信箱入库时间。`share_id` 用于定位圈子分享详情，同行动态通过来源同行及瞬间 ID 导航。正文、图片继续引用原业务数据。
+
+投递由同步业务事件触发，与原业务处于同一事务。重复有效分享保持原卡片，撤回或取消关联使旧卡片失效，重新分享生成新记录。成员离开时作废其发出的内容动态，保留其收到的其他动态；浏览时结合当前成员关系、空间、分享与原内容状态过滤。`read_at` 本批保留为空。
 
 | 字段名 | 数据类型 | 说明 | 备注 |
 | ------ | -------- | ---- | ---- |
@@ -287,8 +289,10 @@ user_inbox 表为用户信箱表，用于来自相关空间的新内容动态及
 | actor_user_id | BINARY(16) | 发布或分享内容的用户 ID | 非空，关联 app_user.id |
 | source_type | VARCHAR(16) | 来源空间类型 | 非空，gathering 同行、circle 圈子 |
 | source_id | BINARY(16) | 来源同行或圈子的 ID | 非空 |
-| object_type | VARCHAR(16) | 内容类型 | 非空，moment 瞬间、album 时光、gathering 同行 |
+| object_type | VARCHAR(16) | 内容类型 | 非空，moment 瞬间、album 时光 |
 | object_id | BINARY(16) | 对应内容 ID | 非空 |
+| shared_at | DATETIME(3) | 本次关联或分享时间 | 非空，UTC；动态排序依据 |
+| share_id | BINARY(16) | 圈子分享关系 ID | 可空，关联 circle_share.id；同行动态为空 |
 | read_at | DATETIME(3) | 已读时间 | UTC；为空表示未读 |
 | deleted_at | DATETIME(3) | 删除时间 | UTC；为空表示未删除 |
 
@@ -365,7 +369,9 @@ notification 表为站内通知表，用于用户相关通知及已读状态。
 | moment_tag | uk_moment_tag_moment_name | 唯一 | moment_id, tag_name |
 | notification | idx_notification_recipient_feed | 普通 | recipient_user_id, deleted_at, created_at, id |
 | notification | idx_notification_unread | 普通 | recipient_user_id, deleted_at, read_at |
-| user_inbox | idx_user_inbox_recipient_feed | 普通 | recipient_user_id, deleted_at, created_at, id |
+| user_inbox | idx_user_inbox_recipient_feed | 普通 | recipient_user_id, deleted_at, shared_at, id |
+| user_inbox | idx_user_inbox_share | 普通 | share_id, deleted_at |
+| user_inbox | idx_user_inbox_source_object | 普通 | source_type, source_id, object_id, deleted_at |
 | user_inbox | idx_user_inbox_unread | 普通 | recipient_user_id, deleted_at, read_at |
 
 瞬间列表索引支持作者和同行维度的时间线；时光列表按所有者定位。圈子分享提供圈子动态、原对象反查和分享者筛选索引。信箱与通知分别提供接收者动态和未读查询索引。lbum_moment 的联合唯一索引可按 lbum_id 定位集合内容，独立的 moment_id 索引用于反查所属时光。

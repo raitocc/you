@@ -2,6 +2,7 @@ package com.you.youbackend.circle.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.circle.response.*;
+import com.you.youbackend.circle.event.*;
 import com.you.youbackend.album.entity.Album;
 import com.you.youbackend.album.response.AlbumResponse;
 import com.you.youbackend.album.service.AlbumService;
@@ -26,6 +27,7 @@ import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.*;
@@ -48,6 +50,7 @@ public class CircleService {
     };
     private static final Comparator<Moment> SHARED_MOMENT_ORDER = Comparator.comparing(Moment::getMemoryTime)
             .thenComparing(Moment::getId, BINARY_UUID_ORDER);
+    private final ApplicationEventPublisher events;
     private final CircleMapper circleMapper;
     private final CircleMemberMapper circleMemberMapper;
     private final UserService userService;
@@ -64,7 +67,8 @@ public class CircleService {
     public CircleService(CircleMapper circlesMapper, CircleMemberMapper circleMemberMapper, UserService userService, MediaService mediaService,
                          CircleShareMapper circleShareMapper, MomentMapper momentMapper, AlbumMapper albumMapper,
                          AlbumMomentMapper albumMomentMapper, MomentService momentService, AlbumService albumService,
-                         @Value("${storage.default-circle-avatar-key}") String defaultAvatarKey) {
+                         @Value("${storage.default-circle-avatar-key}") String defaultAvatarKey, ApplicationEventPublisher events) {
+        this.events = events;
         this.circleMapper = circlesMapper;
         this.circleMemberMapper = circleMemberMapper;
         this.userService = userService;
@@ -275,6 +279,7 @@ public class CircleService {
 
         // 3. 在同一事务撤回该成员的圈内分享，原内容保留。
         circleShareMapper.invalidateMemberShares(circleId, targetId, now);
+        events.publishEvent(new CircleMemberLeftEvent(circleId, targetId, now));
         log.info("已移除圈子成员并设置加入限制，circleId={}，userId={}", circleId, targetId);
     }
 
@@ -316,6 +321,7 @@ public class CircleService {
         LocalDateTime now = utcNow();
         if (circleMemberMapper.endMembership(circleId, userId, false, now) == 0) throw unavailable();
         circleShareMapper.invalidateMemberShares(circleId, userId, now);
+        events.publishEvent(new CircleMemberLeftEvent(circleId, userId, now));
         log.info("已退出圈子并撤回本人圈内分享，circleId={}，userId={}", circleId, userId);
     }
 
@@ -349,17 +355,25 @@ public class CircleService {
         LocalDateTime now = utcNow();
         List<CircleShare> additions = new ArrayList<>();
         List<UUID> restores = new ArrayList<>();
+        List<CircleSharedContent> sharedContents = new ArrayList<>();
         // 4. 从未分享过就新增，已撤回就恢复，仍有效就保留原记录。
         for (UUID circleId : request.circleIds()) {
             CircleShare row = history.get(circleId);
             if (row == null) {
-                additions.add(newShare(request, circleId, userId, now));
+                row = newShare(request, circleId, userId, now);
+                additions.add(row);
+                sharedContents.add(new CircleSharedContent(circleId, row.getId(), request.objectType(), request.objectId()));
             } else if (row.getDeletedAt() != null) {
                 restores.add(row.getId());
+                sharedContents.add(new CircleSharedContent(circleId, row.getId(), request.objectType(), request.objectId()));
             }
         }
         // 5. 在同一事务里写入新增和恢复的记录。
         persistChanges(additions, restores, userId, now);
+        // 6. 实际新增、恢复的分享同步投递，重复分享保持原动态和排序。
+        if (!sharedContents.isEmpty()) {
+            events.publishEvent(new CircleContentsSharedEvent(userId, sharedContents, now));
+        }
         log.info("已写入圈子分享，userId={}，targetCount={}，addedCount={}，restoredCount={}",
                 userId, request.circleIds().size(), additions.size(), restores.size());
     }
@@ -488,7 +502,9 @@ public class CircleService {
         }
         // 2. 已撤回就直接结束，否则只为当前圈子的这条分享写入撤回时间。
         if (share.getDeletedAt() != null) return;
-        circleShareMapper.withdraw(shareId, utcNow());
+        LocalDateTime now = utcNow();
+        circleShareMapper.withdraw(shareId, now);
+        events.publishEvent(new CircleShareWithdrawnEvent(circleId, shareId, now));
         log.info("已写入圈子分享撤回，circleId={}，shareId={}，userId={}", circleId, shareId, userId);
     }
 

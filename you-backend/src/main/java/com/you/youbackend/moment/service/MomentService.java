@@ -1,6 +1,7 @@
 package com.you.youbackend.moment.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
+import com.you.youbackend.gathering.event.*;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
@@ -25,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -57,6 +59,7 @@ public class MomentService {
     private final MediaService mediaService;
     private final GatheringService gatheringService;
     private final UserService userService;
+    private final ApplicationEventPublisher events;
 
     /**
      * 浏览有效同行成员可读的瞬间时间线，按发生时间和 ID 正序。
@@ -171,6 +174,10 @@ public class MomentService {
         Moment moment = saveNewMoment(request, userId, memoryTime, location, savedAt);
         saveNewImages(moment.getId(), fileIds, savedAt);
         List<String> savedTags = saveNewTags(moment.getId(), tags, savedAt);
+        // 随发布建立同行关联时同步投递，信箱写入与图文保存共同提交。
+        if (moment.getGatheringId() != null) {
+            events.publishEvent(new GatheringMomentsLinkedEvent(moment.getGatheringId(), userId, List.of(moment.getId()), savedAt));
+        }
 
         List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
         log.info("已写入瞬间，momentId={}，userId={}，gatheringId={}，imageCount={}，tagCount={}",

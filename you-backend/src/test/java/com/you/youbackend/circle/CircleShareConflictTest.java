@@ -1,4 +1,5 @@
 package com.you.youbackend.circle;
+import org.springframework.context.ApplicationEventPublisher;
 import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.circle.service.*;
 import com.you.youbackend.circle.entity.Circle;
@@ -27,7 +28,7 @@ class CircleShareConflictTest {
     final UserService users = mock(UserService.class);
     final CircleMapper circles = mock(CircleMapper.class);
     final CircleService service = new CircleService(circles, members, users, mock(MediaService.class), shares, moments,
-            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png");
+            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
     final UUID user = UUID.randomUUID(), circle = UUID.randomUUID(), object = UUID.randomUUID();
     final CreateCircleSharesRequest request = new CreateCircleSharesRequest(CircleShareObjectType.moment, object, List.of(circle));
     void setup() {
