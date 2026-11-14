@@ -38,7 +38,9 @@ class Moment {
   });
 
   final String id;
-  final MomentAuthor author;
+
+  /// 作者公开资料，资料缺失时保留 null 并继续展示记录。
+  final MomentAuthor? author;
   final String? title;
   final String? body;
   final List<MomentImage> images;

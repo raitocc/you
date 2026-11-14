@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>用于发现身边 100 米内的面对面同行。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>扫描同行二维码以加入朋友的同行</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>选择图片以更新你的头像</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

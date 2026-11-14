@@ -7,6 +7,8 @@ import '../../../../app/theme/app_theme.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../shared/ui/page_state.dart';
 import '../../data/moment_repository.dart';
+import '../../../gathering/presentation/pages/gathering_picker_page.dart';
+import '../../../gathering/presentation/widgets/gathering_selection_field.dart';
 import '../../models/moment.dart';
 import '../../models/moment_draft.dart';
 import '../states/moment_editor_state.dart';
@@ -172,25 +174,32 @@ class _MomentEditorPageState extends ConsumerState<MomentEditorPage> {
   List<MomentSource> _knownSources(MomentEditorState state) =>
       state.original?.sources ?? const [];
 
-  Future<void> _pickTargets(
-    MomentEditorState state, {
-    required bool journey,
-  }) async {
-    final selected = journey ? [?state.draft.journeyId] : state.draft.circleIds;
+  /// 通过本人同行列表选择发布目标，草稿只保存同行 ID。
+  Future<void> _pickGathering(MomentDraft draft) async {
+    final selected = draft.gatheringId;
+    final query = selected == null
+        ? ''
+        : '?selected=${Uri.encodeComponent(selected)}';
+    final result = await context.push<GatheringSelection>(
+      '/gatherings/select$query',
+    );
+    if (result != null && mounted) {
+      _editor.updateDraft(
+        (draft) => draft.copyWith(gatheringId: () => result.id),
+      );
+    }
+  }
+
+  Future<void> _pickCircles(MomentEditorState state) async {
     final result = await showMomentTargets(
       context,
-      journey: journey,
-      selected: selected,
-      known: _knownSources(state)
-          .where((source) => source.type == (journey ? 'journey' : 'circle'))
-          .toList(),
+      journey: false,
+      selected: state.draft.circleIds,
+      known: _knownSources(
+        state,
+      ).where((source) => source.type == 'circle').toList(),
     );
-    if (result == null || !mounted) return;
-    if (journey) {
-      _editor.updateDraft(
-        (draft) => draft.copyWith(journeyId: () => result.firstOrNull),
-      );
-    } else {
+    if (result != null && mounted) {
       _editor.updateDraft((draft) => draft.copyWith(circleIds: result));
     }
   }
@@ -435,27 +444,24 @@ class _MomentEditorPageState extends ConsumerState<MomentEditorPage> {
                         );
                       }),
                     ),
-                    MomentEditorRow(
-                      title: '关联同行',
-                      value: _sourceLabel(state, draft.journeyId, '不关联同行'),
-                      icon: Icons.groups_outlined,
-                      onTap: !editable
-                          ? null
-                          : () => _pickTargets(state, journey: true),
-                    ),
+                    if (widget.id == null)
+                      GatheringSelectionField(
+                        selectedId: draft.gatheringId,
+                        onTap: editable ? () => _pickGathering(draft) : null,
+                      ),
                     MomentEditorRow(
                       title: '可见范围',
-                      value: draft.circleIds.isEmpty
-                          ? (draft.journeyId == null
+                      value: widget.id != null
+                          ? '分享设置通过详情入口管理'
+                          : draft.circleIds.isEmpty
+                          ? (draft.gatheringId == null
                                 ? '私人 · 仅自己可见'
                                 : '关联同行成员可见')
                           : draft.circleIds
                                 .map((id) => _sourceLabel(state, id, id))
                                 .join('、'),
                       icon: Icons.lock_outline,
-                      onTap: !editable
-                          ? null
-                          : () => _pickTargets(state, journey: false),
+                      onTap: !editable ? null : () => _pickCircles(state),
                     ),
                     const Padding(
                       padding: EdgeInsets.only(top: 16),

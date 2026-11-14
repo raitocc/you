@@ -1,6 +1,7 @@
 package com.you.youbackend.gathering.response;
 
 import com.you.youbackend.user.response.PublicUserResponse;
+import com.you.youbackend.gathering.model.GatheringStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
@@ -8,6 +9,7 @@ import java.util.UUID;
 
 /**
  * 同行信息，创建后可直接用于详情展示和邀请。
+ * @param status 同行状态：进行中或已结束
  * @param id 同行 UUIDv7
  * @param name 名称，去首尾空白后 1～128 个 Unicode 码点
  * @param description 介绍；未设置为 null
@@ -20,6 +22,9 @@ import java.util.UUID;
  */
 @Schema(description = "同行信息")
 public record GatheringResponse(
+        @Schema(description = "同行状态：ONGOING 进行中，ENDED 已结束")
+        GatheringStatus status,
+
         @Schema(description = "同行 UUIDv7", format = "uuid")
         UUID id,
 

@@ -15,6 +15,16 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
 
 Android 模拟器使用 10.0.2.2 访问宿主机；真机改为可达的局域网地址。正式环境传 HTTPS 地址。Android 仅 debug 允许 HTTP。iOS 在 macOS 上编译，开发 HTTP 需自行配置限域 ATS 例外或使用 HTTPS。
 
+### Edge Web 调试
+
+启动本机后端后，在前端目录运行：
+
+```powershell
+flutter run -d edge --web-port=5173 --dart-define-from-file=env/web.json
+```
+
+`env/web.json` 连接 `http://localhost:8080`。后端放行本机浏览器跨域请求，修改后端跨域配置后重启后端。媒体签名地址由后端 `storage.proc-endpoint` 控制，本机 Web 使用 `http://localhost:9000`；切换真机时改为电脑的局域网 IP。
+
 ## 当前范围
 
 - View + Riverpod ViewModel + Repository 分层，按 TRD 预留业务目录。

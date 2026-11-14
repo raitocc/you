@@ -1,22 +1,16 @@
 import '../../models/moment.dart';
 import '../../models/moment_mood.dart';
 
-/// 将接口详情转换为前端瞬间模型。
+/// 本人接口传入 currentAuthor 开启本人操作；共享详情沿用响应作者并保持只读。
 Moment momentFromJson(
   Map<String, dynamic> json, {
   MomentAuthor? currentAuthor,
 }) {
-  final author = json['author'] as Map<String, dynamic>?;
+  final author = momentAuthorFromJson(json['author'] as Map<String, dynamic>?);
   final location = json['location'] as Map<String, dynamic>?;
   return Moment(
     id: json['id'] as String,
-    author:
-        currentAuthor ??
-        (
-          id: author!['id'] as String,
-          nickname: author['nickname'] as String?,
-          avatarUrl: author['avatarUrl'] as String?,
-        ),
+    author: currentAuthor ?? author,
     title: json['title'] as String?,
     body: json['body'] as String?,
     images: List.unmodifiable(
@@ -52,28 +46,16 @@ Moment momentFromJson(
         ),
       ),
     ),
-    isOwn: currentAuthor != null || json['isOwn'] as bool,
-    canEdit: currentAuthor != null || json['canEdit'] as bool,
-    canDelete: currentAuthor != null || json['canDelete'] == true,
+    isOwn: currentAuthor != null,
+    canEdit: currentAuthor != null,
+    canDelete: currentAuthor != null,
     version: json['updatedAt'] as String,
   );
 }
 
 /// 解析瞬间卡片摘要及下一页游标。
 MomentPageData momentPageFromJson(Map<String, dynamic> json) => (
-  items: List.unmodifiable(
-    _objects(json['items']).map(
-      (item) => (
-        id: item['id'] as String,
-        title: item['title'] as String?,
-        bodyPreview: item['bodyPreview'] as String?,
-        coverUrl: item['coverUrl'] as String?,
-        imageCount: item['imageCount'] as int,
-        mood: momentMoodLabel(item['mood'] as String?),
-        memoryTime: DateTime.parse(item['memoryTime'] as String),
-      ),
-    ),
-  ),
+  items: List.unmodifiable(_objects(json['items']).map(momentFeedItemFromJson)),
   nextCursor: switch (json['nextCursor']) {
     null => null,
     final Map<String, dynamic> cursor => (
@@ -87,3 +69,24 @@ MomentPageData momentPageFromJson(Map<String, dynamic> json) => (
 
 Iterable<Map<String, dynamic>> _objects(Object? value) =>
     (value as List? ?? const []).cast<Map<String, dynamic>>();
+
+/// 本人列表和同行列表共用同一摘要字段转换。
+MomentFeedItem momentFeedItemFromJson(Map<String, dynamic> item) => (
+  id: item['id'] as String,
+  title: item['title'] as String?,
+  bodyPreview: item['bodyPreview'] as String?,
+  coverUrl: item['coverUrl'] as String?,
+  imageCount: item['imageCount'] as int,
+  mood: momentMoodLabel(item['mood'] as String?),
+  memoryTime: DateTime.parse(item['memoryTime'] as String),
+);
+
+/// 公开资料缺失时保留空值，展示层保留对应记录。
+MomentAuthor? momentAuthorFromJson(Map<String, dynamic>? json) {
+  if (json == null) return null;
+  return (
+    id: json['id'] as String,
+    nickname: json['nickname'] as String?,
+    avatarUrl: json['avatarUrl'] as String?,
+  );
+}

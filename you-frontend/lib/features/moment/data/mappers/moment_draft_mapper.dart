@@ -43,6 +43,9 @@ Map<String, dynamic> createMomentPayload(MomentDraft draft) {
     'memoryTime': payload['memoryTime'] ?? createdAt.toIso8601String(),
     'location': payload['location'],
     'imageFileIds': payload['imageFileIds'],
+    'gatheringId': draft.pending == null
+        ? draft.gatheringId
+        : payload['gatheringId'],
   };
 }
 
@@ -56,7 +59,7 @@ Map<String, dynamic> draftToJson(MomentDraft draft) => {
   'mood': draft.mood,
   'time': draft.time?.toIso8601String(),
   'location': draft.location == null ? null : _location(draft.location!),
-  'journeyId': draft.journeyId,
+  'gatheringId': draft.gatheringId,
   'circleIds': draft.circleIds,
   'images': [
     for (final image in draft.images)
@@ -65,7 +68,7 @@ Map<String, dynamic> draftToJson(MomentDraft draft) => {
   'pending': draft.pending,
 };
 
-/// 还原本地草稿，并从当前详情补充已有图片的地址。
+/// 还原本地草稿及旧 journeyId 字段，并从当前详情补充图片地址。
 MomentDraft draftFromJson(Map<String, dynamic> json, Moment? current) {
   final location = json['location'] as Map<String, dynamic>?;
   final urls = {
@@ -88,7 +91,7 @@ MomentDraft draftFromJson(Map<String, dynamic> json, Moment? current) {
             latitude: location['latitude'] as num?,
             longitude: location['longitude'] as num?,
           ),
-    journeyId: json['journeyId'] as String?,
+    gatheringId: (json['gatheringId'] ?? json['journeyId']) as String?,
     circleIds: List.unmodifiable((json['circleIds'] as List).cast<String>()),
     images: List.unmodifiable(
       (json['images'] as List).cast<Map<String, dynamic>>().map(
@@ -113,7 +116,7 @@ MomentDraft draftFromMoment(Moment moment) => MomentDraft(
   mood: moment.mood,
   time: moment.memoryTime,
   location: moment.location,
-  journeyId: moment.sources
+  gatheringId: moment.sources
       .where((source) => source.type == 'journey')
       .firstOrNull
       ?.id,

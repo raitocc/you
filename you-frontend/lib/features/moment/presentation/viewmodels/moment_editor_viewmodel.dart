@@ -145,7 +145,7 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
         mood: old.mood,
         time: old.time,
         location: old.location,
-        journeyId: old.journeyId,
+        gatheringId: old.gatheringId,
         circleIds: old.circleIds,
         images: old.images,
       );
@@ -173,9 +173,8 @@ class MomentEditorViewModel extends AsyncNotifier<MomentEditorState> {
         result = await repository.recoverPublication(draft.id);
         _checkSession(token);
       }
-      if (result == null &&
-          (draft.journeyId != null || draft.circleIds.isNotEmpty)) {
-        throw const AppException('UNSUPPORTED_SHARING', '当前仅支持私人瞬间，请先移除同行和圈子');
+      if (result == null && draft.circleIds.isNotEmpty) {
+        throw const AppException('UNSUPPORTED_SHARING', '请通过瞬间详情的分享入口分享到圈子');
       }
       if (draft.pending == null) {
         _validate(draft);

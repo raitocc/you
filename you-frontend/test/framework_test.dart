@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -109,7 +109,7 @@ void main() {
       },
       currentAuthor: (id: 'owner-1', nickname: null, avatarUrl: null),
     );
-    expect(result.author.id, 'owner-1');
+    expect(result.author?.id, 'owner-1');
     expect(result.images.single.id, 'file-1');
     expect(result.mood, '开心');
     expect(result.isOwn, isTrue);
@@ -135,17 +135,53 @@ void main() {
     expect(router.routeInformationProvider.value.uri.path, '/albums/42');
     expect(find.text('瞬间'), findsNothing);
   });
-  testWidgets('root moment editor, publishing, detail, editing and deletion', (
-    tester,
-  ) async {
+  test('发布请求保存 gatheringId，重试固定原目标，全量编辑保持关联独立', () {
+    const gatheringId = '019aa3c0-0000-7000-8000-000000000002';
+    final draft = MomentDraft(
+      id: '019aa3c0-0000-7000-8000-000000000001',
+      body: '共同记录',
+      gatheringId: gatheringId,
+      time: DateTime.utc(2026, 11, 13),
+    );
+    final payload = createMomentPayload(draft);
+    expect(payload['gatheringId'], gatheringId);
+    final pending = draft
+        .withPending(payload)
+        .copyWith(gatheringId: () => 'another');
+    expect(createMomentPayload(pending)['gatheringId'], gatheringId);
+    final restored = draftFromJson(draftToJson(draft), null);
+    expect(restored.gatheringId, gatheringId);
+    final old = draftToJson(draft)..remove('gatheringId');
+    old['journeyId'] = gatheringId;
+    expect(draftFromJson(old, null).gatheringId, gatheringId);
+    expect(updateMomentPayload(draft), isNot(contains('gatheringId')));
+  });
+
+  testWidgets('选择同行、发布重试、本人详情、编辑与删除', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final avatar = File('test/fixtures/avatar.png').readAsBytesSync();
+    final avatar = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==',
+    );
     final database = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(database.close);
     final drafts = MemoryMomentDrafts(database);
+    const gatheringId = '019aa3c0-0000-7000-8000-000000000002';
+    final gathering = {
+      'id': gatheringId,
+      'status': 'ONGOING',
+      'name': '周末同行',
+      'description': null,
+      'descriptionPreview': null,
+      'creator': null,
+      'memberCount': 2,
+      'momentCount': 0,
+      'inviteCode': 'ABCD1234EFGH5678',
+      'createdAt': '2026-11-13T00:00:00Z',
+      'updatedAt': '2026-11-13T00:00:00Z',
+    };
     Map<String, Object?>? moment;
     var publicationRequests = 0;
     final dio = Dio();
@@ -157,9 +193,17 @@ void main() {
           Object? data;
           if (path == '/users/me') {
             data = {'id': '1', 'username': 'user', 'nickname': 'User'};
-          } else if (path == '/moments/yours' && request.method == 'POST') {
+          } else if (path == '/gatherings') {
+            data = {
+              'items': [gathering],
+              'nextCursor': null,
+              'hasMore': false,
+            };
+          } else if (path == '/gatherings/$gatheringId') {
+            data = gathering;
+          } else if (path == '/moments/yours' && request.method == 'GET') {
             expect(request.queryParameters, isEmpty);
-            expect(request.data, isEmpty);
+            expect(request.data, isNull);
             data = {
               'items': [
                 if (moment != null)
@@ -183,6 +227,7 @@ void main() {
             expect(id[14], '7');
             expect(DateTime.parse(input['memoryTime'] as String).isUtc, isTrue);
             expect(input, isNot(contains('journeyId')));
+            expect(input['gatheringId'], gatheringId);
             expect(input, isNot(contains('circleIds')));
             expect(drafts.draft?.pending?['id'], id);
             moment = {
@@ -296,6 +341,21 @@ void main() {
     expect(find.text('新的瞬间'), findsOneWidget);
     expect(find.byTooltip('个人资料'), findsNothing);
     await tester.enterText(find.widgetWithText(TextFormField, '记录此刻'), '初次记录');
+    await tester.scrollUntilVisible(
+      find.text('关联同行'),
+      150,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView).last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(find.text('关联同行'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('周末同行'));
+    await tester.pumpAndSettle();
+    expect(find.text('周末同行'), findsOneWidget);
     await tester.tap(find.text('发布'));
     await tester.pumpAndSettle();
     expect(drafts.draft?.pending, isNotNull);

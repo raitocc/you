@@ -66,6 +66,7 @@ class GatheringInformationTest {
         assertTrue(result.hasMore());
         assertEquals(first.getId(), result.nextCursor().id());
         assertEquals("😀".repeat(100), result.items().get(0).descriptionPreview());
+        assertEquals(GatheringStatus.ONGOING, result.items().get(0).status());
         assertEquals(3, result.items().get(0).memberCount());
         assertEquals(0, result.items().get(0).momentCount());
         assertEquals(original, first.getDescription());
@@ -112,6 +113,7 @@ class GatheringInformationTest {
         when(members.countActiveMembers(gathering.getId())).thenReturn(2L);
         when(moments.countByGathering(gathering.getId())).thenReturn(4L);
         var response = service.getGathering(gathering.getId(), userId);
+        assertEquals(GatheringStatus.ENDED, response.status());
         assertEquals(2, response.memberCount());
         assertEquals(4, response.momentCount());
         assertEquals(userId, response.creator().id());
@@ -128,6 +130,7 @@ class GatheringInformationTest {
         LocalDateTime createdAt = gathering.getCreatedAt();
         var result = service.updateGathering(gathering.getId(), new UpdateGatheringRequest("  新名字  ", null), userId);
         verify(gatherings).updateContent(gathering);
+        assertEquals(GatheringStatus.ENDED, result.status());
         assertEquals("新名字", result.name());
         assertNull(result.description());
         assertEquals(createdAt, gathering.getCreatedAt());
@@ -225,6 +228,22 @@ class GatheringInformationTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"  新名字  \",\"description\":null}"))
                 .andExpect(status().isOk());
         verify(controllerService).updateGathering(userId, new UpdateGatheringRequest("新名字", null), userId);
+    }
+
+    @Test
+    void listAndDetailExposeEndedStatusAsEnumName() throws Exception {
+        Gathering gathering = gathering();
+        gathering.setStatus(GatheringStatus.ENDED);
+        arrangeReadable(gathering);
+        when(gatherings.selectPage(userId, null, null, 21)).thenReturn(List.of(gathering));
+        var detail = service.getGathering(gathering.getId(), userId);
+        var page = service.browseGatherings(new PageRequest<>(null, 20), userId);
+        when(controllerService.getGathering(gathering.getId(), userId)).thenReturn(detail);
+        when(controllerService.browseGatherings(any(), eq(userId))).thenReturn(page);
+        mvc.perform(get("/gatherings/{id}", gathering.getId()).requestAttr("currentUserId", userId))
+                .andExpect(status().isOk()).andExpect(jsonPath("data.status").value("ENDED"));
+        mvc.perform(get("/gatherings").requestAttr("currentUserId", userId))
+                .andExpect(status().isOk()).andExpect(jsonPath("data.items[0].status").value("ENDED"));
     }
 
     private Gathering gathering() {

@@ -18,7 +18,7 @@ class MomentDraft {
     this.mood,
     this.time,
     this.location,
-    this.journeyId,
+    this.gatheringId,
     this.circleIds = const [],
     this.images = const [],
     this.pending,
@@ -32,7 +32,7 @@ class MomentDraft {
   final String? mood;
   final DateTime? time;
   final MomentLocation? location;
-  final String? journeyId;
+  final String? gatheringId;
   final List<String> circleIds;
   final List<DraftImage> images;
   final Map<String, dynamic>? pending;
@@ -50,7 +50,7 @@ class MomentDraft {
     String? Function()? mood,
     DateTime? time,
     MomentLocation? Function()? location,
-    String? Function()? journeyId,
+    String? Function()? gatheringId,
     List<String>? circleIds,
     List<DraftImage>? images,
     Map<String, dynamic>? Function()? pending,
@@ -63,7 +63,7 @@ class MomentDraft {
     mood: mood == null ? this.mood : mood(),
     time: time ?? this.time,
     location: location == null ? this.location : location(),
-    journeyId: journeyId == null ? this.journeyId : journeyId(),
+    gatheringId: gatheringId == null ? this.gatheringId : gatheringId(),
     circleIds: circleIds ?? this.circleIds,
     images: images ?? this.images,
     pending: pending == null ? this.pending : pending(),

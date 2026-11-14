@@ -13,6 +13,20 @@ import '../../features/album/presentation/pages/album_page.dart';
 import '../../features/album/presentation/pages/album_editor_page.dart';
 import '../../features/album/presentation/pages/album_detail_page.dart';
 import '../../features/gathering/presentation/pages/gathering_page.dart';
+import '../../features/gathering/presentation/pages/gathering_face_join_page.dart';
+import '../../features/gathering/presentation/pages/gathering_face_page.dart';
+import '../../features/gathering/presentation/pages/gathering_face_create_page.dart';
+import '../../features/gathering/presentation/pages/gathering_moments_page.dart';
+import '../../features/gathering/presentation/pages/gathering_moment_detail_page.dart';
+import '../../features/gathering/presentation/pages/gathering_moment_selection_page.dart';
+import '../../features/gathering/presentation/pages/gathering_picker_page.dart';
+import '../../features/gathering/presentation/pages/gathering_invite_page.dart';
+import '../../features/gathering/presentation/pages/gathering_join_page.dart';
+import '../../features/gathering/presentation/pages/gathering_scan_page.dart';
+import '../../features/gathering/presentation/pages/gathering_create_page.dart';
+import '../../features/gathering/presentation/pages/gathering_detail_page.dart';
+import '../../features/gathering/presentation/pages/gathering_edit_page.dart';
+import '../../features/gathering/presentation/pages/gathering_members_page.dart';
 import '../../features/circle/presentation/pages/circle_page.dart';
 import '../../features/circle/presentation/pages/circle_editor_page.dart';
 import '../../features/circle/presentation/pages/circle_manage_page.dart';
@@ -170,9 +184,84 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) =>
             CircleManagePage(id: state.pathParameters['id']!),
       ),
+      GoRoute(
+        path: '/gatherings/new',
+        builder: (_, _) => const GatheringCreatePage(),
+      ),
+      GoRoute(
+        path: '/gatherings/face-to-face',
+        builder: (_, _) => const GatheringFacePage(),
+      ),
+      GoRoute(
+        path: '/gatherings/face-to-face/create',
+        builder: (_, _) => const GatheringFaceCreatePage(),
+      ),
+      GoRoute(
+        path: '/gatherings/face-to-face/join',
+        builder: (_, _) => const GatheringFaceJoinPage(),
+      ),
+      GoRoute(
+        path: '/gatherings/join',
+        builder: (_, _) => const GatheringJoinPage(),
+      ),
+      GoRoute(
+        path: '/gatherings/scan',
+        builder: (_, _) => const GatheringScanPage(),
+      ),
+      GoRoute(
+        path: '/gatherings/select',
+        builder: (_, state) => GatheringPickerPage(
+          selectedId: state.uri.queryParameters['selected'],
+          momentId: state.uri.queryParameters['momentId'],
+        ),
+      ),
+      GoRoute(
+        path: '/gatherings/:id/moments/add',
+        builder: (_, state) => GatheringMomentSelectionPage(
+          id: state.pathParameters['id']!,
+          removing: false,
+        ),
+      ),
+      GoRoute(
+        path: '/gatherings/:id/moments/remove',
+        builder: (_, state) => GatheringMomentSelectionPage(
+          id: state.pathParameters['id']!,
+          removing: true,
+        ),
+      ),
+      GoRoute(
+        path: '/gatherings/:id/moments/:momentId',
+        builder: (_, state) => GatheringMomentDetailPage(
+          gatheringId: state.pathParameters['id']!,
+          momentId: state.pathParameters['momentId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/gatherings/:id/moments',
+        builder: (_, state) =>
+            GatheringMomentsPage(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/gatherings/:id/invite',
+        builder: (_, state) =>
+            GatheringInvitePage(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/gatherings/:id/edit',
+        builder: (_, state) =>
+            GatheringEditPage(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/gatherings/:id/members',
+        builder: (_, state) =>
+            GatheringMembersPage(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/gatherings/:id',
+        builder: (_, state) =>
+            GatheringDetailPage(id: state.pathParameters['id']!),
+      ),
       for (final path in [
-        '/gatherings/new',
-        '/gatherings/:id',
         '/search',
         '/messages',
         '/ai/tasks',

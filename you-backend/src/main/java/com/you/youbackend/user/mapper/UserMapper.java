@@ -26,4 +26,9 @@ public interface UserMapper extends BaseMapper<AppUser> {
                 .in(AppUser::getId, ids));
     }
 
+    default int setPassword(UUID userId, String password) {
+        return update(Wrappers.<AppUser>lambdaUpdate()
+                .set(AppUser::getPasswordHash,password)
+                .eq(AppUser::getId, userId));
+    }
 }

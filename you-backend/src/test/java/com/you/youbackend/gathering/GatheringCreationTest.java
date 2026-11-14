@@ -52,6 +52,7 @@ class GatheringCreationTest {
         verify(gatherings).insert(gathering.capture());
         verify(members).insert(member.capture());
 
+        assertEquals(GatheringStatus.ONGOING, result.status());
         assertEquals("周末出游", result.name());
         assertSame(creator, result.creator());
         assertNull(result.description());

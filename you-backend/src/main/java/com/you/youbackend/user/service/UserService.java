@@ -112,8 +112,13 @@ public class UserService {
                 userResponse);
     }
 
+    public void ResetPassword(UUID userId, String newPassword) {
+        userMapper.setPassword(userId, passwordEncoder.encode(newPassword));
+    }
+
     /**
      * 按用户名查询登录所需的账号资料和密码散列。
+     * TODO Mapper行为放到Mapper里面去
      */
     private AppUser findUserByUsername(String username) {
         return userMapper.selectOne(

@@ -60,8 +60,14 @@ class MomentNetworkImage extends StatelessWidget {
 }
 
 class MomentCard extends StatelessWidget {
-  const MomentCard({super.key, required this.moment, required this.onTap});
+  const MomentCard({
+    super.key,
+    required this.moment,
+    required this.onTap,
+    this.footer,
+  });
   final MomentFeedItem moment;
+  final String? footer;
   final VoidCallback onTap;
 
   @override
@@ -159,9 +165,10 @@ class MomentCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
               child: Text(
-                moment.imageCount > 1
-                    ? '仅自己可见 · ${moment.imageCount} 张照片'
-                    : '仅自己可见',
+                footer ??
+                    (moment.imageCount > 1
+                        ? '${moment.imageCount} 张照片'
+                        : '查看瞬间'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: Tokens.muted),

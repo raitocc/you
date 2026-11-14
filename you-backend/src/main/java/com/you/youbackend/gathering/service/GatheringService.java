@@ -463,7 +463,7 @@ public class GatheringService {
             int end = description.offsetByCodePoints(0, Math.min(SUMMARY_DESCRIPTION_LENGTH, description.codePointCount(0, description.length())));
             description = description.substring(0, end);
         }
-        return new GatheringSummaryResponse(gathering.getId(), gathering.getName(), description,
+        return new GatheringSummaryResponse(gathering.getStatus(), gathering.getId(), gathering.getName(), description,
                 creator, memberCount, momentCount, gathering.getCreatedAt().toInstant(ZoneOffset.UTC));
     }
 
@@ -637,7 +637,7 @@ public class GatheringService {
     private GatheringResponse toResponse(Gathering gathering, PublicUserResponse creator,
                                          long memberCount, long momentCount) {
         // 数量由具体业务确定，统一转换数据库时间和响应字段。s
-        return new GatheringResponse(gathering.getId(), gathering.getName(), gathering.getDescription(),
+        return new GatheringResponse(gathering.getStatus(), gathering.getId(), gathering.getName(), gathering.getDescription(),
                 creator, memberCount, momentCount, gathering.getInviteCode(),
                 gathering.getCreatedAt().toInstant(ZoneOffset.UTC),
                 gathering.getUpdatedAt().toInstant(ZoneOffset.UTC));

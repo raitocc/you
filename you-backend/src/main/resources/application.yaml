@@ -20,10 +20,14 @@ spring:
       port: 6379
       password: you
 
+logging:
+  level:
+    root: info
+
 storage:
   endpoint: http://localhost:9000
   # TODO：签名地址建议填写本机局域网 IP，并确保端口可达，方便模拟器和真机共同访问。
-  proc-endpoint: http://10.0.2.2:9000
+  proc-endpoint: http://localhost:9000
   access-key: you
   secret-key: you
   bucket: you-files
