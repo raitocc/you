@@ -226,11 +226,22 @@ public class AlbumService {
     public AlbumResponse getAlbum(UUID albumId, UUID userId) {
         // 1. 先确认时光存在且属于当前用户，通过后才加载详情相关资源。
         Album album = requireOwnedAlbum(albumMapper.selectById(albumId), userId);
-        // 2. 排除已移除关联、已删除或非本人瞬间，并读取当前仍有效的封面。
-        long momentCount = albumMomentMapper.countValidMoments(albumId, userId);
-        String coverKey = findCoverKey(album.getCoverFileId(), userId);
-        log.debug("查询时光信息，albumId={}，userId={}，momentCount={}", albumId, userId, momentCount);
-        // 3. 组装详情；封面失效时保留文件 ID，签名 URL 返回 null。
+        // 2. 复用已授权时光的内容加载，所有者与共享入口分别完成各自的权限校验。
+        return loadAuthorizedResponse(album);
+    }
+
+    /**
+     * 为已通过访问及归属校验的时光加载详情，调用方负责本人或共享来源的授权。
+     * @param album 已加载且已校验有效的完整时光实体
+     * @return 有效瞬间数量与封面签名补齐后的详情，封面失效时保留文件 ID、URL 为 null
+     */
+    public AlbumResponse loadAuthorizedResponse(Album album) {
+        // 1. 按时光所有者统计有效本人瞬间，读取其封面，避免使用共享查看者的文件归属。
+        long momentCount = albumMomentMapper.countValidMoments(album.getId(), album.getOwnerUserId());
+        String coverKey = findCoverKey(album.getCoverFileId(), album.getOwnerUserId());
+        log.debug("加载已授权时光信息，albumId={}，ownerUserId={}，momentCount={}",
+                album.getId(), album.getOwnerUserId(), momentCount);
+        // 2. 使用既有响应转换和媒体签名规则，原实体保持只读。
         return toResponse(album, coverKey, momentCount);
     }
 

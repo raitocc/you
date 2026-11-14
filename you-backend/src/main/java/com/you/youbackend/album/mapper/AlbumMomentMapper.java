@@ -173,6 +173,19 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
                 AND m.deleted_at IS NULL AND m.author_user_id = #{userId}
             """)
     long countValidMoments(@Param("albumId") UUID albumId, @Param("userId") UUID userId);
+    /**
+     * 判断瞬间是否仍关联到指定时光，沿用 MP 对关联记录的逻辑删除过滤。
+     * @param albumId 已通过来源授权的有效时光 ID
+     * @param momentId 待查看的瞬间 ID
+     * @return 当前存在有效关联时为 true
+     */
+    default boolean hasActiveAssociation(UUID albumId, UUID momentId) {
+        // 只检查关系；瞬间状态与作者由调用方读取原内容后校验。
+        return exists(Wrappers.<AlbumMoment>lambdaQuery()
+                .eq(AlbumMoment::getAlbumId, albumId)
+                .eq(AlbumMoment::getMomentId, momentId));
+    }
+
     /** 读取目标时光的有效关联，仅投影用于查询共享瞬间的两个 ID。 */
     default List<AlbumMoment> selectActiveLinks(List<UUID> albumIds) {
         return selectList(Wrappers.<AlbumMoment>lambdaQuery()

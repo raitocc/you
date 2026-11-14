@@ -1,5 +1,7 @@
 package com.you.youbackend.circle.controller;
 import com.you.youbackend.circle.service.CircleService;
+import com.you.youbackend.album.response.AlbumResponse;
+import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.circle.response.*;
 import com.you.youbackend.circle.model.*;
 import com.you.youbackend.moment.response.MomentResponse;
@@ -231,11 +233,61 @@ public class CircleController {
         @Parameter(name = "cursor.sharedAt", in = ParameterIn.QUERY, description = "末项排序时间", schema = @Schema(type = "string", format = "date-time")),
         @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "末项 ID", schema = @Schema(type = "string", format = "uuid"))
     })
-    public Result<ResultPage<CircleShareFeedResponse, CircleShareCursor>> browse( // TODO 好像没有专门的浏览单独的具体的分享的时光和瞬间的接口
+    public Result<ResultPage<CircleShareFeedResponse, CircleShareCursor>> browse(
             @PathVariable UUID circleId,
             @Parameter(hidden = true) @PageQuery PageRequest<CircleShareCursor> request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         return Result.ok(service.browseShares(circleId, userId, request));
+    }
+
+    /** 查看当前圈子直接分享的瞬间，访问资格由圈子分享业务校验。 */
+    @GetMapping("/{circleId}/shares/{shareId}/moment")
+    @Operation(summary = "查看圈子直接分享的瞬间", operationId = "getCircleSharedMoment")
+    @ApiResponse(responseCode = "200", description = "查询成功")
+    @ApiResponse(responseCode = "404", description = "圈子、分享或瞬间不存在或不可访问")
+    @ApiResponse(responseCode = "409", description = "分享不是瞬间")
+    public Result<MomentResponse> getSharedMoment(
+            @Parameter(description = "圈子 UUIDv7", schema = @Schema(format = "uuid"))
+            @PathVariable @UUIDv7(checkTimestamp = false) UUID circleId,
+            @Parameter(description = "圈子分享关系 UUIDv7", schema = @Schema(format = "uuid"))
+            @PathVariable @UUIDv7(checkTimestamp = false) UUID shareId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 认证用户沿圈子来源读取完整瞬间，保留本人详情入口的语义。
+        return Result.ok(service.getSharedMoment(circleId, shareId, userId));
+    }
+
+    /** 查看当前圈子分享的时光信息，内部瞬间通过既有分页接口读取。 */
+    @GetMapping("/{circleId}/shares/{shareId}/album")
+    @Operation(summary = "查看圈子分享的时光信息", operationId = "getCircleSharedAlbum")
+    @ApiResponse(responseCode = "200", description = "查询成功")
+    @ApiResponse(responseCode = "404", description = "圈子、分享或时光不存在或不可访问")
+    @ApiResponse(responseCode = "409", description = "分享不是时光")
+    public Result<AlbumResponse> getSharedAlbum(
+            @Parameter(description = "圈子 UUIDv7", schema = @Schema(format = "uuid"))
+            @PathVariable @UUIDv7(checkTimestamp = false) UUID circleId,
+            @Parameter(description = "圈子分享关系 UUIDv7", schema = @Schema(format = "uuid"))
+            @PathVariable @UUIDv7(checkTimestamp = false) UUID shareId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 共享时光信息与本人时光信息共用响应，授权由各自入口完成。
+        return Result.ok(service.getSharedAlbum(circleId, shareId, userId));
+    }
+
+    /** 查看圈子共享时光内的一个瞬间，同时校验分享与时光关联。 */
+    @GetMapping("/{circleId}/shares/{shareId}/moments/{momentId}")
+    @Operation(summary = "查看圈子分享时光内的瞬间详情", operationId = "getCircleSharedAlbumMoment")
+    @ApiResponse(responseCode = "200", description = "查询成功")
+    @ApiResponse(responseCode = "404", description = "圈子、分享、时光或内部瞬间不存在或不可访问")
+    @ApiResponse(responseCode = "409", description = "分享不是时光")
+    public Result<MomentResponse> getSharedAlbumMoment(
+            @Parameter(description = "圈子 UUIDv7", schema = @Schema(format = "uuid"))
+            @PathVariable @UUIDv7(checkTimestamp = false) UUID circleId,
+            @Parameter(description = "圈子分享关系 UUIDv7", schema = @Schema(format = "uuid"))
+            @PathVariable @UUIDv7(checkTimestamp = false) UUID shareId,
+            @Parameter(description = "时光内瞬间 UUIDv7", schema = @Schema(format = "uuid"))
+            @PathVariable @UUIDv7(checkTimestamp = false) UUID momentId,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+        // 沿分享时光校验目标瞬间的访问资格，再加载完整内容。
+        return Result.ok(service.getSharedAlbumMoment(circleId, shareId, momentId, userId));
     }
 
     /** 分页浏览圈子共享时光中的瞬间 ：【查下一页时传上一页最后一个瞬间的发生时间和 ID】 */

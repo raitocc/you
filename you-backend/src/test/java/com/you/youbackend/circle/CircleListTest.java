@@ -10,6 +10,7 @@ import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.moment.service.MomentService;
+import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.circle.service.CircleService;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.media.service.MediaService;
@@ -30,7 +31,7 @@ class CircleListTest {
     private final MediaService media = mock(MediaService.class);
     private final CircleService service = new CircleService(circles, members, users, media, mock(CircleShareMapper.class),
             mock(MomentMapper.class), mock(AlbumMapper.class),
-            mock(AlbumMomentMapper.class), mock(MomentService.class), "defaults/circle-avatar.png");
+            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png");
     private final UUID user = UUID.randomUUID();
 
     @Test void loadsOnlyVisiblePageAvatarsWithoutProfilesOrMemberCounts() {

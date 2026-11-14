@@ -10,6 +10,7 @@ import com.you.youbackend.circle.mapper.CircleMemberMapper;
 import com.you.youbackend.circle.mapper.CircleShareMapper;
 import com.you.youbackend.circle.request.CircleJoinPreviewRequest;
 import com.you.youbackend.circle.request.CreateCircleRequest;
+import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.circle.service.CircleService;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.service.MediaService;
@@ -35,7 +36,7 @@ class CircleInvitationTest {
     private final UserService users = mock(UserService.class);
     private final CircleService service = new CircleService(circles, members, users, mock(MediaService.class),
             mock(CircleShareMapper.class), mock(MomentMapper.class), mock(AlbumMapper.class),
-            mock(AlbumMomentMapper.class), mock(MomentService.class), "defaults/circle-avatar.png");
+            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png");
     private final UUID userId = UUID.randomUUID();
     private final UUID circleId = UuidCreator.getTimeOrderedEpoch();
 

@@ -3,6 +3,8 @@ package com.you.youbackend.circle.service;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.circle.response.*;
 import com.you.youbackend.album.entity.Album;
+import com.you.youbackend.album.response.AlbumResponse;
+import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.album.mapper.*;
 import com.you.youbackend.album.entity.AlbumMoment;
 import com.you.youbackend.moment.entity.Moment;
@@ -55,12 +57,13 @@ public class CircleService {
     private final AlbumMapper albumMapper;
     private final AlbumMomentMapper albumMomentMapper;
     private final MomentService momentService;
+    private final AlbumService albumService;
     private final String defaultAvatarKey; // TODO 不给默认值，直接null，默认值可以交给前端显示
 
     /** 注入圈子与分享持久化、内容加载、公开资料、媒体签名及默认头像配置。 */
     public CircleService(CircleMapper circlesMapper, CircleMemberMapper circleMemberMapper, UserService userService, MediaService mediaService,
                          CircleShareMapper circleShareMapper, MomentMapper momentMapper, AlbumMapper albumMapper,
-                         AlbumMomentMapper albumMomentMapper, MomentService momentService,
+                         AlbumMomentMapper albumMomentMapper, MomentService momentService, AlbumService albumService,
                          @Value("${storage.default-circle-avatar-key}") String defaultAvatarKey) {
         this.circleMapper = circlesMapper;
         this.circleMemberMapper = circleMemberMapper;
@@ -72,6 +75,7 @@ public class CircleService {
         this.albumMapper = albumMapper;
         this.albumMomentMapper = albumMomentMapper;
         this.momentService = momentService;
+        this.albumService = albumService;
     }
 
     /** 创建圈子 ：【重复 ID 返回 409，不覆盖已有圈子】 */
@@ -385,6 +389,62 @@ public class CircleService {
         return new ResultPage<>(items, next, hasMore);
     }
 
+    /**
+     * 沿圈子直接分享读取完整瞬间；只读事务内先校验来源，再加载媒体与公开资料。
+     * @param circleId 来源圈子 ID
+     * @param shareId 该圈子的分享关系 ID
+     * @param userId 当前认证用户 ID
+     * @return 原瞬间完整详情，作者资料缺失时为 null
+     */
+    @Transactional(readOnly = true)
+    public MomentResponse getSharedMoment(UUID circleId, UUID shareId, UUID userId) {
+        // 1. 确认成员和分享有效，分享类型为瞬间，并加载属于分享者的原瞬间。
+        CircleShare share = requireAccessibleShare(circleId, shareId, userId, CircleShareObjectType.moment);
+        Moment moment = requireSharedMoment(share);
+        // 2. 使用已授权实体加载图片、标签和作者，避免再次查询瞬间。
+        log.debug("查询圈子共享瞬间，circleId={}，shareId={}，momentId={}，userId={}",
+                circleId, shareId, moment.getId(), userId);
+        return momentService.loadAuthorizedResponses(List.of(moment)).get(0);
+    }
+
+    /**
+     * 沿圈子分享读取时光信息，复用时光模块的统计、封面读取和响应组装。
+     * @param circleId 来源圈子 ID
+     * @param shareId 该圈子的分享关系 ID
+     * @param userId 当前认证用户 ID
+     * @return 当前有效时光的完整信息，空时光的瞬间数量为零
+     */
+    @Transactional(readOnly = true)
+    public AlbumResponse getSharedAlbum(UUID circleId, UUID shareId, UUID userId) {
+        // 1. 校验时光分享来源，再读取仍由分享者拥有的时光。
+        CircleShare share = requireAccessibleShare(circleId, shareId, userId, CircleShareObjectType.album);
+        Album album = requireSharedAlbum(share);
+        // 2. 以时光所有者统计瞬间、读取封面，查看者身份只用于来源授权。
+        log.debug("查询圈子共享时光，circleId={}，shareId={}，albumId={}，userId={}",
+                circleId, shareId, album.getId(), userId);
+        return albumService.loadAuthorizedResponse(album);
+    }
+
+    /**
+     * 沿圈子共享时光读取一个瞬间；关联、原内容和作者范围通过后才加载详情资源。
+     * @param circleId 来源圈子 ID
+     * @param shareId 目标时光的分享关系 ID
+     * @param momentId 时光内部瞬间 ID
+     * @param userId 当前认证用户 ID
+     * @return 该时光中仍有效的本人瞬间详情
+     */
+    @Transactional(readOnly = true)
+    public MomentResponse getSharedAlbumMoment(UUID circleId, UUID shareId, UUID momentId, UUID userId) {
+        // 1. 确认当前用户能够访问分享的时光。
+        CircleShare share = requireAccessibleShare(circleId, shareId, userId, CircleShareObjectType.album);
+        Album album = requireSharedAlbum(share);
+        // 2. 确认瞬间仍在时光中且由时光所有者发布，随后补齐详情资源。
+        Moment moment = requireAlbumMoment(album, momentId);
+        log.debug("查询圈子共享时光内瞬间，circleId={}，shareId={}，momentId={}，userId={}",
+                circleId, shareId, momentId, userId);
+        return momentService.loadAuthorizedResponses(List.of(moment)).get(0);
+    }
+
     /** 分页浏览圈子共享时光中的瞬间 ：【查下一页时传上一页最后一个瞬间的发生时间和 ID】 */
     @Transactional(readOnly = true)
     public ResultPage<MomentResponse, CircleShareMomentCursor> browseSharedAlbumMoments(
@@ -491,6 +551,65 @@ public class CircleService {
             id = last.getId();
         }
         return rows;
+    }
+
+    /**
+     * 校验圈子与分享来源，返回已确认有效且类型匹配的分享；原内容由后续步骤加载。
+     * @param circleId 请求中的来源圈子 ID
+     * @param shareId 请求中的分享 ID
+     * @param userId 当前认证用户 ID
+     * @param expectedType 入口期望的内容类型
+     * @return 分享者仍是有效成员的分享记录
+     */
+    private CircleShare requireAccessibleShare(UUID circleId, UUID shareId, UUID userId,
+                                               CircleShareObjectType expectedType) {
+        // 1. 沿用圈子访问规则，先校验空间和查看者，再限定圈子读取分享。
+        requireAccessibleCircle(circleId, userId);
+        CircleShare share = circleShareMapper.selectHistoryById(circleId, shareId);
+        if (share == null || share.getWithdrawnAt() != null
+                || !circleMemberMapper.isActiveMember(circleId, share.getSharerUserId())) {
+            throw shareUnavailable();
+        }
+        // 2. 有效分享走错类型入口时，沿用共享时光分页的 409 约定。
+        if (share.getObjectType() != expectedType) {
+            throw BusinessException.conflict("SHARE_TYPE_MISMATCH",
+                    expectedType == CircleShareObjectType.moment ? "该分享不是瞬间" : "该分享不是时光");
+        }
+        return share;
+    }
+
+    /** 读取已授权瞬间分享的原内容，确认当前作者与分享者一致；失效时返回分享不可访问。 */
+    private Moment requireSharedMoment(CircleShare share) {
+        // 原瞬间读取一次，后续直接使用该实体加载详情。
+        Moment moment = momentMapper.selectById(share.getObjectId());
+        if (moment == null || !share.getSharerUserId().equals(moment.getAuthorUserId())) {
+            throw shareUnavailable();
+        }
+        return moment;
+    }
+
+    /** 读取已授权时光分享的原内容，确认当前所有者与分享者一致。 */
+    private Album requireSharedAlbum(CircleShare share) {
+        // 有效性由 Mapper 的逻辑删除过滤保证，实体继续交给统计或内部瞬间校验。
+        Album album = albumMapper.selectById(share.getObjectId());
+        if (album == null || !share.getSharerUserId().equals(album.getOwnerUserId())) {
+            throw shareUnavailable();
+        }
+        return album;
+    }
+
+    /** 读取已授权时光中的有效瞬间，限定有效关联及所有者的本人内容范围。 */
+    private Moment requireAlbumMoment(Album album, UUID momentId) {
+        // 1. 先检查有效关联，已移出的瞬间沿原入口返回分享不可访问。
+        if (!albumMomentMapper.hasActiveAssociation(album.getId(), momentId)) {
+            throw shareUnavailable();
+        }
+        // 2. 关联有效后读取原瞬间，并确认作者属于时光所有者。
+        Moment moment = momentMapper.selectById(momentId);
+        if (moment == null || !album.getOwnerUserId().equals(moment.getAuthorUserId())) {
+            throw shareUnavailable();
+        }
+        return moment;
     }
 
     /** 检查分享指向的原内容是否仍有效。 */
