@@ -224,10 +224,10 @@ class RelatedDatabaseTest {
                         .param("cursor.sharedAt", "+10000-01-01T00:00:00Z").param("cursor.id", UUID.randomUUID().toString()))
                 .andExpect(status().isBadRequest());
     }
-    @Test void fillsPagesAcrossMultipleBatchesOfStaleCandidates() {
+    @Test void fillsPagesAfterManyStaleEntries() {
         UUID circle = newCircle();
         for (int i = 0; i < 4; i++) shareMoment(circle, newMoment(owner), owner);
-        // 最新的 35 条历史入口全部失效，首个扫描批次会全被过滤。
+        // 最新的 35 条历史入口全部失效，仍应返回足量有效动态。
         seedStaleCandidates(circle, LocalDateTime.of(2027, 1, 1, 0, 0));
         var first = related.browseRelated(guest, new PageRequest<RelatedCursor>(null, 2));
         assertEquals(2, first.items().size()); assertTrue(first.hasMore());
@@ -237,15 +237,15 @@ class RelatedDatabaseTest {
         assertTrue(second.items().stream().noneMatch(row -> ids.contains(row.id())));
     }
 
-    @Test void exhaustsStaleTailBeforeReportingHasMore() {
+    @Test void ignoresStaleTailWhenReportingHasMore() {
         UUID circle = newCircle(); shareMoment(circle, newMoment(owner), owner);
-        // 一条有效记录后仍有超过一批失效历史，扫描完这些历史后应返回末页。
+        // 一条有效记录后仍有大量失效历史，分页结果应为末页。
         seedStaleCandidates(circle, LocalDateTime.of(2020, 1, 1, 0, 0));
         var page = related.browseRelated(guest, new PageRequest<RelatedCursor>(null, 1));
         assertEquals(1, page.items().size()); assertFalse(page.hasMore()); assertNull(page.nextCursor());
     }
 
-    /** 构造仍保留在信箱、但分享引用及原内容已失效的历史入口，测试跨批扫描。 */
+    /** 构造仍保留在信箱、但分享引用及原内容已失效的历史入口，测试大量失效记录下的分页。 */
     private void seedStaleCandidates(UUID circle, LocalDateTime sharedAt) {
         // 每条保留不同动态 ID，来源圈子和接收者仍有效，筛选应发生在分享与内容阶段。
         for (int i = 0; i < 35; i++) {

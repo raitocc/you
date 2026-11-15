@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.you.youbackend.inbox.mapper.UserInboxMapper">
+
+    <!-- 三种来源返回同一组信箱字段，摘要数据交给 Service 批量加载。 -->
+    <sql id="inboxColumns">
+        i.id, i.created_at, i.updated_at, i.recipient_user_id, i.actor_user_id,
+        i.source_type, i.source_id, i.object_type, i.object_id,
+        i.shared_at, i.share_id, i.read_at, i.deleted_at
+    </sql>
+
+    <!-- 三段查询沿用相同的接收者范围和严格游标边界。 -->
+    <sql id="recipientAndCursor">
+        i.recipient_user_id = #{userId}
+        AND i.deleted_at IS NULL
+        <if test="sharedAt != null">
+            AND (i.shared_at &lt; #{sharedAt} OR (i.shared_at = #{sharedAt} AND i.id &lt; #{id}))
+        </if>
+    </sql>
+
+    <!--
+      每段只表达一种共享路径，先筛选当前可访问记录，再统一排序分页。
+      来源类型与内容类型让三段互斥；UNION ALL 保留跨空间独立分享卡片。
+      自定义 SQL 显式过滤各表软删除，沿用现有本人、同行和圈子的归属规则。
+    -->
+    <select id="selectRelatedPage" resultType="com.you.youbackend.inbox.entity.UserInbox">
+        SELECT id, created_at, updated_at, recipient_user_id, actor_user_id,
+               source_type, source_id, object_type, object_id,
+               shared_at, share_id, read_at, deleted_at
+        FROM (
+            <!-- 1. 同行瞬间：来源和当前成员有效，原瞬间仍关联该同行。 -->
+            SELECT <include refid="inboxColumns"/>
+            FROM user_inbox i
+            JOIN gathering g ON g.id = i.source_id
+            JOIN gathering_member member ON member.gathering_id = g.id AND member.user_id = #{userId}
+            JOIN moment m ON m.id = i.object_id AND m.gathering_id = g.id
+            WHERE <include refid="recipientAndCursor"/>
+              AND i.source_type = 'gathering' AND i.object_type = 'moment'
+              AND g.deleted_at IS NULL AND member.deleted_at IS NULL AND m.deleted_at IS NULL
+              AND m.author_user_id = i.actor_user_id
+
+            UNION ALL
+
+            <!-- 2. 圈子瞬间：双方成员、分享引用及分享者的原瞬间有效。 -->
+            SELECT <include refid="inboxColumns"/>
+            FROM user_inbox i
+            JOIN circle c ON c.id = i.source_id
+            JOIN circle_member receiver ON receiver.circle_id = c.id AND receiver.user_id = #{userId}
+            JOIN circle_share s ON s.id = i.share_id AND s.circle_id = c.id
+            JOIN circle_member sender ON sender.circle_id = c.id AND sender.user_id = s.sharer_user_id
+            JOIN moment m ON m.id = i.object_id AND m.author_user_id = s.sharer_user_id
+            WHERE <include refid="recipientAndCursor"/>
+              AND i.source_type = 'circle' AND i.object_type = 'moment'
+              AND s.object_type = 'moment' AND s.object_id = i.object_id AND s.sharer_user_id = i.actor_user_id
+              AND c.deleted_at IS NULL AND receiver.deleted_at IS NULL AND sender.deleted_at IS NULL
+              AND s.deleted_at IS NULL AND m.deleted_at IS NULL
+
+            UNION ALL
+
+            <!-- 3. 圈子时光：双方成员、分享引用及分享者的原时光有效。 -->
+            SELECT <include refid="inboxColumns"/>
+            FROM user_inbox i
+            JOIN circle c ON c.id = i.source_id
+            JOIN circle_member receiver ON receiver.circle_id = c.id AND receiver.user_id = #{userId}
+            JOIN circle_share s ON s.id = i.share_id AND s.circle_id = c.id
+            JOIN circle_member sender ON sender.circle_id = c.id AND sender.user_id = s.sharer_user_id
+            JOIN album a ON a.id = i.object_id AND a.owner_user_id = s.sharer_user_id
+            WHERE <include refid="recipientAndCursor"/>
+              AND i.source_type = 'circle' AND i.object_type = 'album'
+              AND s.object_type = 'album' AND s.object_id = i.object_id AND s.sharer_user_id = i.actor_user_id
+              AND c.deleted_at IS NULL AND receiver.deleted_at IS NULL AND sender.deleted_at IS NULL
+              AND s.deleted_at IS NULL AND a.deleted_at IS NULL
+        ) related
+        ORDER BY shared_at DESC, id DESC
+        LIMIT #{rowCount}
+    </select>
+</mapper>

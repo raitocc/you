@@ -17,23 +17,15 @@ import java.util.UUID;
 @Mapper
 public interface UserInboxMapper extends BaseMapper<UserInbox> {
     /**
-     * 读取接收者的有效信箱候选，来源及内容有效性由 Service 批量筛选。
+     * 按三类来源筛选后合并排序分页，SQL 位于 mapper/inbox/UserInboxMapper.xml。
      * @param userId 当前认证接收者
-     * @param sharedAt 上批末条候选的 UTC 分享时间，首屏为 null
-     * @param id 同一条候选的动态 ID，与时间成组提供
-     * @param rowCount 本批读取数量
-     * @return 按分享时间、动态 ID 倒序的完整信箱实体
+     * @param sharedAt 上页最后一条动态的 UTC 分享时间，首屏为 null
+     * @param id 同一条动态 ID，与时间成组提供
+     * @param rowCount 页大小加一，用于判断后续页
+     * @return 当前可访问的完整信箱记录，按分享时间和动态 ID 倒序
      */
-    default List<UserInbox> selectPageCandidates(UUID userId, LocalDateTime sharedAt, UUID id, int rowCount) {
-        // 1. 限定本人信箱，逻辑删除沿用全局配置。
-        var query = Wrappers.<UserInbox>lambdaQuery().eq(UserInbox::getRecipientUserId, userId);
-        // 2. 沿原始候选推进边界，来源失效的记录也计入扫描位置。
-        if (sharedAt != null) {
-            query.and(boundary -> boundary.lt(UserInbox::getSharedAt, sharedAt)
-                    .or(tie -> tie.eq(UserInbox::getSharedAt, sharedAt).lt(UserInbox::getId, id)));
-        }
-        return selectList(query.orderByDesc(UserInbox::getSharedAt, UserInbox::getId).last("LIMIT " + rowCount));
-    }
+    List<UserInbox> selectRelatedPage(@Param("userId") UUID userId, @Param("sharedAt") LocalDateTime sharedAt,
+                                    @Param("id") UUID id, @Param("rowCount") int rowCount);
 
     /**
      * 一条 SQL 保存本批动态，数据库错误沿原事务抛出。
