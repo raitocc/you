@@ -15,6 +15,13 @@ import java.util.*;
 /** 圈子分享读写，按方法用途显式限定撤回状态。 */
 @Mapper
 public interface CircleShareMapper extends BaseMapper<CircleShare> {
+    /** 批量读取仍有效的分享引用，调用方传入非空的候选分享 ID。 */
+    default List<CircleShare> selectActiveShares(Collection<UUID> ids) {
+        // withdrawnAt 映射 deleted_at；历史查询与有效分享查询分别表达。
+        return selectList(Wrappers.<CircleShare>lambdaQuery().in(CircleShare::getId, ids)
+                .isNull(CircleShare::getWithdrawnAt));
+    }
+
     /** 读取指定内容在目标圈子里的分享历史。 */
     default List<CircleShare> selectHistory(CircleShareObjectType type, UUID objectId, Collection<UUID> ids) {
         return selectList(Wrappers.<CircleShare>lambdaQuery().eq(CircleShare::getObjectType, type)
