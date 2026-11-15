@@ -15,3 +15,4 @@ import java.util.UUID;
  */
 public record InboxContent(InboxSourceType sourceType, UUID sourceId, UUID actorUserId,
                            InboxObjectType objectType, UUID objectId, UUID shareId, LocalDateTime sharedAt) {}
+// TODO：不考虑builder吗？

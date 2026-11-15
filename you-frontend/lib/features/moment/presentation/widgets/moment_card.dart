@@ -68,7 +68,7 @@ class MomentCard extends StatelessWidget {
   });
   final MomentFeedItem moment;
   final String? footer;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +77,7 @@ class MomentCard extends StatelessWidget {
     final title = moment.title?.trim() ?? '';
     final mood = moment.mood;
     return Semantics(
-      button: true,
+      button: onTap != null,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(15),

@@ -31,6 +31,8 @@ import '../../features/circle/presentation/pages/circle_page.dart';
 import '../../features/circle/presentation/pages/circle_editor_page.dart';
 import '../../features/circle/presentation/pages/circle_manage_page.dart';
 import '../../features/circle/presentation/pages/circle_share_page.dart';
+import '../../features/circle/presentation/pages/shared_album_page.dart';
+import '../../features/circle/presentation/pages/shared_moment_detail_page.dart';
 import '../../features/circle/models/circle.dart';
 import '../shell/app_shell.dart';
 
@@ -169,6 +171,26 @@ final routerProvider = Provider<GoRouter>((ref) {
           builder: (_, state) =>
               CircleSharePage(type: type, id: state.pathParameters['id']!),
         ),
+      GoRoute(
+        path: '/circles/:id/shares/:shareId/moment',
+        builder: (_, state) => CircleSharedMomentDetailPage(
+          share: (
+            circleId: state.pathParameters['id']!,
+            shareId: state.pathParameters['shareId']!,
+            momentId: null,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/circles/:id/shares/:shareId/moments/:momentId',
+        builder: (_, state) => CircleSharedMomentDetailPage(
+          share: (
+            circleId: state.pathParameters['id']!,
+            shareId: state.pathParameters['shareId']!,
+            momentId: state.pathParameters['momentId']!,
+          ),
+        ),
+      ),
       GoRoute(
         path: '/circles/:id/shares/:shareId',
         builder: (_, state) => SharedTimelinePage(

@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 import '../../../shared/models/cursor_page.dart';
 import '../models/circle.dart';
+import '../../moment/models/moment.dart';
+import '../../moment/data/mappers/moment_mapper.dart';
+import '../../album/models/album.dart';
+import '../../album/data/mappers/album_mapper.dart';
 import 'mappers/circle_mapper.dart';
 import 'remote/circle_remote.dart';
 
@@ -61,6 +65,27 @@ class CircleRepository {
     'memoryTime',
     cursor,
     circleMoment,
+  );
+
+  /// 圈子直分享瞬间详情，通过分享关系授权读取。
+  Future<Moment> sharedMoment(String circleId, String shareId) async =>
+      momentFromJson(
+        await _remote.get('/$circleId/shares/$shareId/moment') as Json,
+      );
+
+  /// 共享时光的完整信息，与本人时光入口各自授权。
+  Future<Album> sharedAlbum(String circleId, String shareId) async =>
+      albumFromJson(
+        await _remote.get('/$circleId/shares/$shareId/album') as Json,
+      );
+
+  /// 通过时光分享关系读取内部瞬间，保留共享只读语义。
+  Future<Moment> sharedAlbumMoment(
+    String circleId,
+    String shareId,
+    String momentId,
+  ) async => momentFromJson(
+    await _remote.get('/$circleId/shares/$shareId/moments/$momentId') as Json,
   );
 
   Future<CircleDetails> detail(String id) async =>
