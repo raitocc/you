@@ -8,13 +8,11 @@ import java.util.UUID;
 @Setter
 public class CircleListRow {
     /** 圈子 ID，用于进入详情。 */
-    private UUID id;
+    private UUID circleId;
     /** 圈子名称。 */
     private String name;
     /** 自定义头像引用，null 使用默认头像。 */
     private UUID avatarFileId;
     /** 成员关系创建时间，UTC。 */
     private LocalDateTime joinedAt;
-    /** 成员关系 ID，不是圈子 ID。 */
-    private UUID membershipId;
 }

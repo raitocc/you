@@ -43,10 +43,10 @@ mvn -f you-backend/pom.xml spring-boot:run
 
 ### 前端服务
 
-启动命令，
+启动 Android 模拟器后，在仓库根目录用 PowerShell 运行。脚本会先转发后端和媒体服务端口，再启动 Flutter。
 
-```
-flutter run --dart-define-from-file=env/dev.json
+```powershell
+./you-frontend/tool/run-android.ps1
 ```
 
 若拉取太慢，可在当前终端配置代理，
@@ -55,16 +55,10 @@ flutter run --dart-define-from-file=env/dev.json
 $env:https_proxy = 'http://127.0.0.1:7890'
 ```
 
-若显示连接不到 device，可以指定 emulator，
+连接了多个 Android 设备时，指定目标设备。
 
-```
-flutter run -d emulator-5554 --dart-define-from-file=env/dev.json
-```
-
-使用 adb 转发端口，
-
-```
-adb reverse tcp:9000 tcp:9000
+```powershell
+./you-frontend/tool/run-android.ps1 -DeviceId emulator-5554
 ```
 
 

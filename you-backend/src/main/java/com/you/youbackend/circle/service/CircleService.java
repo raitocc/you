@@ -160,7 +160,7 @@ public class CircleService {
         CircleListCursor next = null;
         if (hasMore) {
             CircleListRow last = page.get(page.size() - 1);
-            next = new CircleListCursor(last.getJoinedAt().toInstant(ZoneOffset.UTC), last.getMembershipId());
+            next = new CircleListCursor(last.getJoinedAt().toInstant(ZoneOffset.UTC), last.getCircleId());
         }
         // 列表只补齐头像，创建者资料及成员数由详情接口加载。
         return new ResultPage<>(loadListResponses(page), next, hasMore);
@@ -508,15 +508,15 @@ public class CircleService {
         log.info("已写入圈子分享撤回，circleId={}，shareId={}，userId={}", circleId, shareId, userId);
     }
 
-    /** 按成员关系游标分批查找有效圈子，补足可见记录后再判断是否有下一页。 */
+    /** 按加入时间和圈子 ID 分批查找有效圈子，补足可见记录后再判断是否有下一页。 */
     private List<CircleListRow> loadCircleListPage(UUID userId, CircleListCursor cursor, int limit) {
         LocalDateTime time = cursor == null ? null : cursorTime(cursor.joinedAt());
-        UUID id = cursor == null ? null : cursor.id();
+        UUID circleId = cursor == null ? null : cursor.id();
         List<CircleListRow> rows = new ArrayList<>();
         while (rows.size() < limit) {
             // 先查有序成员关系，再批量补齐圈子并排除已解散记录。
             int batchSize = limit - rows.size();
-            var candidates = circleMemberMapper.selectPageCandidates(userId, time, id, batchSize);
+            var candidates = circleMemberMapper.selectPageCandidates(userId, time, circleId, batchSize);
             if (candidates.isEmpty()) break;
             var circles = circleMapper.selectByIds(candidates.stream().map(CircleMember::getCircleId).toList())
                     .stream().collect(Collectors.toMap(Circle::getId, Function.identity()));
@@ -524,17 +524,16 @@ public class CircleService {
                 Circle circle = circles.get(candidate.getCircleId());
                 if (circle == null) continue;
                 CircleListRow row = new CircleListRow();
-                row.setId(circle.getId());
+                row.setCircleId(circle.getId());
                 row.setName(circle.getName());
                 row.setAvatarFileId(circle.getAvatarFileId());
                 row.setJoinedAt(candidate.getCreatedAt());
-                row.setMembershipId(candidate.getId());
                 rows.add(row);
             }
             if (candidates.size() < batchSize) break;
             CircleMember last = candidates.get(candidates.size() - 1);
             time = last.getCreatedAt();
-            id = last.getId();
+            circleId = last.getCircleId();
         }
         return rows;
     }
@@ -761,7 +760,7 @@ public class CircleService {
         var avatars = mediaService.getReadUrls(avatarIds);
         String defaultUrl = mediaService.createReadUrl(defaultAvatarKey);
         // 响应仅保留列表必需字段，未设置或失效的图片统一使用默认头像。
-        return page.stream().map(circle -> new CircleListResponse(circle.getId(), circle.getName(),
+        return page.stream().map(circle -> new CircleListResponse(circle.getCircleId(), circle.getName(),
                 circle.getAvatarFileId() == null ? defaultUrl
                         : avatars.getOrDefault(circle.getAvatarFileId(), defaultUrl))).toList();
     }

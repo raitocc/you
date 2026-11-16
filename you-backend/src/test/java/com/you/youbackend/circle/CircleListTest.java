@@ -43,7 +43,7 @@ class CircleListTest {
         var candidates = List.of(first, second, third, row(extra));
         when(members.selectPageCandidates(user, null, null, 4))
                 .thenReturn(candidates.stream().map(this::membership).toList());
-        when(circles.selectByIds(candidates.stream().map(CircleListRow::getId).toList()))
+        when(circles.selectByIds(candidates.stream().map(CircleListRow::getCircleId).toList()))
                 .thenReturn(candidates.stream().map(this::circle).toList());
         when(media.getReadUrls(List.of(custom, invalid))).thenReturn(Map.of(custom, "custom-url"));
         when(media.createReadUrl("defaults/circle-avatar.png")).thenReturn("default-url");
@@ -54,10 +54,10 @@ class CircleListTest {
         assertEquals("custom-url", result.items().get(0).avatarUrl());
         assertEquals("default-url", result.items().get(1).avatarUrl());
         assertEquals("default-url", result.items().get(2).avatarUrl());
-        assertEquals(first.getId(), result.items().get(0).id());
+        assertEquals(first.getCircleId(), result.items().get(0).id());
         assertEquals(first.getName(), result.items().get(0).name());
         assertTrue(result.hasMore());
-        assertEquals(third.getMembershipId(), result.nextCursor().id());
+        assertEquals(third.getCircleId(), result.nextCursor().id());
         verify(media).getReadUrls(List.of(custom, invalid));
         verify(members, never()).countActiveMembers(any(UUID.class));
         verifyNoInteractions(users);
@@ -75,15 +75,15 @@ class CircleListTest {
 
     private CircleMember membership(CircleListRow row) {
         var member = new CircleMember();
-        member.setId(row.getMembershipId());
-        member.setCircleId(row.getId());
+        member.setId(UUID.randomUUID());
+        member.setCircleId(row.getCircleId());
         member.setCreatedAt(row.getJoinedAt());
         return member;
     }
 
     private Circle circle(CircleListRow row) {
         var circle = new Circle();
-        circle.setId(row.getId());
+        circle.setId(row.getCircleId());
         circle.setName(row.getName());
         circle.setAvatarFileId(row.getAvatarFileId());
         return circle;
@@ -91,11 +91,10 @@ class CircleListTest {
 
     private CircleListRow row(UUID avatar) {
         var row = new CircleListRow();
-        row.setId(UUID.randomUUID());
+        row.setCircleId(UUID.randomUUID());
         row.setName("圈子名称");
         row.setAvatarFileId(avatar);
         row.setJoinedAt(LocalDateTime.of(2026, 11, 11, 0, 0));
-        row.setMembershipId(UUID.randomUUID());
         return row;
     }
 }

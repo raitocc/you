@@ -10,10 +10,12 @@
 cd you-frontend
 flutter pub get
 dart run build_runner build
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
+./tool/run-android.ps1
 ```
 
-Android 模拟器使用 10.0.2.2 访问宿主机；真机改为可达的局域网地址。正式环境传 HTTPS 地址。Android 仅 debug 允许 HTTP。iOS 在 macOS 上编译，开发 HTTP 需自行配置限域 ATS 例外或使用 HTTPS。
+启动模拟器或连接已授权的 Android 真机后，运行上述 PowerShell 脚本。它会在每次启动前通过 `adb reverse` 转发本机 API（8080）和媒体服务（9000），并用 `env/dev.json` 启动 Flutter。连接了多台 Android 设备时，加上 `-DeviceId emulator-5554` 或对应真机序列号。
+
+正式环境传 HTTPS 地址。Android 仅 debug 允许 HTTP。iOS 在 macOS 上编译，开发 HTTP 需自行配置限域 ATS 例外或使用 HTTPS。
 
 ### Edge Web 调试
 

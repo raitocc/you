@@ -67,12 +67,12 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
                 .eq(CircleMember::getUserId, userId));
     }
 
-    /** 按成员关系时间和 ID 倒序读取候选记录。 */
-    default List<CircleMember> selectPageCandidates(UUID userId, LocalDateTime joinedAt, UUID id, int limit) {
+    /** 按加入时间和圈子 ID 倒序读取候选记录。 */
+    default List<CircleMember> selectPageCandidates(UUID userId, LocalDateTime joinedAt, UUID circleId, int limit) {
         return selectList(Wrappers.<CircleMember>lambdaQuery().eq(CircleMember::getUserId, userId)
                 .and(joinedAt != null, q -> q.lt(CircleMember::getCreatedAt, joinedAt)
-                        .or(tie -> tie.eq(CircleMember::getCreatedAt, joinedAt).lt(CircleMember::getId, id)))
-                .orderByDesc(CircleMember::getCreatedAt, CircleMember::getId).last("LIMIT " + limit));
+                        .or(tie -> tie.eq(CircleMember::getCreatedAt, joinedAt).lt(CircleMember::getCircleId, circleId)))
+                .orderByDesc(CircleMember::getCreatedAt, CircleMember::getCircleId).last("LIMIT " + limit));
     }
 
     /** 读取全部有效成员，按关系创建时间和用户 ID 正序排列。 */
@@ -114,7 +114,9 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
 
     /** 结束解散圈子中的全部有效成员关系。 */
     default int invalidateMemberships(UUID circleId, LocalDateTime now) {
-        return update(Wrappers.<CircleMember>lambdaUpdate().eq(CircleMember::getCircleId, circleId)
-                .set(CircleMember::getDeletedAt, now).set(CircleMember::getUpdatedAt, now));
+        return update(Wrappers.<CircleMember>lambdaUpdate()
+                .eq(CircleMember::getCircleId, circleId)
+                .set(CircleMember::getDeletedAt, now)
+                .set(CircleMember::getUpdatedAt, now));
     }
 }

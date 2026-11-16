@@ -48,7 +48,7 @@ public class CircleController {
     @Parameters({
         @Parameter(name = "limit", in = ParameterIn.QUERY, schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
         @Parameter(name = "cursor.joinedAt", in = ParameterIn.QUERY, description = "成员关系创建时间", schema = @Schema(type = "string", format = "date-time")),
-        @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "成员关系 ID", schema = @Schema(type = "string", format = "uuid"))
+        @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "圈子 ID", schema = @Schema(type = "string", format = "uuid"))
     })
     public Result<ResultPage<CircleListResponse, CircleListCursor>> listMyCircles(
             @Parameter(hidden = true) @PageQuery PageRequest<CircleListCursor> request,

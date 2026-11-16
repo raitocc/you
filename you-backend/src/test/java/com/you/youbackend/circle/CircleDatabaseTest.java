@@ -226,19 +226,24 @@ class CircleDatabaseTest {
         assertEquals("介绍", circles.selectById(id).getDescription());
     }
 
-    @Test void pagesByMembershipIdAndFiltersBeforeLimit() {
-        UUID one = newId(), two = newId(), deleted = newId();
-        create(one); create(two); create(deleted);
+    @Test void pagesByCircleIdAndFiltersBeforeLimit() {
+        UUID lower = UUID.fromString("00000000-0000-7000-8000-000000000001");
+        UUID higher = UUID.fromString("00000000-0000-7000-8000-000000000002");
+        UUID deleted = UUID.fromString("00000000-0000-7000-8000-000000000003");
+        create(deleted);
+        create(higher);
+        create(lower);
         circles.deleteById(deleted);
         jdbc.update("UPDATE circle_member SET created_at = '2026-11-10 06:00:00.000' WHERE user_id = UNHEX(REPLACE(?, '-', ''))", user.toString());
         var first = service.listMyCircles(user, new PageRequest<>(null, 1));
         assertTrue(first.hasMore());
         assertNotNull(first.nextCursor());
-        assertNotEquals(first.items().get(0).id(), first.nextCursor().id());
+        assertEquals(List.of(higher), first.items().stream().map(item -> item.id()).toList());
+        assertEquals(higher, first.nextCursor().id());
         var second = service.listMyCircles(user, new PageRequest<>(first.nextCursor(), 1));
         assertFalse(second.hasMore());
         assertNull(second.nextCursor());
-        assertNotEquals(first.items().get(0).id(), second.items().get(0).id());
+        assertEquals(List.of(lower), second.items().stream().map(item -> item.id()).toList());
         assertEquals(0, service.listMyCircles(UUID.randomUUID(), new PageRequest<>(null, 20)).items().size());
     }
 }

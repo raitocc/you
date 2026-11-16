@@ -347,7 +347,7 @@ notification 表为站内通知表，用于用户相关通知及已读状态。
 | app_user | uk_app_user_username | 唯一 | username |
 | circle | uk_circle_invite_code | 唯一 | invite_code |
 | circle_member | idx_circle_member_user | 普通 | user_id, deleted_at, circle_id |
-| circle_member | idx_circle_member_user_page | 普通 | user_id, deleted_at, created_at, id |
+| circle_member | idx_circle_member_user_page | 普通 | user_id, deleted_at, created_at, circle_id |
 | circle_member | uk_circle_member_circle_user | 唯一 | circle_id, user_id |
 | circle_share | idx_circle_share_feed | 普通 | circle_id, deleted_at, shared_at, id |
 | circle_share | idx_circle_share_object | 普通 | object_type, object_id, deleted_at, circle_id |
