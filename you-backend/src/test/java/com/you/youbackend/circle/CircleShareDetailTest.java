@@ -1,6 +1,5 @@
 package com.you.youbackend.circle;
 
-import org.springframework.context.ApplicationEventPublisher;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.album.entity.Album;
 import com.you.youbackend.album.mapper.AlbumMapper;
@@ -57,10 +56,10 @@ class CircleShareDetailTest {
     private final MediaService media = mock(MediaService.class);
     private final UserService users = mock(UserService.class);
     private final MomentService momentService = new MomentService(moments, images, tags, media,
-            mock(GatheringService.class), users, mock(ApplicationEventPublisher.class));
+            mock(GatheringService.class), users);
     private final AlbumService albumService = new AlbumService(albums, links, moments, media, momentService);
     private final CircleService service = new CircleService(circles, members, users, media, shares, moments,
-            albums, links, momentService, albumService, "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
+            albums, links, momentService, albumService, "defaults/circle-avatar.png");
     private final UUID circleId = id(), shareId = id(), viewer = id(), owner = id();
     private final UUID momentId = id(), albumId = id();
     private final LocalDateTime now = LocalDateTime.of(2026, 11, 14, 10, 0);

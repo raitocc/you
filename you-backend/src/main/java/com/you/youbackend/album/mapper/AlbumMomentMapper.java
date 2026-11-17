@@ -21,20 +21,6 @@ import java.time.LocalDateTime;
 /** 时光瞬间关联的批量写入和有效数量查询。 */
 @Mapper
 public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
-    /** 为已授权的一批时光统计各自所有者的有效瞬间，空时光由调用方补零。 */
-    @Select("""
-            <script>
-            SELECT a.id AS album_id, COUNT(*) AS moment_count
-            FROM album a
-            JOIN album_moment am ON am.album_id = a.id AND am.deleted_at IS NULL
-            JOIN moment m ON m.id = am.moment_id AND m.deleted_at IS NULL AND m.author_user_id = a.owner_user_id
-            WHERE a.deleted_at IS NULL AND a.id IN
-            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-            GROUP BY a.id
-            </script>
-            """)
-    List<AlbumMomentCount> countAuthorizedAlbumMoments(@Param("ids") List<UUID> ids);
-
     /**
      * 批量读取候选关联，包含已移出记录，用于区分新增、保留与恢复。
      * @param albumId 本人有效时光 ID

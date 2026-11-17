@@ -1,7 +1,6 @@
 package com.you.youbackend.moment.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
-import com.you.youbackend.gathering.event.*;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
@@ -26,7 +25,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -59,7 +57,6 @@ public class MomentService {
     private final MediaService mediaService;
     private final GatheringService gatheringService;
     private final UserService userService;
-    private final ApplicationEventPublisher events;
 
     /**
      * 浏览有效同行成员可读的瞬间时间线，按发生时间和 ID 正序。
@@ -174,10 +171,6 @@ public class MomentService {
         Moment moment = saveNewMoment(request, userId, memoryTime, location, savedAt);
         saveNewImages(moment.getId(), fileIds, savedAt);
         List<String> savedTags = saveNewTags(moment.getId(), tags, savedAt);
-        // 随发布建立同行关联时同步投递，信箱写入与图文保存共同提交。
-        if (moment.getGatheringId() != null) {
-            events.publishEvent(new GatheringMomentsLinkedEvent(moment.getGatheringId(), userId, List.of(moment.getId()), savedAt));
-        }
 
         List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
         log.info("已写入瞬间，momentId={}，userId={}，gatheringId={}，imageCount={}，tagCount={}",
@@ -289,20 +282,6 @@ public class MomentService {
                 tagsByMoment.getOrDefault(moment.getId(), List.of()), authors.get(moment.getAuthorUserId()))).toList();
     }
 
-    /**
-     * 批量补齐已授权瞬间的摘要；调用方完成访问筛选并统一加载公开资料。
-     * @param page 有效且已授权的完整实体或摘要投影，顺序即返回顺序
-     * @param authors 已加载的作者资料，缺失资料沿用 null
-     * @return 保持输入顺序的摘要，只批量查询图片关联与文件
-     */
-    public List<MomentSummaryResponse> loadAuthorizedSummaries(List<Moment> page, Map<UUID, PublicUserResponse> authors) {
-        // 空内容跳过图片查询；响应映射只使用本批已加载的数据。
-        if (page.isEmpty()) return List.of();
-        Map<UUID, List<String>> imageKeys = loadFeedImageKeys(page);
-        return page.stream().map(moment -> toFeedItem(moment,
-                imageKeys.getOrDefault(moment.getId(), List.of()), authors.get(moment.getAuthorUserId()))).toList();
-    }
-
     /** 按同行时间线首屏或后续页读取摘要投影，调用方已确认成员资格。 */
     private List<Moment> queryGatheringMoments(UUID gatheringId, PageRequest<GatheringMomentCursor> request) {
         // 将游标转换为数据库 UTC 时间，首屏不提供边界。
@@ -318,7 +297,13 @@ public class MomentService {
         if (page.isEmpty()) {
             return List.of();
         }
-        return loadAuthorizedSummaries(page, loadAuthors(page));
+        Map<UUID, List<String>> imageKeys = loadFeedImageKeys(page);
+        Map<UUID, PublicUserResponse> authors = loadAuthors(page);
+        return page.stream().map(moment -> toFeedItem(
+                moment,
+                imageKeys.getOrDefault(moment.getId(), List.of()),
+                authors.get(moment.getAuthorUserId()))
+        ).toList();
     }
 
     /** 按瞬间作者去重批量加载公开资料，缺失资料由响应映射为 null。 */

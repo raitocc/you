@@ -51,25 +51,6 @@ public class AlbumService {
     private final MomentService momentService;
 
     /**
-     * 为已授权时光批量加载数量与封面，支持同页多个所有者。
-     * @param page 调用方已完成来源和归属校验的有效完整实体
-     * @return 保持输入顺序的列表信息；无有效封面为 null，空时光数量为零
-     */
-    public List<AlbumListItem> loadAuthorizedItems(List<Album> page) {
-        // 1. 只对实际返回内容统计各自所有者的有效瞬间。
-        if (page.isEmpty()) return List.of();
-        Map<UUID, Long> counts = albumMomentMapper.countAuthorizedAlbumMoments(page.stream().map(Album::getId).toList())
-                .stream().collect(Collectors.toMap(AlbumMomentCount::albumId, AlbumMomentCount::momentCount));
-        // 2. 来源权限已经通过，媒体模块一次读取有效封面对象键。
-        Map<UUID, String> keys = mediaService.findImageKeys(page.stream().map(Album::getCoverFileId)
-                .filter(Objects::nonNull).distinct().toList());
-        // 3. 使用已加载内容完成签名与卡片转换。
-        return page.stream().map(album -> toListItem(album,
-                album.getCoverFileId() == null ? null : keys.get(album.getCoverFileId()),
-                counts.getOrDefault(album.getId(), 0L))).toList();
-    }
-
-    /**
      * 整批校验后新增、保留或恢复关联，关联及修改时间在同一事务中保存。
      * @param albumId 有效时光 ID，不存在返回 404，非本人返回 403
      * @param request 已通过非空及 UUID 校验的请求

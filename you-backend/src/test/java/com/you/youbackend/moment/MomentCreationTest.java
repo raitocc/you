@@ -1,6 +1,5 @@
 package com.you.youbackend.moment;
 
-import org.springframework.context.ApplicationEventPublisher;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.gathering.entity.Gathering;
@@ -45,8 +44,8 @@ class MomentCreationTest {
     private final MediaService media = mock(MediaService.class);
     private final GatheringMapper gatherings = mock(GatheringMapper.class);
     private final GatheringMemberMapper members = mock(GatheringMemberMapper.class);
-    private final GatheringService gatheringService = new GatheringService(gatherings, members, mock(UserService.class), moments, mock(ApplicationEventPublisher.class));
-    private final MomentService service = new MomentService(moments, images, tags, media, gatheringService, mock(UserService.class), mock(ApplicationEventPublisher.class));
+    private final GatheringService gatheringService = new GatheringService(gatherings, members, mock(UserService.class), moments);
+    private final MomentService service = new MomentService(moments, images, tags, media, gatheringService, mock(UserService.class));
     private final UUID userId = UUID.randomUUID();
     private final UUID momentId = UuidCreator.getTimeOrderedEpoch();
     private final Instant time = Instant.parse("2026-01-01T00:00:00.123456Z");

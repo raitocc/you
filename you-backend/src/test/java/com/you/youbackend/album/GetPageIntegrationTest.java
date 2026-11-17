@@ -30,7 +30,7 @@ class GetPageIntegrationTest {
         // 使用真实 MVC 配置和数据库，以无历史记录的用户验证首屏；不运行 JWT 过滤器。
         var mvc = MockMvcBuilders.webAppContextSetup(context).build();
         UUID user = UUID.randomUUID();
-        for (String path : List.of("/albums", "/moments/yours", "/moments/related")) {
+        for (String path : List.of("/albums", "/moments/yours")) {
             mvc.perform(get(path).requestAttr("currentUserId", user))
                     .andExpect(status().isOk()).andExpect(jsonPath("data.items").isEmpty());
             mvc.perform(get(path).requestAttr("currentUserId", user).param("limit", "101"))
@@ -45,7 +45,7 @@ class GetPageIntegrationTest {
         String body = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode paths = objectMapper.readTree(body).path("paths");
-        for (String path : List.of("/albums", "/moments/yours", "/moments/related", "/albums/{albumId}/moments")) {
+        for (String path : List.of("/albums", "/moments/yours", "/albums/{albumId}/moments")) {
             JsonNode operation = paths.path(path).path("get");
             assertFalse(operation.isMissingNode(), path);
             assertFalse(operation.has("requestBody"), path);
@@ -56,8 +56,7 @@ class GetPageIntegrationTest {
                 }
             }
             assertTrue(queries.containsAll(List.of("limit", "cursor.id")), queries.toString());
-            String timeField = path.equals("/albums") ? "cursor.createdAt" : path.equals("/moments/related") ? "cursor.sharedAt" : "cursor.memoryTime";
-            assertTrue(queries.contains(timeField));
+            assertTrue(queries.contains(path.equals("/albums") ? "cursor.createdAt" : "cursor.memoryTime"));
             if (path.contains("{albumId}")) {
                 assertTrue(queries.contains("cursor.createdAt"));
             }

@@ -1,6 +1,5 @@
 package com.you.youbackend.moment;
 
-import org.springframework.context.ApplicationEventPublisher;
 import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.*;
@@ -22,7 +21,7 @@ class MomentUpdateTest {
     final MomentImageMapper images = mock(MomentImageMapper.class);
     final MomentTagMapper tags = mock(MomentTagMapper.class);
     final MediaService media = mock(MediaService.class);
-    final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class), mock(ApplicationEventPublisher.class));
+    final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class));
     final UUID id = UUID.randomUUID(), user = UUID.randomUUID();
     final LocalDateTime oldTime = LocalDateTime.of(2026, 1, 1, 0, 0);
 

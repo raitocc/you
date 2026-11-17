@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/theme/app_theme.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../shared/ui/page_state.dart';
-import '../../../related/presentation/pages/related_feed_page.dart';
 import '../../models/moment.dart';
 import '../viewmodels/moment_feed_viewmodel.dart';
 import '../widgets/moment_card.dart';
@@ -36,7 +35,7 @@ class MomentPage extends StatelessWidget {
         ),
         Expanded(
           child: TabBarView(
-            children: const [_MomentFeed(MomentTab.yours), RelatedFeedPage()],
+            children: [for (final tab in MomentTab.values) _MomentFeed(tab)],
           ),
         ),
       ],

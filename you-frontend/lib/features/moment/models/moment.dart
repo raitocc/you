@@ -1,6 +1,6 @@
 enum MomentTab {
   yours('你', '自己发布的所有瞬间'),
-  related('与你有关', '同行与圈子分享的瞬间与时光');
+  related('与你有关', '相关同行与圈子中的瞬间');
 
   const MomentTab(this.label, this.description);
   final String label;

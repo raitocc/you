@@ -19,14 +19,6 @@ import java.util.stream.Collectors;
 /** 同行成员表读写，复用全局 UUID 映射与软删除配置。 */
 @Mapper
 public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
-    /** 读取本次投递的有效成员 ID，包含操作者，逻辑删除过滤已退出成员。 */
-    default List<UUID> selectActiveUserIds(UUID gatheringId) {
-        // 仅投影接收者 ID，避免为投递加载完整成员资料。
-        return selectList(Wrappers.<GatheringMember>lambdaQuery()
-                .select(GatheringMember::getUserId).eq(GatheringMember::getGatheringId, gatheringId))
-                .stream().map(GatheringMember::getUserId).toList();
-    }
-
     /** 查询本人关系，包含已退出记录；用于区分重复退出和从未加入。 */
     @Select("""
             SELECT id, gathering_id, user_id, created_at, updated_at, deleted_at

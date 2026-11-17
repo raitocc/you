@@ -14,18 +14,6 @@ import java.util.stream.Collectors;
 /** 圈子成员关系读写。 */
 @Mapper
 public interface CircleMemberMapper extends BaseMapper<CircleMember> {
-    /**
-     * 批量读取目标圈子的有效接收关系，沿用逻辑删除过滤。
-     * @param circleIds 本次实际分享的非空圈子 ID 集合
-     * @return 仅投影 circleId、userId，供按圈子分组投递
-     */
-    default List<CircleMember> selectActiveRecipients(List<UUID> circleIds) {
-        // 一次读取所有目标圈子，避免每个分享重复查询成员。
-        return selectList(Wrappers.<CircleMember>lambdaQuery()
-                .select(CircleMember::getCircleId, CircleMember::getUserId)
-                .in(CircleMember::getCircleId, circleIds));
-    }
-
     /** 读取成员关系，包括已退出或被移除的记录。 */
     @Select("""
             SELECT id, circle_id, user_id, created_at, updated_at, join_restricted, deleted_at
