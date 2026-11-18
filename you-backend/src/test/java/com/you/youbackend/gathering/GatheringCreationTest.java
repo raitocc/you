@@ -18,6 +18,7 @@ import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
 import jakarta.validation.Validation;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
@@ -38,7 +39,7 @@ class GatheringCreationTest {
     private final GatheringMapper gatherings = mock(GatheringMapper.class);
     private final GatheringMemberMapper members = mock(GatheringMemberMapper.class);
     private final UserService users = mock(UserService.class);
-    private final GatheringService service = new GatheringService(gatherings, members, users, mock(MomentMapper.class));
+    private final GatheringService service = new GatheringService(gatherings, members, users, mock(MomentMapper.class), mock(ApplicationEventPublisher.class));
     private final UUID userId = UuidCreator.getTimeOrderedEpoch();
 
     @Test

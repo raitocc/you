@@ -20,6 +20,7 @@ import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -49,7 +50,7 @@ class GatheringFaceToFaceTest {
     private final MomentMapper moments = mock(MomentMapper.class);
     private final GatheringFaceToFaceService service =
             new GatheringFaceToFaceService(redisService, gatherings, members, users);
-    private final GatheringService joinService = new GatheringService(gatherings, members, users, moments);
+    private final GatheringService joinService = new GatheringService(gatherings, members, users, moments, mock(ApplicationEventPublisher.class));
     private final UUID userId = UuidCreator.getTimeOrderedEpoch();
 
     @Test

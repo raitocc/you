@@ -12,7 +12,7 @@ import com.you.youbackend.circle.entity.CircleShare;
 import com.you.youbackend.circle.mapper.CircleMapper;
 import com.you.youbackend.circle.mapper.CircleMemberMapper;
 import com.you.youbackend.circle.mapper.CircleShareMapper;
-import com.you.youbackend.circle.model.CircleShareObjectType;
+import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.circle.service.CircleService;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.exception.GlobalExceptionHandler;
@@ -27,6 +27,7 @@ import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -56,17 +57,17 @@ class CircleShareDetailTest {
     private final MediaService media = mock(MediaService.class);
     private final UserService users = mock(UserService.class);
     private final MomentService momentService = new MomentService(moments, images, tags, media,
-            mock(GatheringService.class), users);
+            mock(GatheringService.class), users, mock(ApplicationEventPublisher.class));
     private final AlbumService albumService = new AlbumService(albums, links, moments, media, momentService);
     private final CircleService service = new CircleService(circles, members, users, media, shares, moments,
-            albums, links, momentService, albumService, "defaults/circle-avatar.png");
+            albums, links, momentService, albumService, "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
     private final UUID circleId = id(), shareId = id(), viewer = id(), owner = id();
     private final UUID momentId = id(), albumId = id();
     private final LocalDateTime now = LocalDateTime.of(2026, 11, 14, 10, 0);
 
     @Test
     void readsOtherMembersMomentAndSignsItsImageAfterAuthorization() {
-        accessibleShare(CircleShareObjectType.moment);
+        accessibleShare(ObjectType.moment);
         Moment moment = moment(owner);
         when(moments.selectById(momentId)).thenReturn(moment);
         UUID fileId = id();
@@ -95,7 +96,7 @@ class CircleShareDetailTest {
 
     @Test
     void albumUsesOwnersCountAndCoverInsteadOfViewersFiles() {
-        accessibleShare(CircleShareObjectType.album);
+        accessibleShare(ObjectType.album);
         Album album = album();
         UUID coverId = id();
         album.setCoverFileId(coverId);
@@ -116,7 +117,7 @@ class CircleShareDetailTest {
 
     @Test
     void readsEmptyAlbumWithoutCoverAndKeepsNullableFields() {
-        accessibleShare(CircleShareObjectType.album);
+        accessibleShare(ObjectType.album);
         when(albums.selectById(albumId)).thenReturn(album());
 
         var result = service.getSharedAlbum(circleId, shareId, viewer);
@@ -130,7 +131,7 @@ class CircleShareDetailTest {
 
     @Test
     void readsMomentThroughSharedAlbumWithoutDirectMomentShare() {
-        accessibleShare(CircleShareObjectType.album);
+        accessibleShare(ObjectType.album);
         when(albums.selectById(albumId)).thenReturn(album());
         when(links.hasActiveAssociation(albumId, momentId)).thenReturn(true);
         when(moments.selectById(momentId)).thenReturn(moment(owner));
@@ -156,7 +157,7 @@ class CircleShareDetailTest {
     @ParameterizedTest
     @ValueSource(strings = {"missing", "withdrawn", "sharerLeft"})
     void rejectsUnavailableShareBeforeReadingOriginalContent(String scenario) {
-        CircleShare share = accessibleShare(CircleShareObjectType.moment);
+        CircleShare share = accessibleShare(ObjectType.moment);
         switch (scenario) {
             case "missing" -> when(shares.selectHistoryById(circleId, shareId)).thenReturn(null);
             case "withdrawn" -> share.setWithdrawnAt(now);
@@ -172,7 +173,7 @@ class CircleShareDetailTest {
 
     @Test
     void shareFromAnotherCircleIsUnavailableEvenForItsOwner() {
-        accessibleShare(CircleShareObjectType.moment);
+        accessibleShare(ObjectType.moment);
         UUID otherCircle = id();
         when(circles.selectById(otherCircle)).thenReturn(new Circle());
         when(members.isActiveMember(otherCircle, owner)).thenReturn(true);
@@ -185,7 +186,7 @@ class CircleShareDetailTest {
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void rejectsWrongShareTypeBeforeReadingContent(boolean albumShare) {
-        accessibleShare(albumShare ? CircleShareObjectType.album : CircleShareObjectType.moment);
+        accessibleShare(albumShare ? ObjectType.album : ObjectType.moment);
 
         if (albumShare) {
             assertStatus(409, () -> service.getSharedMoment(circleId, shareId, viewer));
@@ -200,7 +201,7 @@ class CircleShareDetailTest {
     @ValueSource(strings = {"momentMissing", "momentOtherOwner", "albumMissing", "albumOtherOwner"})
     void rejectsDeletedOrMismatchedOriginalContent(String scenario) {
         boolean albumShare = scenario.startsWith("album");
-        accessibleShare(albumShare ? CircleShareObjectType.album : CircleShareObjectType.moment);
+        accessibleShare(albumShare ? ObjectType.album : ObjectType.moment);
         if (scenario.equals("momentOtherOwner")) when(moments.selectById(momentId)).thenReturn(moment(viewer));
         if (scenario.equals("albumOtherOwner")) {
             Album album = album();
@@ -218,7 +219,7 @@ class CircleShareDetailTest {
     @ParameterizedTest
     @ValueSource(strings = {"unlinked", "missingMoment", "otherAuthor"})
     void rejectsRemovedDeletedOrForeignAlbumMoment(String scenario) {
-        accessibleShare(CircleShareObjectType.album);
+        accessibleShare(ObjectType.album);
         when(albums.selectById(albumId)).thenReturn(album());
         when(links.hasActiveAssociation(albumId, momentId)).thenReturn(!scenario.equals("unlinked"));
         if (scenario.equals("otherAuthor")) when(moments.selectById(momentId)).thenReturn(moment(viewer));
@@ -231,14 +232,14 @@ class CircleShareDetailTest {
     @Test
     void mvcRoutesReturnDetailsInUnifiedResult() throws Exception {
         MockMvc mvc = mvc();
-        accessibleShare(CircleShareObjectType.moment);
+        accessibleShare(ObjectType.moment);
         when(moments.selectById(momentId)).thenReturn(moment(owner));
         mvc.perform(get("/circles/{circleId}/shares/{shareId}/moment", circleId, shareId)
                         .requestAttr(JwtAuthFilter.CURRENT_USER_ID, viewer))
                 .andExpect(status().isOk()).andExpect(jsonPath("code").value("SUCCESS"))
                 .andExpect(jsonPath("data.body").value("完整正文"));
 
-        accessibleShare(CircleShareObjectType.album);
+        accessibleShare(ObjectType.album);
         when(albums.selectById(albumId)).thenReturn(album());
         when(links.hasActiveAssociation(albumId, momentId)).thenReturn(true);
         mvc.perform(get("/circles/{circleId}/shares/{shareId}/album", circleId, shareId)
@@ -266,7 +267,7 @@ class CircleShareDetailTest {
     }
 
     /** 模拟当前查看者和分享者均在圈子内，返回可按场景调整的有效分享。 */
-    private CircleShare accessibleShare(CircleShareObjectType type) {
+    private CircleShare accessibleShare(ObjectType type) {
         when(circles.selectById(circleId)).thenReturn(new Circle());
         when(members.isActiveMember(circleId, viewer)).thenReturn(true);
         when(members.isActiveMember(circleId, owner)).thenReturn(true);
@@ -275,7 +276,7 @@ class CircleShareDetailTest {
         share.setCircleId(circleId);
         share.setSharerUserId(owner);
         share.setObjectType(type);
-        share.setObjectId(type == CircleShareObjectType.moment ? momentId : albumId);
+        share.setObjectId(type == ObjectType.moment ? momentId : albumId);
         when(shares.selectHistoryById(circleId, shareId)).thenReturn(share);
         return share;
     }

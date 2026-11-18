@@ -102,6 +102,14 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
                 .eq(GatheringMember::getUserId, userId)) > 0;
     }
 
+    /** 通过 gatheringId 查询 gathering_member 表，获取该 gatheringId 同行下的有效成员用户 userId 列表 */
+    default List<UUID> selectActiveUserIds(UUID gatheringId) {
+        return selectList(Wrappers.<GatheringMember>lambdaQuery()
+                .select(GatheringMember::getUserId)
+                .eq(GatheringMember::getGatheringId, gatheringId))
+                .stream().map(GatheringMember::getUserId).toList();
+    }
+
     /**
      * 统计同行中的有效成员数量。
      * @param gatheringId 已确认有效的同行 ID

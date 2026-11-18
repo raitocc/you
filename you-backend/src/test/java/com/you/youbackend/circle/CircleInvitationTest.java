@@ -18,6 +18,7 @@ import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
@@ -36,7 +37,7 @@ class CircleInvitationTest {
     private final UserService users = mock(UserService.class);
     private final CircleService service = new CircleService(circles, members, users, mock(MediaService.class),
             mock(CircleShareMapper.class), mock(MomentMapper.class), mock(AlbumMapper.class),
-            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png");
+            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
     private final UUID userId = UUID.randomUUID();
     private final UUID circleId = UuidCreator.getTimeOrderedEpoch();
 

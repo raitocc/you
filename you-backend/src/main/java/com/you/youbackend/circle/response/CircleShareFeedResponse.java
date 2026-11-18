@@ -1,5 +1,5 @@
 package com.you.youbackend.circle.response;
-import com.you.youbackend.circle.model.CircleShareObjectType;
+import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.moment.response.MomentResponse;
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -11,7 +11,7 @@ import java.util.UUID;
 public record CircleShareFeedResponse(
         @Schema(description = "分享关系 UUIDv7") UUID id,
         @Schema(description = "目标圈子 UUID") UUID circleId,
-        @Schema(description = "分享类型，moment 或 album") CircleShareObjectType objectType,
+        @Schema(description = "分享类型，moment 或 album") ObjectType objectType,
         @Schema(description = "原对象（瞬间/时光）的 UUID") UUID objectId,
         @Schema(description = "分享者公开资料") PublicUserResponse sharer,
         @Schema(description = "本次分享时间，UTC；重复分享不改变") Instant sharedAt,

@@ -5,6 +5,7 @@ import com.you.youbackend.circle.service.CircleService;
 import com.you.youbackend.circle.entity.*;
 import com.you.youbackend.circle.mapper.*;
 import com.you.youbackend.circle.model.*;
+import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.circle.request.CreateCircleSharesRequest;
 import com.you.youbackend.circle.request.JoinCircleRequest;
 import com.you.youbackend.album.entity.*;
@@ -76,7 +77,7 @@ class CircleShareDatabaseTest {
 
     @Test void duplicateKeepsTimeAndRestoreKeepsIdentity() {
         UUID moment = newMoment(time, time);
-        var request = request(CircleShareObjectType.moment, moment, List.of(circle, newCircle()));
+        var request = request(ObjectType.moment, moment, List.of(circle, newCircle()));
         service.shareToCircles(request, owner);
         var share = shares.selectHistory(request.objectType(), moment, List.of(circle)).get(0);
         UUID otherCircle = request.circleIds().get(1);
@@ -96,15 +97,15 @@ class CircleShareDatabaseTest {
 
     @Test void invalidTargetLeavesNoPartialWrites() {
         UUID moment = newMoment(time, time);
-        var bad = request(CircleShareObjectType.moment, moment, List.of(circle, UUID.randomUUID()));
+        var bad = request(ObjectType.moment, moment, List.of(circle, UUID.randomUUID()));
         assertEquals(404, assertThrows(BusinessException.class, () -> service.shareToCircles(bad, owner)).getStatus().value());
-        assertTrue(shares.selectHistory(CircleShareObjectType.moment, moment, List.of(circle)).isEmpty());
+        assertTrue(shares.selectHistory(ObjectType.moment, moment, List.of(circle)).isEmpty());
     }
 
     @Test void batchInsertTranslatesDuplicateAndRollsBackEarlierRows() {
         UUID moment = newMoment(time, time);
-        service.shareToCircles(request(CircleShareObjectType.moment, moment, List.of(circle)), owner);
-        CircleShare share = shares.selectHistory(CircleShareObjectType.moment, moment, List.of(circle)).get(0);
+        service.shareToCircles(request(ObjectType.moment, moment, List.of(circle)), owner);
+        CircleShare share = shares.selectHistory(ObjectType.moment, moment, List.of(circle)).get(0);
         UUID target = newCircle();
         share.setId(UuidCreator.getTimeOrderedEpoch());
         share.setCircleId(target);
@@ -112,14 +113,14 @@ class CircleShareDatabaseTest {
         var transaction = new TransactionTemplate(transactions);
         assertThrows(DuplicateKeyException.class,
                 () -> transaction.executeWithoutResult(status -> shares.insertShares(List.of(share, share))));
-        assertTrue(shares.selectHistory(CircleShareObjectType.moment, moment, List.of(target)).isEmpty());
+        assertTrue(shares.selectHistory(ObjectType.moment, moment, List.of(target)).isEmpty());
     }
 
     @Test void permissionsAndPathIsolationAreEnforced() {
         UUID moment = newMoment(time, time);
-        assertEquals(403, assertThrows(BusinessException.class, () -> service.shareToCircles(request(CircleShareObjectType.moment, moment, List.of(circle)), viewer)).getStatus().value());
-        service.shareToCircles(request(CircleShareObjectType.moment, moment, List.of(circle)), owner);
-        var share = shares.selectHistory(CircleShareObjectType.moment, moment, List.of(circle)).get(0);
+        assertEquals(403, assertThrows(BusinessException.class, () -> service.shareToCircles(request(ObjectType.moment, moment, List.of(circle)), viewer)).getStatus().value());
+        service.shareToCircles(request(ObjectType.moment, moment, List.of(circle)), owner);
+        var share = shares.selectHistory(ObjectType.moment, moment, List.of(circle)).get(0);
         assertEquals(404, assertThrows(BusinessException.class, () -> service.browseShares(circle, stranger, new PageRequest<>(null, 20))).getStatus().value());
         assertEquals(403, assertThrows(BusinessException.class, () -> service.withdrawShare(circle, share.getId(), viewer)).getStatus().value());
         assertEquals(404, assertThrows(BusinessException.class, () -> service.withdrawShare(newCircle(), share.getId(), owner)).getStatus().value());
@@ -133,8 +134,8 @@ class CircleShareDatabaseTest {
     @Test void feedUsesStrictDescendingCursorAndFiltersBeforeLimit() {
         UUID one = newMoment(time, time), two = newMoment(time, time), deleted = newMoment(time, time);
         for (UUID id : List.of(one, two, deleted)) {
-            service.shareToCircles(request(CircleShareObjectType.moment, id, List.of(circle)), owner);
-            var share = shares.selectHistory(CircleShareObjectType.moment, id, List.of(circle)).get(0);
+            service.shareToCircles(request(ObjectType.moment, id, List.of(circle)), owner);
+            var share = shares.selectHistory(ObjectType.moment, id, List.of(circle)).get(0);
             jdbc.update("UPDATE circle_share SET shared_at=? WHERE id=?", time, bytes(share.getId()));
         }
         moments.softDelete(deleted, time);
@@ -159,7 +160,7 @@ class CircleShareDatabaseTest {
         for (UUID id : List.of(one, two, removed, deleted)) associate(album, id);
         jdbc.update("UPDATE album_moment SET deleted_at=? WHERE album_id=? AND moment_id=?", time, bytes(album), bytes(removed));
         moments.softDelete(deleted, time);
-        service.shareToCircles(request(CircleShareObjectType.album, album, List.of(circle)), owner);
+        service.shareToCircles(request(ObjectType.album, album, List.of(circle)), owner);
         var feed = service.browseShares(circle, viewer, new PageRequest<>(null, 20));
         UUID shareId = feed.items().get(0).id();
         assertNull(feed.items().get(0).moment());
@@ -180,7 +181,7 @@ class CircleShareDatabaseTest {
         String code = circles.selectById(circle).getInviteCode();
         UUID viewerMoment = newMoment(time, time);
         jdbc.update("UPDATE moment SET author_user_id=? WHERE id=?", bytes(viewer), bytes(viewerMoment));
-        var viewerShareRequest = request(CircleShareObjectType.moment, viewerMoment, List.of(circle));
+        var viewerShareRequest = request(ObjectType.moment, viewerMoment, List.of(circle));
         service.shareToCircles(viewerShareRequest, viewer);
         UUID viewerShare = shares.selectHistory(viewerShareRequest.objectType(), viewerMoment, List.of(circle)).get(0).getId();
         assertEquals(403, assertThrows(BusinessException.class,
@@ -214,8 +215,8 @@ class CircleShareDatabaseTest {
         service.join(new JoinCircleRequest(code), viewer);
 
         UUID ownerMoment = newMoment(time, time);
-        service.shareToCircles(request(CircleShareObjectType.moment, ownerMoment, List.of(circle)), owner);
-        var ownerShare = shares.selectHistory(CircleShareObjectType.moment, ownerMoment, List.of(circle)).get(0);
+        service.shareToCircles(request(ObjectType.moment, ownerMoment, List.of(circle)), owner);
+        var ownerShare = shares.selectHistory(ObjectType.moment, ownerMoment, List.of(circle)).get(0);
         service.dissolveCircle(circle, owner);
         assertNull(circles.selectById(circle));
         assertEquals(0, members.countActiveMembers(circle));
@@ -226,7 +227,7 @@ class CircleShareDatabaseTest {
                 () -> service.join(new JoinCircleRequest(code), viewer)).getStatus().value());
     }
 
-    private CreateCircleSharesRequest request(CircleShareObjectType type, UUID id, List<UUID> targets) {
+    private CreateCircleSharesRequest request(ObjectType type, UUID id, List<UUID> targets) {
         return new CreateCircleSharesRequest(type, id, targets);
     }
     private UUID newCircle() {

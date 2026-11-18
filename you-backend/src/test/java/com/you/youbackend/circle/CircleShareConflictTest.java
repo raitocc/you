@@ -4,7 +4,7 @@ import com.you.youbackend.circle.service.*;
 import com.you.youbackend.circle.entity.Circle;
 import com.you.youbackend.circle.entity.CircleShare;
 import com.you.youbackend.circle.mapper.*;
-import com.you.youbackend.circle.model.CircleShareObjectType;
+import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.circle.request.CreateCircleSharesRequest;
 import com.you.youbackend.album.mapper.*;
 import com.you.youbackend.moment.entity.Moment;
@@ -13,6 +13,7 @@ import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.user.service.UserService;
 import com.you.youbackend.common.exception.BusinessException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 import java.time.LocalDateTime;
@@ -27,9 +28,9 @@ class CircleShareConflictTest {
     final UserService users = mock(UserService.class);
     final CircleMapper circles = mock(CircleMapper.class);
     final CircleService service = new CircleService(circles, members, users, mock(MediaService.class), shares, moments,
-            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png");
+            mock(AlbumMapper.class), mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
     final UUID user = UUID.randomUUID(), circle = UUID.randomUUID(), object = UUID.randomUUID();
-    final CreateCircleSharesRequest request = new CreateCircleSharesRequest(CircleShareObjectType.moment, object, List.of(circle));
+    final CreateCircleSharesRequest request = new CreateCircleSharesRequest(ObjectType.moment, object, List.of(circle));
     void setup() {
         Moment moment = new Moment(); moment.setAuthorUserId(user);
         when(moments.selectById(object)).thenReturn(moment);

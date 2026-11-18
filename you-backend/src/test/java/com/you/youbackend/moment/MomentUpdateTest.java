@@ -7,6 +7,7 @@ import com.you.youbackend.moment.mapper.*;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 
 import java.time.*;
@@ -21,7 +22,7 @@ class MomentUpdateTest {
     final MomentImageMapper images = mock(MomentImageMapper.class);
     final MomentTagMapper tags = mock(MomentTagMapper.class);
     final MediaService media = mock(MediaService.class);
-    final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class));
+    final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class), mock(ApplicationEventPublisher.class));
     final UUID id = UUID.randomUUID(), user = UUID.randomUUID();
     final LocalDateTime oldTime = LocalDateTime.of(2026, 1, 1, 0, 0);
 

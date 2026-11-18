@@ -72,6 +72,16 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
                 .orderByAsc(CircleMember::getCreatedAt, CircleMember::getUserId));
     }
 
+    /** 批量读取圈子分享的有效接收者。 */
+    default List<CircleMember> selectActiveRecipients(Collection<UUID> circleIds) {
+        if (circleIds.isEmpty()) {
+            return List.of();
+        }
+        return selectList(Wrappers.<CircleMember>lambdaQuery()
+                .select(CircleMember::getCircleId, CircleMember::getUserId)
+                .in(CircleMember::getCircleId, circleIds));
+    }
+
     /** 统计指定圈子的有效成员数。 */
     default long countActiveMembers(UUID circleId) {
         return selectCount(Wrappers.<CircleMember>lambdaQuery().eq(CircleMember::getCircleId, circleId));

@@ -1,6 +1,9 @@
 package com.you.youbackend.circle.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
+import com.you.youbackend.circle.event.CircleContentsSharedEvent;
+import com.you.youbackend.circle.event.CircleMemberLeftEvent;
+import com.you.youbackend.circle.event.CircleShareWithdrawnEvent;
 import com.you.youbackend.circle.response.*;
 import com.you.youbackend.album.entity.Album;
 import com.you.youbackend.album.response.AlbumResponse;
@@ -14,6 +17,7 @@ import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.circle.entity.*;
 import com.you.youbackend.circle.mapper.*;
 import com.you.youbackend.circle.model.*;
+import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.circle.request.*;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
@@ -24,6 +28,7 @@ import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -59,12 +64,13 @@ public class CircleService {
     private final MomentService momentService;
     private final AlbumService albumService;
     private final String defaultAvatarKey; // TODO 不给默认值，直接null，默认值可以交给前端显示
+    private final ApplicationEventPublisher events;
 
     /** 注入圈子与分享持久化、内容加载、公开资料、媒体签名及默认头像配置。 */
     public CircleService(CircleMapper circlesMapper, CircleMemberMapper circleMemberMapper, UserService userService, MediaService mediaService,
                          CircleShareMapper circleShareMapper, MomentMapper momentMapper, AlbumMapper albumMapper,
                          AlbumMomentMapper albumMomentMapper, MomentService momentService, AlbumService albumService,
-                         @Value("${storage.default-circle-avatar-key}") String defaultAvatarKey) {
+                         @Value("${storage.default-circle-avatar-key}") String defaultAvatarKey,ApplicationEventPublisher events) {
         this.circleMapper = circlesMapper;
         this.circleMemberMapper = circleMemberMapper;
         this.userService = userService;
@@ -76,6 +82,7 @@ public class CircleService {
         this.albumMomentMapper = albumMomentMapper;
         this.momentService = momentService;
         this.albumService = albumService;
+        this.events = events;
     }
 
     /** 创建圈子 ：【重复 ID 返回 409，不覆盖已有圈子】 */
@@ -275,6 +282,10 @@ public class CircleService {
 
         // 3. 在同一事务撤回该成员的圈内分享，原内容保留。
         circleShareMapper.invalidateMemberShares(circleId, targetId, now);
+
+        // 发布事件：【一名成员离开圈子或被圈子移除】
+        events.publishEvent(new CircleMemberLeftEvent(circleId, targetId, now));
+
         log.info("已移除圈子成员并设置加入限制，circleId={}，userId={}", circleId, targetId);
     }
 
@@ -316,6 +327,10 @@ public class CircleService {
         LocalDateTime now = utcNow();
         if (circleMemberMapper.endMembership(circleId, userId, false, now) == 0) throw unavailable();
         circleShareMapper.invalidateMemberShares(circleId, userId, now);
+
+        // 发布事件：【一名成员离开圈子或被圈子移除】
+        events.publishEvent(new CircleMemberLeftEvent(circleId, userId, now));
+
         log.info("已退出圈子并撤回本人圈内分享，circleId={}，userId={}", circleId, userId);
     }
 
@@ -343,23 +358,38 @@ public class CircleService {
                 || circleMapper.selectByIds(request.circleIds()).size() != request.circleIds().size()) {
             throw BusinessException.notFound("CIRCLE_NOT_FOUND", "目标圈子不存在或不可访问");
         }
+
         // 3. 查出这条内容在目标圈子里的分享，包括已撤回的记录，再按圈子 ID 查找。
         Map<UUID, CircleShare> history = circleShareMapper.selectHistory(request.objectType(), request.objectId(), request.circleIds())
                 .stream().collect(Collectors.toMap(CircleShare::getCircleId, Function.identity()));
         LocalDateTime now = utcNow();
         List<CircleShare> additions = new ArrayList<>();
         List<UUID> restores = new ArrayList<>();
+        List<CircleSharedContent> sharedContents = new ArrayList<>();
+
         // 4. 从未分享过就新增，已撤回就恢复，仍有效就保留原记录。
         for (UUID circleId : request.circleIds()) {
             CircleShare row = history.get(circleId);
             if (row == null) {
-                additions.add(newShare(request, circleId, userId, now));
+                row = newShare(request, circleId, userId, now);
+                additions.add(row);
             } else if (row.getDeletedAt() != null) {
                 restores.add(row.getId());
+            }else{
+                // 已经有效的分享没有发生变更，跳过本次投递。
+                continue;
             }
+            sharedContents.add(new CircleSharedContent(
+                    circleId, row.getId(), request.objectType(), request.objectId()
+            ));
         }
         // 5. 在同一事务里写入新增和恢复的记录。
         persistChanges(additions, restores, userId, now);
+
+        // 发布事件：【一条瞬间或时光分享到一个或多个圈子】
+        if (!sharedContents.isEmpty()) {
+            events.publishEvent(new CircleContentsSharedEvent(userId, sharedContents, now));
+        }
         log.info("已写入圈子分享，userId={}，targetCount={}，addedCount={}，restoredCount={}",
                 userId, request.circleIds().size(), additions.size(), restores.size());
     }
@@ -399,7 +429,7 @@ public class CircleService {
     @Transactional(readOnly = true)
     public MomentResponse getSharedMoment(UUID circleId, UUID shareId, UUID userId) {
         // 1. 确认成员和分享有效，分享类型为瞬间，并加载属于分享者的原瞬间。
-        CircleShare share = requireAccessibleShare(circleId, shareId, userId, CircleShareObjectType.moment);
+        CircleShare share = requireAccessibleShare(circleId, shareId, userId, ObjectType.moment);
         Moment moment = requireSharedMoment(share);
         // 2. 使用已授权实体加载图片、标签和作者，避免再次查询瞬间。
         log.debug("查询圈子共享瞬间，circleId={}，shareId={}，momentId={}，userId={}",
@@ -417,7 +447,7 @@ public class CircleService {
     @Transactional(readOnly = true)
     public AlbumResponse getSharedAlbum(UUID circleId, UUID shareId, UUID userId) {
         // 1. 校验时光分享来源，再读取仍由分享者拥有的时光。
-        CircleShare share = requireAccessibleShare(circleId, shareId, userId, CircleShareObjectType.album);
+        CircleShare share = requireAccessibleShare(circleId, shareId, userId, ObjectType.album);
         Album album = requireSharedAlbum(share);
         // 2. 以时光所有者统计瞬间、读取封面，查看者身份只用于来源授权。
         log.debug("查询圈子共享时光，circleId={}，shareId={}，albumId={}，userId={}",
@@ -436,7 +466,7 @@ public class CircleService {
     @Transactional(readOnly = true)
     public MomentResponse getSharedAlbumMoment(UUID circleId, UUID shareId, UUID momentId, UUID userId) {
         // 1. 确认当前用户能够访问分享的时光。
-        CircleShare share = requireAccessibleShare(circleId, shareId, userId, CircleShareObjectType.album);
+        CircleShare share = requireAccessibleShare(circleId, shareId, userId, ObjectType.album);
         Album album = requireSharedAlbum(share);
         // 2. 确认瞬间仍在时光中且由时光所有者发布，随后补齐详情资源。
         Moment moment = requireAlbumMoment(album, momentId);
@@ -458,7 +488,7 @@ public class CircleService {
         if (share == null || share.getWithdrawnAt() != null
                 || !circleMemberMapper.isActiveMember(circleId, share.getSharerUserId())
                 || !shareObjectExists(share)) throw shareUnavailable();
-        if (share.getObjectType() != CircleShareObjectType.album) {
+        if (share.getObjectType() != ObjectType.album) {
             throw BusinessException.conflict("SHARE_TYPE_MISMATCH", "该分享不是时光");
         }
         // 2. 查仍在该时光里且未被删除的瞬间，多查一条判断是否还有下一页。
@@ -488,7 +518,12 @@ public class CircleService {
         }
         // 2. 已撤回就直接结束，否则只为当前圈子的这条分享写入撤回时间。
         if (share.getDeletedAt() != null) return;
-        circleShareMapper.withdraw(shareId, utcNow());
+        LocalDateTime now = utcNow();
+        circleShareMapper.withdraw(shareId, now);
+
+        //发布事件：【撤回一个圈子里的一条分享】
+        events.publishEvent(new CircleShareWithdrawnEvent(circleId, shareId, now));
+
         log.info("已写入圈子分享撤回，circleId={}，shareId={}，userId={}", circleId, shareId, userId);
     }
 
@@ -534,14 +569,14 @@ public class CircleService {
             if (candidates.isEmpty()) break;
             var sharers = circleMemberMapper.selectActiveUserIds(circleId,
                     candidates.stream().map(CircleShare::getSharerUserId).distinct().toList());
-            var momentIds = objectIds(candidates, CircleShareObjectType.moment);
-            var albumIds = objectIds(candidates, CircleShareObjectType.album);
+            var momentIds = objectIds(candidates, ObjectType.moment);
+            var albumIds = objectIds(candidates, ObjectType.album);
             Set<UUID> moments = momentIds.isEmpty() ? Set.of() : momentMapper.selectByIds(momentIds)
                     .stream().map(Moment::getId).collect(Collectors.toSet());
             Set<UUID> albums = albumIds.isEmpty() ? Set.of() : albumMapper.selectByIds(albumIds)
                     .stream().map(Album::getId).collect(Collectors.toSet());
             candidates.stream().filter(row -> sharers.contains(row.getSharerUserId()))
-                    .filter(row -> (row.getObjectType() == CircleShareObjectType.moment ? moments : albums)
+                    .filter(row -> (row.getObjectType() == ObjectType.moment ? moments : albums)
                             .contains(row.getObjectId()))
                     .limit(limit - rows.size()).forEach(rows::add);
             if (candidates.size() < batchSize) break;
@@ -561,7 +596,7 @@ public class CircleService {
      * @return 分享者仍是有效成员的分享记录
      */
     private CircleShare requireAccessibleShare(UUID circleId, UUID shareId, UUID userId,
-                                               CircleShareObjectType expectedType) {
+                                               ObjectType expectedType) {
         // 1. 沿用圈子访问规则，先校验空间和查看者，再限定圈子读取分享。
         requireAccessibleCircle(circleId, userId);
         CircleShare share = circleShareMapper.selectHistoryById(circleId, shareId);
@@ -572,7 +607,7 @@ public class CircleService {
         // 2. 有效分享走错类型入口时，沿用共享时光分页的 409 约定。
         if (share.getObjectType() != expectedType) {
             throw BusinessException.conflict("SHARE_TYPE_MISMATCH",
-                    expectedType == CircleShareObjectType.moment ? "该分享不是瞬间" : "该分享不是时光");
+                    expectedType == ObjectType.moment ? "该分享不是瞬间" : "该分享不是时光");
         }
         return share;
     }
@@ -783,7 +818,7 @@ public class CircleService {
     private void requireOwnedObject(CreateCircleSharesRequest request, UUID userId) {
         // 按分享类型查瞬间作者或时光所有者。
         UUID owner;
-        if (request.objectType() == CircleShareObjectType.moment) {
+        if (request.objectType() == ObjectType.moment) {
             Moment moment = momentMapper.selectById(request.objectId());
             if (moment == null) throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在或已删除");
             owner = moment.getAuthorUserId();
@@ -828,8 +863,8 @@ public class CircleService {
         // 1. 分别加载完整瞬间、时光卡片和分享者公开资料。
         if (page.isEmpty()) return List.of();
         // 将当前页面的分享记录按类型拆分瞬间 ID 列表 (momentIds)、时光卡片 ID 列表 (albumIds)
-        List<UUID> momentIds = objectIds(page, CircleShareObjectType.moment);
-        List<UUID> albumIds = objectIds(page, CircleShareObjectType.album);
+        List<UUID> momentIds = objectIds(page, ObjectType.moment);
+        List<UUID> albumIds = objectIds(page, ObjectType.album);
         // 批量加载瞬间详情
         Map<UUID, MomentResponse> momentResponses = momentIds.isEmpty() ? Map.of()
                 : momentService.loadAuthorizedResponses(momentMapper.selectByIds(momentIds)).stream()
@@ -866,8 +901,8 @@ public class CircleService {
         // 去除当前分享记录里的 album（如果是 album）
         CircleSharedAlbumResponse album = albumResponses.get(row.getObjectId());
 
-        boolean isMoment = row.getObjectType() == CircleShareObjectType.moment;
-        boolean isAlbum = row.getObjectType() == CircleShareObjectType.album;
+        boolean isMoment = row.getObjectType() == ObjectType.moment;
+        boolean isAlbum = row.getObjectType() == ObjectType.album;
 
         if ((isMoment && moment == null) || (isAlbum && album == null)) {
             throw shareUnavailable();
@@ -888,7 +923,7 @@ public class CircleService {
     }
 
     /** 取出本页指定类型的原内容 ID，并去掉重复 ID。 */
-    private List<UUID> objectIds(List<CircleShare> page, CircleShareObjectType type) {
+    private List<UUID> objectIds(List<CircleShare> page, ObjectType type) {
         return page.stream().filter(row -> row.getObjectType() == type).map(CircleShare::getObjectId).distinct().toList();
     }
 

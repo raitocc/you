@@ -185,6 +185,24 @@ CREATE TABLE `circle_share` (
     KEY `idx_circle_share_sharer` (`circle_id`, `sharer_user_id`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='圈子分享';
 
+-- 13. 用户信箱
+CREATE TABLE `user_inbox` (
+    `id`                BINARY(16)  NOT NULL COMMENT '信箱动态 ID，UUIDv7',
+    `created_at`        DATETIME(3) NOT NULL COMMENT '创建时间，UTC',
+    `updated_at`        DATETIME(3) NOT NULL COMMENT '最后修改时间，UTC',
+    `recipient_user_id` BINARY(16)  NOT NULL COMMENT '接收者 ID，关联 app_user.id',
+    `actor_user_id`     BINARY(16)  NOT NULL COMMENT '发布或分享者 ID，关联 app_user.id',
+    `source_type`       VARCHAR(16) NOT NULL COMMENT '来源空间类型：gathering 同行，circle 圈子',
+    `source_id`         BINARY(16)  NOT NULL COMMENT '来源同行或圈子的 ID',
+    `object_type`       VARCHAR(16) NOT NULL COMMENT '内容类型：moment 瞬间，album 时光，gathering 同行',
+    `object_id`         BINARY(16)  NOT NULL COMMENT '对应内容 ID',
+    `read_at`           DATETIME(3) NULL COMMENT '已读时间，UTC；为空表示未读',
+    `deleted_at`        DATETIME(3) NULL COMMENT '删除时间，UTC；为空表示未删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_user_inbox_recipient_feed` (`recipient_user_id`, `deleted_at`, `created_at`, `id`),
+    KEY `idx_user_inbox_unread` (`recipient_user_id`, `deleted_at`, `read_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户信箱';
+
 -- 14. 站内通知
 CREATE TABLE `notification` (
     `id`                BINARY(16)   NOT NULL COMMENT '通知 ID，UUIDv7',

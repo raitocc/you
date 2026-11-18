@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.circle.entity.CircleShare;
-import com.you.youbackend.circle.model.CircleShareObjectType;
+import com.you.youbackend.common.enumeration.ObjectType;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.exceptions.PersistenceException;
 import org.apache.ibatis.executor.BatchExecutorException;
@@ -16,7 +16,7 @@ import java.util.*;
 @Mapper
 public interface CircleShareMapper extends BaseMapper<CircleShare> {
     /** 读取指定内容在目标圈子里的分享历史。 */
-    default List<CircleShare> selectHistory(CircleShareObjectType type, UUID objectId, Collection<UUID> ids) {
+    default List<CircleShare> selectHistory(ObjectType type, UUID objectId, Collection<UUID> ids) {
         return selectList(Wrappers.<CircleShare>lambdaQuery().eq(CircleShare::getObjectType, type)
                 .eq(CircleShare::getObjectId, objectId).in(CircleShare::getCircleId, ids));
     }
@@ -60,7 +60,7 @@ public interface CircleShareMapper extends BaseMapper<CircleShare> {
     default List<CircleShare> selectPageCandidates(UUID circleId, LocalDateTime time, UUID id, int limit) {
         return selectList(Wrappers.<CircleShare>lambdaQuery().eq(CircleShare::getCircleId, circleId)
                 .isNull(CircleShare::getWithdrawnAt)
-                .in(CircleShare::getObjectType, CircleShareObjectType.moment, CircleShareObjectType.album)
+                .in(CircleShare::getObjectType, ObjectType.moment, ObjectType.album)
                 .and(time != null, q -> q.lt(CircleShare::getSharedAt, time)
                         .or(tie -> tie.eq(CircleShare::getSharedAt, time).lt(CircleShare::getId, id)))
                 .orderByDesc(CircleShare::getSharedAt, CircleShare::getId).last("LIMIT " + limit));

@@ -16,6 +16,7 @@ import com.you.youbackend.moment.mapper.*;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.service.UserService;
 import com.you.youbackend.user.response.PublicUserResponse;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import tools.jackson.databind.json.JsonMapper;
@@ -38,7 +39,7 @@ class GatheringMomentReadTest {
     final MediaService media = mock(MediaService.class);
     final GatheringService gatherings = mock(GatheringService.class);
     final UserService users = mock(UserService.class);
-    final MomentService service = new MomentService(moments, images, tags, media, gatherings, users);
+    final MomentService service = new MomentService(moments, images, tags, media, gatherings, users, mock(ApplicationEventPublisher.class));
     final UUID viewer = UuidCreator.getTimeOrderedEpoch(), author = UuidCreator.getTimeOrderedEpoch();
     final UUID gatheringId = UuidCreator.getTimeOrderedEpoch();
 

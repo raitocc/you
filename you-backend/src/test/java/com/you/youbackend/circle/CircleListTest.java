@@ -15,6 +15,7 @@ import com.you.youbackend.circle.service.CircleService;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,7 +32,7 @@ class CircleListTest {
     private final MediaService media = mock(MediaService.class);
     private final CircleService service = new CircleService(circles, members, users, media, mock(CircleShareMapper.class),
             mock(MomentMapper.class), mock(AlbumMapper.class),
-            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png");
+            mock(AlbumMomentMapper.class), mock(MomentService.class), mock(AlbumService.class), "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
     private final UUID user = UUID.randomUUID();
 
     @Test void loadsOnlyVisiblePageAvatarsWithoutProfilesOrMemberCounts() {

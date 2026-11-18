@@ -4,6 +4,7 @@ import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.gathering.event.GatheringMomentsLinkedEvent;
 import com.you.youbackend.gathering.model.GatheringMomentCursor;
 import com.you.youbackend.gathering.service.GatheringService;
 import com.you.youbackend.media.service.MediaService;
@@ -23,6 +24,7 @@ import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +59,7 @@ public class MomentService {
     private final MediaService mediaService;
     private final GatheringService gatheringService;
     private final UserService userService;
+    private final ApplicationEventPublisher events;
 
     /**
      * 浏览有效同行成员可读的瞬间时间线，按发生时间和 ID 正序。
@@ -176,6 +179,12 @@ public class MomentService {
         log.info("已写入瞬间，momentId={}，userId={}，gatheringId={}，imageCount={}，tagCount={}",
                 moment.getId(), userId, moment.getGatheringId(), images.size(), savedTags.size());
         PublicUserResponse author = loadAuthors(List.of(moment)).get(moment.getAuthorUserId());
+        // 发布事件：【一个或多个瞬间已加入同行】
+        if (moment.getGatheringId() != null) {
+            events.publishEvent(new GatheringMomentsLinkedEvent(
+                    moment.getGatheringId(), userId, List.of(moment.getId()), savedAt
+            ));
+        }
         return toResponse(moment, images, savedTags, author);
     }
 

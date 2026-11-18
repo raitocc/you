@@ -9,6 +9,7 @@ import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -24,7 +25,7 @@ class MomentDeletionTest {
     private final MomentImageMapper images = mock(MomentImageMapper.class);
     private final MomentTagMapper tags = mock(MomentTagMapper.class);
     private final MediaService media = mock(MediaService.class);
-    private final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class));
+    private final MomentService service = new MomentService(moments, images, tags, media, mock(GatheringService.class), mock(UserService.class), mock(ApplicationEventPublisher.class));
     private final UUID id = UUID.randomUUID();
     private final UUID userId = UUID.randomUUID();
 

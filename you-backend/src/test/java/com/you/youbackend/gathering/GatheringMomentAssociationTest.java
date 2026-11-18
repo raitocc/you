@@ -16,6 +16,7 @@ import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -35,7 +36,7 @@ class GatheringMomentAssociationTest {
     private final GatheringMapper gatherings = mock(GatheringMapper.class);
     private final GatheringMemberMapper members = mock(GatheringMemberMapper.class);
     private final MomentMapper moments = mock(MomentMapper.class);
-    private final GatheringService service = new GatheringService(gatherings, members, mock(UserService.class), moments);
+    private final GatheringService service = new GatheringService(gatherings, members, mock(UserService.class), moments, mock(ApplicationEventPublisher.class));
     private final UUID userId = UuidCreator.getTimeOrderedEpoch();
     private final UUID gatheringId = UuidCreator.getTimeOrderedEpoch();
 

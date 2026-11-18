@@ -17,6 +17,7 @@ import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -38,7 +39,7 @@ class GatheringInvitationTest {
     private final GatheringMemberMapper members = mock(GatheringMemberMapper.class);
     private final UserService users = mock(UserService.class);
     private final MomentMapper moments = mock(MomentMapper.class);
-    private final GatheringService service = new GatheringService(gatherings, members, users, moments);
+    private final GatheringService service = new GatheringService(gatherings, members, users, moments, mock(ApplicationEventPublisher.class));
     private final UUID userId = UuidCreator.getTimeOrderedEpoch();
     private final String inviteCode = "ABCDEFGHIJKLMNOP";
 
