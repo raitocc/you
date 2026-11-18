@@ -5,7 +5,7 @@ import com.you.youbackend.album.request.AddAlbumMomentsRequest;
 import com.you.youbackend.album.request.RemoveAlbumMomentsRequest;
 import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.response.AlbumResponse;
-import com.you.youbackend.album.response.AlbumListItem;
+import com.you.youbackend.album.response.AlbumSummaryResponse;
 import com.you.youbackend.album.model.AlbumListCursor;
 import com.you.youbackend.album.model.AlbumMomentCursor;
 import com.you.youbackend.common.request.PageRequest;
@@ -118,7 +118,7 @@ public class AlbumController {
                     schema = @Schema(type = "string", format = "uuid"))
     })
     @GetMapping
-    public Result<ResultPage<AlbumListItem, AlbumListCursor>> browseAlbums(
+    public Result<ResultPage<AlbumSummaryResponse, AlbumListCursor>> browseAlbums(
             @Parameter(hidden = true) @PageQuery PageRequest<AlbumListCursor> request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         // 以认证上下文限定所有者，委托业务层批量查询卡片及下一页位置。

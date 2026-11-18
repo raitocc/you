@@ -2,6 +2,7 @@ package com.you.youbackend.circle.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.circle.event.CircleContentsSharedEvent;
+import com.you.youbackend.circle.event.CircleDissolvedEvent;
 import com.you.youbackend.circle.event.CircleMemberLeftEvent;
 import com.you.youbackend.circle.event.CircleShareWithdrawnEvent;
 import com.you.youbackend.circle.response.*;
@@ -345,6 +346,13 @@ public class CircleService {
         // 2. 在同一事务结束全部有效成员关系及圈内分享，原内容保留。
         circleMemberMapper.invalidateMemberships(circleId, now);
         circleShareMapper.invalidateCircleShares(circleId, now);
+
+        // 发布事件：【一个圈子已解散】
+        events.publishEvent(new CircleDissolvedEvent(
+                circleId,
+                now
+        ));
+
         log.info("已解散圈子，circleId={}，userId={}", circleId, userId);
     }
 

@@ -32,7 +32,7 @@ public class InboxService {
     private final CircleMemberMapper circleMemberMapper;
 
     /**
-     * 监听事件：一个或多个瞬间已加入同行
+     * 监听事件：一个或多个瞬间已关联到同行
      * 业务方法：将分享到同行的一个或多个瞬间写入 user_inbox：【接收者是同行内的有效成员，包括分享者自己】
      * @param gatheringId 同行 ID
      * @param actorUserId 分享者用户 ID
@@ -82,7 +82,7 @@ public class InboxService {
     }
 
     /**
-     * 监听事件：一个或多个瞬间已从同行中移出
+     * 监听事件：一个或多个瞬间已从同行移出
      * 业务方法：将一个或多个瞬间在信箱 user_inbox 里的记录标记为失效，delete_at
      * @param gatheringId 同行 ID
      * @param momentIds 瞬间 ID 列表
@@ -99,7 +99,7 @@ public class InboxService {
     }
 
     /**
-     * 监听事件：一条瞬间或时光分享到一个或多个圈子
+     * 监听事件：一个瞬间或时光已分享到一个或多个圈子
      * 业务方法：将分享到圈子的一个瞬间或时光写入 user_inbox：【接收者是圈子内的有效成员，包括分享者自己】
      * @param actorUserId 分享者用户 ID
      * @param contents 圈子的一条分享对象 CircleSharedContent 的列表
@@ -180,20 +180,50 @@ public class InboxService {
     }
 
     /**
-     * 相关事件：一名成员已退出同行、一名成员离开圈子或被圈子移除
-     * 业务方法：把离开、被移除的成员（圈子、同行）在信箱发送的记录标记为失效
+     * 相关事件：一名成员已退出同行、一名成员已退出圈子或被移除
+     * 业务方法：将该成员在指定空间发送或收到的 user_inbox 记录标记为失效
      * @param sourceType 来源类型，同行或圈子
      * @param sourceId 来源 ID，同行或圈子的 ID
-     * @param actorUserId 分享者用户 ID
+     * @param userId 离开、被移除的成员用户 ID
      * @param leftAt 离开、移除时间
      */
-    public void invalidateActorContents(
+    public void invalidateMemberContents(
             SourceType sourceType,
             UUID sourceId,
-            UUID actorUserId,
+            UUID userId,
             LocalDateTime leftAt
     ) {
-        inboxMapper.invalidateActorContents(sourceType, sourceId, actorUserId, leftAt);
+        inboxMapper.invalidateMemberContents(sourceType, sourceId, userId, leftAt);
+    }
+
+    /**
+     * 相关事件：一个同行已解散、一个圈子已解散
+     * 业务方法：将指定空间产生的所有 user_inbox 记录标记为失效
+     * @param sourceType 来源类型，同行或圈子
+     * @param sourceId 来源 ID，同行或圈子的 ID
+     * @param dissolvedAt 解散时间
+     */
+    public void invalidateSourceContents(
+            SourceType sourceType,
+            UUID sourceId,
+            LocalDateTime dissolvedAt
+    ) {
+        inboxMapper.invalidateSourceContents(sourceType, sourceId, dissolvedAt);
+    }
+
+    /**
+     * 相关事件：一个瞬间已删除、一个时光已删除
+     * 业务方法：将指定内容在所有来源产生的 user_inbox 记录标记为失效
+     * @param objectType 内容类型，瞬间或时光
+     * @param objectId 内容 ID，瞬间或时光的 ID
+     * @param deletedAt 删除时间
+     */
+    public void invalidateObjectContents(
+            ObjectType objectType,
+            UUID objectId,
+            LocalDateTime deletedAt
+    ) {
+        inboxMapper.invalidateObjectContents(objectType, objectId, deletedAt);
     }
 
     /**
@@ -218,4 +248,6 @@ public class InboxService {
                 .sharedAt(content.sharedAt())
                 .build();
     }
+
+
 }

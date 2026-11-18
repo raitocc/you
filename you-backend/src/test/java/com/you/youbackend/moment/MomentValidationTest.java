@@ -6,6 +6,7 @@ import com.you.youbackend.moment.controller.MomentController;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.service.MomentService;
+import com.you.youbackend.moment.service.RelatedFeedService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
@@ -39,7 +40,7 @@ class MomentValidationTest {
 
     @BeforeEach
     void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new MomentController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new MomentController(service, mock(RelatedFeedService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
     @AfterAll

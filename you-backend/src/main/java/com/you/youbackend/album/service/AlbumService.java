@@ -3,6 +3,7 @@ package com.you.youbackend.album.service;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.album.entity.Album;
 import com.you.youbackend.album.entity.AlbumMoment;
+import com.you.youbackend.album.event.AlbumDeletedEvent;
 import com.you.youbackend.album.mapper.AlbumMapper;
 import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.album.model.AlbumOrganizeMode;
@@ -11,7 +12,7 @@ import com.you.youbackend.album.request.AddAlbumMomentsRequest;
 import com.you.youbackend.album.request.RemoveAlbumMomentsRequest;
 import com.you.youbackend.album.request.UpdateAlbumRequest;
 import com.you.youbackend.album.response.AlbumResponse;
-import com.you.youbackend.album.response.AlbumListItem;
+import com.you.youbackend.album.response.AlbumSummaryResponse;
 import com.you.youbackend.album.model.AlbumListCursor;
 import com.you.youbackend.album.model.AlbumMomentCursor;
 import com.you.youbackend.album.model.AlbumMomentCount;
@@ -25,6 +26,7 @@ import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,10 +35,7 @@ import java.time.Instant;
 import java.time.DateTimeException;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
-import java.util.UUID;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /** 时光创建、信息维护、删除及访问权限查询。 */
@@ -49,6 +48,7 @@ public class AlbumService {
     private final MomentMapper momentMapper;
     private final MediaService mediaService;
     private final MomentService momentService;
+    private final ApplicationEventPublisher events;
 
     /**
      * 整批校验后新增、保留或恢复关联，关联及修改时间在同一事务中保存。
@@ -131,6 +131,13 @@ public class AlbumService {
         LocalDateTime deletedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
         albumMapper.softDelete(albumId, deletedAt);
         albumMomentMapper.removeAssociations(albumId, deletedAt);
+
+        // 发布事件：【一个时光已删除】
+        events.publishEvent(new AlbumDeletedEvent(
+                albumId,
+                deletedAt
+        ));
+
         log.info("已写入时光删除及关联移除，albumId={}，userId={}", albumId, userId);
     }
 
@@ -141,7 +148,7 @@ public class AlbumService {
      * @return 卡片及结构化游标，末页和空页的 nextCursor 为 null
      */
     @Transactional(readOnly = true)
-    public ResultPage<AlbumListItem, AlbumListCursor> browseAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
+    public ResultPage<AlbumSummaryResponse, AlbumListCursor> browseAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
         // 1. 按结构化边界读取页大小加一条时光，额外记录只用于判断下一页。
         List<Album> rows = queryAlbums(userId, request);
         if (rows.isEmpty()) {
@@ -151,7 +158,7 @@ public class AlbumService {
         boolean hasMore = rows.size() > request.limit();
         List<Album> page = rows.subList(0, Math.min(rows.size(), request.limit()));
         // 2. 仅为实际返回的本页时光批量统计有效瞬间和查询封面文件。
-        List<AlbumListItem> items = loadAlbumItems(page, userId);
+        List<AlbumSummaryResponse> items = loadAlbumItems(page);
         // 3. 用最后一条实际返回记录生成下一页位置，空时光和失效封面不影响分页。
         Album last = page.get(page.size() - 1);
         AlbumListCursor next = hasMore ? new AlbumListCursor(last.getCreatedAt().toInstant(ZoneOffset.UTC), last.getId()) : null;
@@ -351,22 +358,42 @@ public class AlbumService {
 
     /**
      * 批量加载本页卡片所需数量和封面，保持原分页顺序。
-     * @param page 实际返回的非空完整时光列表，已按当前用户筛选
-     * @param userId 当前所有者 ID
-     * @return 空时光数量补 0、失效封面 URL 为 null 的卡片列表
      */
-    private List<AlbumListItem> loadAlbumItems(List<Album> page, UUID userId) {
-        // 1. 一次统计本页全部有效本人瞬间数量，避免逐个时光查库。
-        Map<UUID, Long> counts = albumMomentMapper.countValidMomentsByAlbum(
-                page.stream().map(Album::getId).toList(), userId).stream()
-                .collect(Collectors.toMap(AlbumMomentCount::albumId, AlbumMomentCount::momentCount));
-        // 2. 合并非空封面 ID 后批量校验文件，未就绪、非本人和已删除文件不会返回对象键。
-        Map<UUID, String> coverKeys = mediaService.findOwnedImageKeys(userId,
-                page.stream().map(Album::getCoverFileId).filter(Objects::nonNull).distinct().toList());
-        // 3. 按原顺序组装卡片；没有统计行的空时光补 0。
-        return page.stream().map(album -> toListItem(album,
-                album.getCoverFileId() == null ? null : coverKeys.get(album.getCoverFileId()),
-                counts.getOrDefault(album.getId(), 0L))).toList();
+    public List<AlbumSummaryResponse> loadAlbumItems(List<Album> page) {
+        Map<UUID, List<Album>> albumsByOwner = page.stream()
+                .collect(Collectors.groupingBy(Album::getOwnerUserId));
+        Map<UUID, AlbumSummaryResponse> summariesById = new HashMap<>();
+
+        albumsByOwner.forEach((ownerId, albums) -> {
+            List<UUID> albumIds = albums.stream().map(Album::getId).toList();
+            Map<UUID, Long> counts = albumMomentMapper
+                    .countValidMomentsByAlbum(albumIds, ownerId)
+                    .stream()
+                    .collect(Collectors.toMap(
+                            AlbumMomentCount::albumId,
+                            AlbumMomentCount::momentCount
+                    ));
+
+            List<UUID> coverIds = albums.stream()
+                    .map(Album::getCoverFileId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            Map<UUID, String> coverKeys = coverIds.isEmpty()
+                    ? Map.of()
+                    : mediaService.findOwnedImageKeys(ownerId, coverIds);
+
+            for (Album album : albums) {
+                UUID coverId = album.getCoverFileId();
+                String coverKey = coverId == null ? null : coverKeys.get(coverId);
+                long momentCount = counts.getOrDefault(album.getId(), 0L);
+                summariesById.put(album.getId(), toListItem(album, coverKey, momentCount));
+            }
+        });
+
+        return page.stream()
+                .map(album -> summariesById.get(album.getId()))
+                .toList();
     }
 
     /**
@@ -376,10 +403,10 @@ public class AlbumService {
      * @param momentCount 有效本人瞬间数量，统计缺失由调用方补 0
      * @return 附带封面签名 URL 和 UTC 时间的卡片
      */
-    private AlbumListItem toListItem(Album album, String coverKey, long momentCount) {
+    private AlbumSummaryResponse toListItem(Album album, String coverKey, long momentCount) {
         // 有效封面按当前媒体规则签名，无封面或失效时返回 null，时间统一转换为 UTC。
         String coverUrl = coverKey == null ? null : mediaService.createReadUrl(coverKey);
-        return new AlbumListItem(album.getId(), album.getName(), coverUrl, momentCount, album.getOrganizeMode(),
+        return new AlbumSummaryResponse(album.getId(), album.getName(), coverUrl, momentCount, album.getOrganizeMode(),
                 album.getCreatedAt().toInstant(ZoneOffset.UTC), album.getUpdatedAt().toInstant(ZoneOffset.UTC));
     }
 

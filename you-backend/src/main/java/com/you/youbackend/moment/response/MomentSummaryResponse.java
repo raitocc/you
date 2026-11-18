@@ -21,27 +21,27 @@ import java.util.UUID;
  */
 @Schema(description = "瞬间卡片摘要")
 public record MomentSummaryResponse(
-        @Schema(description = "瞬间 UUIDv7", format = "uuid")
+        @Schema(description = "瞬间 ID", format = "uuid")
         UUID id,
 
-        @Schema(description = "标题，未设置时为 null", nullable = true)
+        @Schema(description = "瞬间标题", nullable = true)
         String title,
 
-        @Schema(description = "正文开头最多 100 个 Unicode 码点，正文为空时为 null", maxLength = 100, nullable = true)
+        @Schema(description = "瞬间正文预览", maxLength = 100, nullable = true)
         String bodyPreview,
 
-        @Schema(description = "首张有效图片的临时读取地址，有效期 10 分钟；无有效图片时为 null", format = "uri", nullable = true)
+        @Schema(description = "瞬间封面 url", format = "uri", nullable = true)
         String coverUrl,
 
-        @Schema(description = "当前有效图片数量", minimum = "0")
+        @Schema(description = "瞬间有效图片数量", minimum = "0")
         int imageCount,
 
-        @Schema(description = "心情，使用英文枚举名称，未设置时为 null", example = "HAPPY", nullable = true)
+        @Schema(description = "瞬间心情", example = "HAPPY", nullable = true)
         MomentMood mood,
 
-        @Schema(description = "经历实际发生时间，UTC", format = "date-time", example = "2026-01-01T00:00:00Z")
+        @Schema(description = "瞬间实际发生时间", format = "date-time", example = "2026-01-01T00:00:00Z")
         Instant memoryTime,
 
-        @Schema(description = "作者公开资料，查不到时为 null", nullable = true)
+        @Schema(description = "瞬间作者公开资料", nullable = true)
         PublicUserResponse author
 ) {}

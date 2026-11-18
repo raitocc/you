@@ -18,6 +18,7 @@ import com.you.youbackend.moment.service.MomentService;
 import org.junit.jupiter.api.Test;
 import com.you.youbackend.common.request.PageQueryArgumentResolver;
 import tools.jackson.databind.json.JsonMapper;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -46,7 +47,8 @@ class AlbumPaginationTest {
     private final MomentMapper moments = mock(MomentMapper.class);
     private final MediaService media = mock(MediaService.class);
     private final MomentService details = mock(MomentService.class);
-    private final AlbumService service = new AlbumService(albums, associations, moments, media, details);
+    private final AlbumService service = new AlbumService(albums, associations, moments, media, details,
+            mock(ApplicationEventPublisher.class));
 
     @Test
     void firstPagesDefaultTo20AndReturnStructuredCursor() throws Exception {

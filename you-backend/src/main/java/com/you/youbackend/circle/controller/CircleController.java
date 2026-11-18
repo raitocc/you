@@ -240,9 +240,9 @@ public class CircleController {
         return Result.ok(service.browseShares(circleId, userId, request));
     }
 
-    /** 查看当前圈子直接分享的瞬间，访问资格由圈子分享业务校验。 */
+    /** 查看圈子分享的瞬间详情 */
     @GetMapping("/{circleId}/shares/{shareId}/moment")
-    @Operation(summary = "查看圈子直接分享的瞬间", operationId = "getCircleSharedMoment")
+    @Operation(summary = "查看圈子分享的瞬间详情", operationId = "getCircleSharedMoment")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享或瞬间不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是瞬间")
@@ -256,9 +256,9 @@ public class CircleController {
         return Result.ok(service.getSharedMoment(circleId, shareId, userId));
     }
 
-    /** 查看当前圈子分享的时光信息，内部瞬间通过既有分页接口读取。 */
+    /** 查看圈子分享的时光详情 */
     @GetMapping("/{circleId}/shares/{shareId}/album")
-    @Operation(summary = "查看圈子分享的时光信息", operationId = "getCircleSharedAlbum")
+    @Operation(summary = "查看圈子分享的时光详情", operationId = "getCircleSharedAlbum")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享或时光不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是时光")
@@ -272,7 +272,7 @@ public class CircleController {
         return Result.ok(service.getSharedAlbum(circleId, shareId, userId));
     }
 
-    /** 查看圈子共享时光内的一个瞬间，同时校验分享与时光关联。 */
+    /** 查看圈子分享时光内的瞬间详情 */
     @GetMapping("/{circleId}/shares/{shareId}/moments/{momentId}")
     @Operation(summary = "查看圈子分享时光内的瞬间详情", operationId = "getCircleSharedAlbumMoment")
     @ApiResponse(responseCode = "200", description = "查询成功")

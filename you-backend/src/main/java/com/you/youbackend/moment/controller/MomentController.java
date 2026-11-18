@@ -6,11 +6,14 @@ import com.you.youbackend.common.response.Result;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.moment.model.MomentFeedCursor;
+import com.you.youbackend.moment.model.RelatedFeedCursor;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.response.MomentResponse;
 import com.you.youbackend.moment.response.MomentSummaryResponse;
+import com.you.youbackend.moment.response.RelatedFeedResponse;
 import com.you.youbackend.moment.service.MomentService;
+import com.you.youbackend.moment.service.RelatedFeedService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -36,6 +39,8 @@ import java.util.UUID;
 public class MomentController {
 
     private final MomentService momentService;
+
+    private final RelatedFeedService relatedFeedService;
 
     /**
      * 浏览本人瞬间，首屏省略游标，后续将 nextCursor 展开为 cursor.字段名 查询参数。
@@ -134,5 +139,51 @@ public class MomentController {
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
 
         return Result.ok(momentService.createMoment(request, userId));
+    }
+
+    /**
+     * 浏览与你有关的动态流
+     */
+    @Operation(summary = "浏览与你有关的动态流", operationId = "getMomentRelated")
+    @ApiResponse(responseCode = "200", description = "查询成功")
+    @ApiResponse(responseCode = "400", description = "分页参数无效")
+    @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
+    @Parameters({
+            @Parameter(
+                    name = "limit",
+                    in = ParameterIn.QUERY,
+                    description = "每页数量，默认 20",
+                    schema = @Schema(
+                            type = "integer",
+                            defaultValue = "20",
+                            minimum = "1",
+                            maximum = "100"
+                    )
+            ),
+            @Parameter(
+                    name = "cursor.sharedAt",
+                    in = ParameterIn.QUERY,
+                    description = "上一页最后一条动态的分享时间，首屏省略",
+                    schema = @Schema(type = "string", format = "date-time")
+            ),
+            @Parameter(
+                    name = "cursor.id",
+                    in = ParameterIn.QUERY,
+                    description = "同一条信箱动态的 ID，与游标时间成组提供",
+                    schema = @Schema(type = "string", format = "uuid")
+            )
+    })
+    @GetMapping("/related")
+    public Result<ResultPage<RelatedFeedResponse, RelatedFeedCursor>> browseRelated(
+            // 分页请求
+            @Parameter(hidden = true)
+            @PageQuery
+            PageRequest<RelatedFeedCursor> request,
+
+            // 用户 ID
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId
+    ) {
+        return Result.ok(relatedFeedService.browseRelated(userId, request));
     }
 }

@@ -50,17 +50,44 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
     }
 
     /**
-     * 成员离开空间（圈子、同行）后，将其在 user_inbox 的分享记录全都标记为失效
+     * 成员离开空间（圈子、同行）后，将其在该空间发送或收到的 user_inbox 记录标记为失效
      * @param sourceType 来源类型，同行或圈子
      * @param sourceId 来源 ID，同行或圈子的 ID
-     * @param actorUserId 发布者用户 ID
-     * @param leftAt 离开时间
+     * @param userId 离开、被移除的成员用户 ID
+     * @param leftAt 离开、移除时间
      */
-    default void invalidateActorContents(SourceType sourceType, UUID sourceId, UUID actorUserId, LocalDateTime leftAt) {
+    default void invalidateMemberContents(SourceType sourceType, UUID sourceId, UUID userId, LocalDateTime leftAt) {
         update(invalidation(leftAt)
-                .eq(UserInbox::getSourceType,sourceType)
-                .eq(UserInbox::getSourceId,sourceId)
-                .eq(UserInbox::getActorUserId,actorUserId));
+                .eq(UserInbox::getSourceType, sourceType)
+                .eq(UserInbox::getSourceId, sourceId)
+                .and(wrapper -> wrapper
+                        .eq(UserInbox::getActorUserId, userId)
+                        .or()
+                        .eq(UserInbox::getRecipientUserId, userId)));
+    }
+
+    /**
+     * 空间（圈子、同行）解散后，将该空间产生的所有 user_inbox 记录标记为失效
+     * @param sourceType 来源类型，同行或圈子
+     * @param sourceId 来源 ID，同行或圈子的 ID
+     * @param dissolvedAt 解散时间
+     */
+    default void invalidateSourceContents(SourceType sourceType, UUID sourceId, LocalDateTime dissolvedAt) {
+        update(invalidation(dissolvedAt)
+                .eq(UserInbox::getSourceType, sourceType)
+                .eq(UserInbox::getSourceId, sourceId));
+    }
+
+    /**
+     * 原内容（瞬间、时光）删除后，将该内容在所有来源产生的 user_inbox 记录标记为失效
+     * @param objectType 内容类型，瞬间或时光
+     * @param objectId 内容 ID，瞬间或时光的 ID
+     * @param deletedAt 删除时间
+     */
+    default void invalidateObjectContents(ObjectType objectType, UUID objectId, LocalDateTime deletedAt) {
+        update(invalidation(deletedAt)
+                .eq(UserInbox::getObjectType, objectType)
+                .eq(UserInbox::getObjectId, objectId));
     }
 
     /**
@@ -72,4 +99,5 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
                 .set(UserInbox::getDeletedAt, time)
                 .set(UserInbox::getUpdatedAt, time);
     }
+
 }

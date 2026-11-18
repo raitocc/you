@@ -7,6 +7,7 @@ import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.common.util.InviteCodeGenerator;
 import com.you.youbackend.gathering.entity.Gathering;
 import com.you.youbackend.gathering.entity.GatheringMember;
+import com.you.youbackend.gathering.event.GatheringDissolvedEvent;
 import com.you.youbackend.gathering.event.GatheringMemberLeftEvent;
 import com.you.youbackend.gathering.event.GatheringMomentsLinkedEvent;
 import com.you.youbackend.gathering.event.GatheringMomentsUnlinkedEvent;
@@ -133,6 +134,13 @@ public class GatheringService {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
         gatheringMapper.dissolveGathering(gatheringId, now);
         int removed = momentMapper.removeAllGathering(gatheringId, now);
+
+        // 发布事件：【一个同行已解散】
+        events.publishEvent(new GatheringDissolvedEvent(
+                gatheringId,
+                now
+        ));
+
         log.info("已写入同行解散，gatheringId={}，userId={}，removedMomentCount={}", gatheringId, userId, removed);
     }
 

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.you.youbackend.moment.mapper.RelatedFeedMapper">
+
+    <select id="selectPage" resultType="com.you.youbackend.moment.model.RelatedFeedRow">
+        WITH ranked AS (
+        SELECT id, shared_at, actor_user_id, object_type, object_id,
+        ROW_NUMBER() OVER (
+        PARTITION BY object_type, object_id
+        ORDER BY shared_at DESC, id DESC
+        ) AS rn
+        FROM user_inbox
+        WHERE recipient_user_id = #{userId}
+        AND deleted_at IS NULL
+        )
+        SELECT id, shared_at, actor_user_id, object_type, object_id
+        FROM ranked
+        WHERE rn = 1
+        <if test="sharedAt != null">
+            AND (
+            shared_at &lt; #{sharedAt}
+            OR (shared_at = #{sharedAt} AND id &lt; #{id})
+            )
+        </if>
+        ORDER BY shared_at DESC, id DESC
+        LIMIT #{rowCount}
+    </select>
+
+</mapper>

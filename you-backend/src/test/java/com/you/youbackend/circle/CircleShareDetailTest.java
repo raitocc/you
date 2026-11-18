@@ -58,7 +58,8 @@ class CircleShareDetailTest {
     private final UserService users = mock(UserService.class);
     private final MomentService momentService = new MomentService(moments, images, tags, media,
             mock(GatheringService.class), users, mock(ApplicationEventPublisher.class));
-    private final AlbumService albumService = new AlbumService(albums, links, moments, media, momentService);
+    private final AlbumService albumService = new AlbumService(albums, links, moments, media, momentService,
+            mock(ApplicationEventPublisher.class));
     private final CircleService service = new CircleService(circles, members, users, media, shares, moments,
             albums, links, momentService, albumService, "defaults/circle-avatar.png", mock(ApplicationEventPublisher.class));
     private final UUID circleId = id(), shareId = id(), viewer = id(), owner = id();

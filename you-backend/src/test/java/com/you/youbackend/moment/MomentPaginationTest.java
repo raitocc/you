@@ -14,6 +14,7 @@ import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.service.MomentService;
+import com.you.youbackend.moment.service.RelatedFeedService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
 import com.you.youbackend.user.service.UserService;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,7 +47,7 @@ class MomentPaginationTest {
 
     @BeforeEach
     void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new MomentController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new MomentController(service, mock(RelatedFeedService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new PageQueryArgumentResolver(new JsonMapper())).build();
     }

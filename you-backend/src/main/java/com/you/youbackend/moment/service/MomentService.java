@@ -11,15 +11,18 @@ import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.entity.MomentImage;
 import com.you.youbackend.moment.entity.MomentTag;
+import com.you.youbackend.moment.event.MomentDeletedEvent;
 import com.you.youbackend.moment.mapper.MomentImageMapper;
 import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.model.MomentLocation;
+import com.you.youbackend.moment.model.RelatedFeedCursor;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
 import com.you.youbackend.moment.response.MomentResponse;
 import com.you.youbackend.moment.response.MomentSummaryResponse;
+import com.you.youbackend.moment.response.RelatedFeedResponse;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -259,6 +262,13 @@ public class MomentService {
         momentMapper.softDelete(id, deletedAt);
         momentImageMapper.removeAssociations(id, deletedAt);
         momentTagMapper.removeAssociations(id, deletedAt);
+
+        // 发布事件：【一个瞬间已删除】
+        events.publishEvent(new MomentDeletedEvent(
+                id,
+                deletedAt
+        ));
+
         log.info("已删除瞬间，momentId={}，userId={}", id, userId);
     }
 
@@ -301,7 +311,7 @@ public class MomentService {
     }
 
     /** 为已授权的摘要投影批量加载图片与作者，空页直接结束，保持输入顺序。 */
-    private List<MomentSummaryResponse> loadSummaries(List<Moment> page) {
+    public List<MomentSummaryResponse> loadSummaries(List<Moment> page) {
         // 只处理返回页，额外记录不查询图片和作者资料。
         if (page.isEmpty()) {
             return List.of();
@@ -746,6 +756,4 @@ public class MomentService {
         tag.setUpdatedAt(savedAt);
         return tag;
     }
-
-
 }
