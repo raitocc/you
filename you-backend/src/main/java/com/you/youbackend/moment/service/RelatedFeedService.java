@@ -101,7 +101,7 @@ public class RelatedFeedService {
         // 3.组装 RelatedFeedResponse 对象列表
         // 通过时光服务，把 Album 对象组装为 AlbumSummaryResponse 对象，建立 Map(时光 ID：时光概要) 的映射
         Map<UUID, AlbumSummaryResponse> albumSummaries =
-                albumService.loadAlbumItems(albums).stream()
+                albumService.loadSummaries(albums).stream()
                         .collect(Collectors.toMap(
                                 AlbumSummaryResponse::id, Function.identity() // 表示对象本身
                         ));
@@ -129,14 +129,18 @@ public class RelatedFeedService {
             );
         }
         return new ResultPage<>(items, nextCursor, hasMore);
-
     }
 
     /**
-     * 辅助方法：获取对应 Type(瞬间、时光) 的对象 ID 列表
-     * @param page 分页查询页数据
-     * @param objectType 对象类型：【瞬间、时光】
-     * @return 对象 ID 列表
+     * 辅助方法：从分页列表里挑出指定类型（如瞬间、时光）的数据，提取并返回它们的 ID 列表。
+     *
+     * 异常与注意：
+     * 1. 入参 page 不能为 null，否则直接抛 NullPointerException；objectType 为 null 时只会过滤不出结果，不会报错。
+     * 2. 纯查询方法，无任何副作用（不会修改原列表），也不会返回 null（没匹配到就返回空列表）。
+     *
+     * @param page       分页查询出来的原始列表（不能为 null）
+     * @param objectType 想要筛选的类型（如：瞬间、时光）
+     * @return           匹配到的对象 ID 列表（非 null）
      */
     private List<UUID> contentIds(List<RelatedFeedRow> page, ObjectType objectType) {
         return page.stream()
@@ -144,4 +148,6 @@ public class RelatedFeedService {
                 .map(RelatedFeedRow::getObjectId)
                 .toList();
     }
+
+
 }

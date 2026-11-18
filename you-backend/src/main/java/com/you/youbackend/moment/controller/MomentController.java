@@ -31,8 +31,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-@SecurityRequirement(name = "bearerAuth")
+
 @Tag(name = "瞬间")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/moments")
 @RequiredArgsConstructor
@@ -152,7 +153,7 @@ public class MomentController {
             @Parameter(
                     name = "limit",
                     in = ParameterIn.QUERY,
-                    description = "每页数量，默认 20",
+                    description = "每页数量",
                     schema = @Schema(
                             type = "integer",
                             defaultValue = "20",
@@ -163,13 +164,13 @@ public class MomentController {
             @Parameter(
                     name = "cursor.sharedAt",
                     in = ParameterIn.QUERY,
-                    description = "上一页最后一条动态的分享时间，首屏省略",
+                    description = "上一页最后一条动态的分享时间",
                     schema = @Schema(type = "string", format = "date-time")
             ),
             @Parameter(
                     name = "cursor.id",
                     in = ParameterIn.QUERY,
-                    description = "同一条信箱动态的 ID，与游标时间成组提供",
+                    description = "同一条信箱动态的 ID",
                     schema = @Schema(type = "string", format = "uuid")
             )
     })
@@ -186,4 +187,5 @@ public class MomentController {
     ) {
         return Result.ok(relatedFeedService.browseRelated(userId, request));
     }
+
 }

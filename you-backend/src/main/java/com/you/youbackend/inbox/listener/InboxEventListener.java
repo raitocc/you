@@ -28,7 +28,7 @@ public class InboxEventListener {
 
     /**
      * 监听事件：一个或多个瞬间已关联到同行
-     * 业务方法：业务方法：将分享到同行的一个或多个瞬间写入 user_inbox：【接收者是同行内的有效成员，包括分享者自己】
+     * 业务方法：将分享到同行的一个或多个瞬间写入 user_inbox 表里：【接收者是同行内的有效成员，包括分享者自己】
      */
     @EventListener
     public void onGatheringMomentsLinked(GatheringMomentsLinkedEvent event) {

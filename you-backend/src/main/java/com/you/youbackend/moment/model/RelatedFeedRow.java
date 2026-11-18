@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
+@Schema(description = "与你有关的一条 user_inbox 数据查询对象")
 public class RelatedFeedRow {
         /**
          * 信箱 ID：【user_inbox 的 id】

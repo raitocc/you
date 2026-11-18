@@ -11,6 +11,7 @@ import com.you.youbackend.inbox.entity.UserInbox;
 import com.you.youbackend.inbox.mapper.InboxMapper;
 import com.you.youbackend.inbox.model.DeliveryContent;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY) // 使用强制事务：事务方法必须被事务方法调用
@@ -46,6 +48,7 @@ public class InboxService {
             LocalDateTime sharedAt
     ) {
         if (momentIds == null || momentIds.isEmpty()) {
+            log.warn("传入瞬间列表为空");
             return;
         }
 

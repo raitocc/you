@@ -158,7 +158,7 @@ public class AlbumService {
         boolean hasMore = rows.size() > request.limit();
         List<Album> page = rows.subList(0, Math.min(rows.size(), request.limit()));
         // 2. 仅为实际返回的本页时光批量统计有效瞬间和查询封面文件。
-        List<AlbumSummaryResponse> items = loadAlbumItems(page);
+        List<AlbumSummaryResponse> items = loadSummaries(page);
         // 3. 用最后一条实际返回记录生成下一页位置，空时光和失效封面不影响分页。
         Album last = page.get(page.size() - 1);
         AlbumListCursor next = hasMore ? new AlbumListCursor(last.getCreatedAt().toInstant(ZoneOffset.UTC), last.getId()) : null;
@@ -359,7 +359,7 @@ public class AlbumService {
     /**
      * 批量加载本页卡片所需数量和封面，保持原分页顺序。
      */
-    public List<AlbumSummaryResponse> loadAlbumItems(List<Album> page) {
+    public List<AlbumSummaryResponse> loadSummaries(List<Album> page) {
         Map<UUID, List<Album>> albumsByOwner = page.stream()
                 .collect(Collectors.groupingBy(Album::getOwnerUserId));
         Map<UUID, AlbumSummaryResponse> summariesById = new HashMap<>();
