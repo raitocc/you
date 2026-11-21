@@ -2,59 +2,75 @@
 
 ## 系统架构
 
-系统由客户端、服务端、数据存储和外部能力组成。服务端所有业务运行在同一个 Spring Boot 应用中，整体构建、整体部署。
+系统由客户端、服务端、数据存储和外部能力组成，如下面系统架构图。
 
 ```mermaid
 flowchart TB
-    USER[用户] --> FLUTTER[Flutter 客户端]
-    FLUTTER -->|HTTPS / REST JSON| ENTRY[HTTPS 入口]
-
-    subgraph SERVER[YOU Spring Boot 单体应用]
-        API[Controller 接口层]
-        SERVICE[Service 业务层]
-        MAPPER[MyBatis 数据访问层]
-
-        API --> SERVICE
-        SERVICE --> MAPPER
-
-        SERVICE --- BUSINESS[瞬间 / 时光 / 同行 / 圈子]
-        SERVICE --- COMMON[账号 / 评论 / 搜索 / 消息 / AI]
-        SERVICE --- SUPPORT[权限校验 / 持久任务 / 文件管理]
+    subgraph Client["Flutter 客户端"]
+        App["app"]
+        UI["UI ViewModel"]
+        Repo["Repository"]
+        Core["core"]
+        Local["本地存储"]
+        App --> UI --> Repo
+        Repo --> Core
+        Core --> Local
     end
 
-    ENTRY --> API
-    MAPPER --> MYSQL[(MySQL)]
-    SERVICE --> STORAGE[私有对象存储]
-    SERVICE --> AI[外部 AI 模型服务]
-    SERVICE --> VERIFY[账号验证通道]
-    SERVER --> OBS[日志 / 监控 / 告警]
+    subgraph Backend["Spring Boot"]
+        Auth["JWT"]
+        Controller["Controller"]
+        Business["Service：用户、媒体、瞬间、时光、同行、圈子"]
+        Inbox["Inbox"]
+        Mapper["MyBatis-Plus / Mapper XML"]
+        Consumer["媒体上传事件消费者"]
+        Auth --> Controller --> Business
+        Business --> Mapper
+        Business -->|"Spring 进程内事件"| Inbox
+        Inbox --> Mapper
+        Consumer --> Business
+    end
+
+    DB[("MySQL：业务数据")]
+    Redis[("Redis")]
+    S3["RustFS：S3 对象存储"]
+    MQ["RabbitMQ：对象上传事件"]
+
+    Core -->|"HTTP JSON / Bearer Token"| Auth
+    Repo -->|"预签名 URL：PUT 上传 / GET 访问"| S3
+    Business --> Redis
+    Business -->|"签名、对象检查"| S3
+    Mapper --> DB
+    S3 -->|"上传完成通知"| MQ
+    MQ --> Consumer
 ```
 
 
 
-对象存储用于保存图片，MySQL 保存业务数据和文件元数据。AI 服务通过适配器接入，邮件或短信通道根据账号验证流程选择。
+## 业务模块
 
 业务模块划分如下：
 
 | 业务模块       | 主要职责                                               |
 | -------------- | ------------------------------------------------------ |
-| 账号与用户     | 注册、登录、退出、账号找回、个人资料                   |
+| 用户           | 注册、登录、退出、账号找回、个人资料                   |
 | 瞬间           | 图文发布、编辑、删除、标签、参与人员、关联及分享       |
 | 时光           | 手动与 AI 整理、条件整理、自动更新、时间线、分享和回顾 |
 | 同行           | 创建、加入、邀请、成员管理、状态与瞬间关联             |
-| 圈子           | 成员管理、内容分享、发起同行、整理与问答               |
+| 圈子           | 创建、加入、邀请、成员管理、内容分享                   |
 | 评论           | 评论发布、读取和删除                                   |
 | 搜索           | 关键词、组合条件、自然语言与语义搜索                   |
 | 消息           | 动态信箱、通知、已读状态                               |
 | AI             | 辅助填写、整理、回顾、问答、建议确认与任务管理         |
 | 隐私与数据管理 | 权限设置、数据导出、账号注销与清理                     |
 
+
+
 ## 技术架构
 
 | 类别       | 选型                                    | 用途                       |
 | ---------- | --------------------------------------- | -------------------------- |
 | 前端框架   | Flutter / Dart                          | Android、iOS 客户端        |
-| 前端组织   | View + ViewModel + Repository           | 分离界面、状态与数据访问   |
 | 状态管理   | Riverpod                                | 页面状态与依赖管理         |
 | 路由       | go_router                               | 页面导航与登录跳转         |
 | 网络请求   | Dio                                     | HTTP 请求、超时与认证处理  |
@@ -66,88 +82,92 @@ flowchart TB
 | 参数校验   | Bean Validation                         | 请求字段校验               |
 | 数据访问   | MyBatis Plus + HikariCP                 | SQL 映射与连接池           |
 | 数据库     | MySQL                                   | 业务数据与本地事务         |
-| 图片存储   | 对象存储服务【待定】                    | 图片、头像与封面           |
-| API 契约   | OpenAPI                                 | 接口定义与前后端协作       |
+| 图片存储   | RustFS                                  | 图片、头像与封面           |
+| API 契约   | OpenAPI、Scalar                         | 接口定义与前后端协作       |
 | 后台任务   | MySQL 任务表 + Spring 调度 + 有界线程池 | AI、自动整理、通知与清理   |
 | 监控       | Actuator / Micrometer / 结构化日志      | 健康状态、指标与故障定位   |
 | 部署       | Docker                                  | 可重复交付                 |
+| 消息队列   | RabbitMQ                                | 媒体服务                   |
 
 ## 前端架构
 
 ```mermaid
 flowchart TB
-    ROUTER[go_router 路由与主框架] --> VIEW[Page / Widget]
-    VIEW --> VM[Riverpod ViewModel]
-    VM --> REPO[业务 Repository]
-    REPO --> API[API Client]
-    API --> DIO[Dio]
-    DIO --> SERVER[Spring Boot REST API]
-    REPO --> LOCAL[本地草稿 / SQLite / 私有文件]
-    VIEW --> UI[主题与公共组件]
+    subgraph App["应用组装层 app"]
+        direction LR
+        Bootstrap["启动 boot"]
+        Router["路由 router"]
+        Theme["主题 theme"]
+        Composition["跨模块能力组装"]
+        Bootstrap ~~~ Router ~~~ Theme ~~~ Composition
+    end
+
+    subgraph Features["业务模块 features"]
+        direction LR
+        User["user 用户"]
+        Media["media 媒体"]
+        Moment["moment 瞬间"]
+        Album["album 时光"]
+        Gathering["gathering 同行"]
+        Circle["circle 圈子"]
+        User ~~~ Media ~~~ Moment ~~~ Album ~~~ Gathering ~~~ Circle
+    end
+
+    subgraph Layers["业务模块内部分层"]
+        View["View<br/>页面与交互"]
+        VM["Riverpod ViewModel<br/>状态管理与操作编排"]
+        Repository["Repository<br/>业务数据访问"]
+        Remote["Remote DataSource<br/>接口调用与数据映射"]
+        Local["Local DataSource<br/>草稿与本地资料"]
+
+        View --> VM --> Repository
+        Repository --> Remote
+        Repository --> Local
+    end
+
+    subgraph Core["基础能力层 core"]
+        Network["Dio 网络客户端"]
+        Session["会话 / 安全凭证存储"]
+        Database["Drift / SQLite"]
+        Platform["定位 / 平台适配"]
+        Support["日志 / 异常处理"]
+    end
+
+    Shared["shared<br/>通用 UI / 分页 / 共享值类型"]
+    API["后端 HTTP API"]
+    RustFS["RustFS 对象存储"]
+
+    App --> Features
+    Features --> Layers
+    Features --> Shared
+    Remote --> Network
+    Local --> Database
+    Local --> Platform
+    Network --> Session
+    Layers --> Support
+    Network --> API
+    Remote -->|"预签名 URL 直传"| RustFS
 ```
 
+### 模块表
 
+| 模块              | 主要职责                                                     | 模块边界                                                     | 主要依赖                                       |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ---------------------------------------------- |
+| `app` 应用组装    | 启动、路由、主题、主框架、Provider 注入                      | 负责应用级组装与导航；跨业务能力在此连接                     | `core`、`shared`、各业务模块                   |
+| `core` 基础能力   | 网络请求、会话、安全存储、SQLite、日志、异常、定位与平台适配 | 提供通用技术能力；不承担瞬间、圈子等业务规则                 | Dio、Drift、平台插件等                         |
+| `shared` 共享组件 | 通用 UI、分页模型、UUID、心情与内容版本等值类型              | 只放跨模块复用的组件和类型                                   | Flutter 及基础库                               |
+| `user` 用户       | 登录、注册、个人资料及会话交互                               | 管理用户侧界面与数据；媒体上传交给 `media`                   | `core`、`shared`、`media`                      |
+| `media` 媒体      | 申请上传地址、PUT 上传、查询就绪状态                         | 管理文件上传流程；不管理文件关联到哪个业务对象               | `core`                                         |
+| `moment` 瞬间     | 内容流、瞬间详情、编辑、本地草稿                             | 管理瞬间的展示和编辑；账号、媒体和同行能力通过其他模块提供   | `core`、`shared`、`user`、`media`、`gathering` |
+| `album` 时光      | 时光列表、详情、编辑、组织瞬间                               | 管理时光；通过 `AlbumInputs` 接收选择瞬间和上传能力          | `core`、`shared`；由 `app` 注入外部能力        |
+| `gathering` 同行  | 同行管理、成员、邀请、面对面加入、关联瞬间                   | 管理同行场景；复用瞬间展示及用户信息                         | `core`、`shared`、`moment`、`user`             |
+| `circle` 圈子     | 圈子管理、成员、分享及共享内容查看                           | 管理分享上下文；复用瞬间、时光内容，头像上传能力由 `app` 注入 | `core`、`shared`、`moment`、`album`            |
+| `ai`              | 预留                                                         | 当前仅目录占位                                               | 无业务实现                                     |
+| `settings`        | 预留                                                         | 当前未形成独立设置业务                                       | 无业务实现                                     |
 
-### **页面结构**
+### 目录结构
 
-保持四个一级 Tab，“＋”作为发布动作。
-
-| 一级入口 | 主要页面                                         |
-| -------- | ------------------------------------------------ |
-| 瞬间     | Yours / Related、详情、发布、编辑、草稿          |
-| 时光     | 列表、时间线、创建、内容调整、自动整理设置、回顾 |
-| 同行     | 列表、详情、创建加入、成员管理、瞬间关联         |
-| 圈子     | 圈子切换、分享动态、详情、成员管理、发起同行     |
-
-全局页面包括搜索、消息、AI 任务与建议、个人资料、隐私和 AI 设置、数据管理等。
-
-一级页面共用头部和底部导航；详情、发布、编辑、图片预览使用独立页面框架。
-
-### **组件体系**
-
-分成三个层次：
-
-| 层次     | 示例                                                | 约束             |
-| -------- | --------------------------------------------------- | ---------------- |
-| 基础组件 | 按钮、输入框、头像、弹窗、加载/空/错误状态          | 不依赖具体业务   |
-| 组合组件 | 图片预览、来源标签、分享选择、成员选择、AI 任务状态 | 接收数据与回调   |
-| 业务组件 | 瞬间卡片、编辑器、时光线、圈子分享卡片              | 放在所属业务包中 |
-
-颜色、字体、间距等集中由主题 Token 管理。展示组件不直接调用 API，避免组件内部隐藏网络请求和业务规则。
-
-### **路由设计**
-
-使用 **go_router**：
-
-- 四个 Tab 使用 `StatefulShellRoute.indexedStack`，保留各自导航状态。
-- 详情、发布和编辑页放在根导航栈，覆盖主框架。
-- 路由传对象 ID，页面根据 ID 加载并校验权限。
-- 登录守卫只检查登录状态，具体内容权限由服务端判断。
-- 通知和深链统一进入路由解析流程，登录恢复后重新检查目标。
-- 编辑离开时处理保存草稿、放弃或继续编辑。
-
-这种分支导航方式适合保留底部 Tab 的导航状态。[go_router 官方说明](https://pub.dev/documentation/go_router/latest/go_router/StatefulShellRoute-class.html)
-
-### **状态管理**
-
-统一使用 Riverpod，但不同状态有不同归属：
-
-| 状态                     | 管理方式                    |
-| ------------------------ | --------------------------- |
-| 焦点、图片页码、面板展开 | Widget 局部状态             |
-| 列表、分页、筛选、详情   | 页面 ViewModel              |
-| 编辑内容、上传及提交阶段 | 编辑 ViewModel              |
-| 登录与当前账号           | 应用级 AuthController       |
-| 跨页面实体变化           | Repository 数据流或变更通知 |
-| 草稿、图片路径、未决请求 | Drift / SQLite 持久保存     |
-
-Riverpod 是 ViewModel 的实现工具，不需要再叠加一套状态框架。
-
-重点约束是：搜索丢弃迟到结果、分页避免重复请求、编辑保留冲突输入、账号切换隔离旧请求，以及权限失效后清除旧内容。内存状态不能替代可靠草稿。
-
-### 包结构
-
-```TypeScript
+```shell
 lib/                                  # Flutter 应用源码
 ├── main.dart                         # 程序入口，初始化环境并启动应用
 │
@@ -202,35 +222,170 @@ lib/                                  # Flutter 应用源码
 
 ## 后端架构
 
-使用 SpringMVC 架构。
+```mermaid
+flowchart TB
+    Client["客户端"]
 
-### 包结构
+    subgraph Backend["Spring Boot 单体应用"]
+        direction TB
+
+        Access["接入层<br/>JWT Filter / Controller"]
+
+        subgraph Business["业务服务层"]
+            direction LR
+            User["用户服务"]
+            Media["媒体服务"]
+            Moment["瞬间服务"]
+            Album["时光服务"]
+            Gathering["同行服务"]
+            Circle["圈子服务"]
+        end
+
+        Event["Spring Event<br/>业务事件处理"]
+        MQ["RabbitMQ Consumer"]
+
+        Mapper["MyBatis-Plus<br/>数据访问层"]
+
+        Access --> Business
+        Business --> Mapper
+        Business --> Event
+        Event --> Feed
+        MQ --> Media
+    end
+
+    MySQL[("MySQL")]
+    Redis[("Redis")]
+    RustFS["RustFS"]
+    RabbitMQ["RabbitMQ"]
+
+    Client -->|"HTTP / JWT"| Access
+    Mapper --> MySQL
+    Backend -.-> Redis
+    Media --> RustFS
+    Client -->|"预签名 URL 上传"| RustFS
+    RustFS --> RabbitMQ
+    RabbitMQ --> MQ
+```
+
+### 模块表
+
+| 模块               | 主要职责                                                     | 模块边界                                                     | 主要数据                                        |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------- |
+| `user` 用户        | 注册、登录、退出、JWT、令牌撤销、个人资料、公开用户信息      | 管理身份与用户资料；头像文件处理委托 `media`                 | `app_user`、Redis 令牌黑名单                    |
+| `media` 媒体       | 预签名上传、上传事件消费、对象校验、文件登记、就绪查询、访问地址 | 管理文件生命周期；业务对象如何使用文件由调用模块决定         | `media_file`、RustFS 对象                       |
+| `moment` 瞬间      | 瞬间增删改查、图片、标签、个人内容流、相关内容流             | 管理原始内容；其中 `RelatedFeedService` 额外承担跨内容聚合   | `moment`、`moment_image`、`moment_tag`          |
+| `album` 时光       | 时光管理、封面、瞬间组织、分页查询                           | 管理时光及其包含关系；瞬间原文由 `moment` 管理               | `album`、`album_moment`                         |
+| `gathering` 同行   | 同行管理、成员、邀请、面对面加入、关联及移除瞬间             | 管理同行关系与内容关联；瞬间本体由 `moment` 管理             | `gathering`、`gathering_member`、Redis 临时状态 |
+| `circle` 圈子      | 圈子管理、成员、加入限制、邀请、内容分享、撤回及访问控制     | 管理分享关系和分享场景授权；原始内容由瞬间或时光模块管理     | `circle`、`circle_member`、`circle_share`       |
+| `inbox` 内容收件箱 | 共享内容投递；退出、撤回、解散及删除时使投递失效             | 保存接收者与共享内容的索引；不保存原始正文，也不承担聊天功能 | `user_inbox`                                    |
+| `common` 公共基础  | 统一响应、异常、分页、校验、UUID 映射、基础设施配置          | 提供通用技术规则；不管理独立业务对象                         | 无独立业务表                                    |
+
+### 目录结构
 
 业务包结构设计如下：
 
 ```Python
-com.you
-├── YouApplication.java
-├── config                      # MVC、认证、MyBatis、存储、AI 等配置
-├── common
-│   ├── exception               # 异常及统一异常处理
-│   ├── response                # 统一响应、公共错误码、分页结果等
-│   ├── mybatis                 # UUID 等公共类型转换
-│   └── util                    # 实际需要的通用工具
-├── user                        # 注册、登录、退出、当前用户、个人资料
-├── moment                      # 瞬间：用户发布的生活记录
-│   ├── controller              ## 接口层：接收请求、校验入参与返回结果
-│   ├── service                 ## 业务层：处理瞬间相关业务规则与流程
-│   ├── mapper                  ## 数据访问层：查询与持久化瞬间数据
-│   ├── entity                  ## 持久化实体：数据库表对应的数据模型
-│   ├── dto                     ## 传输对象：承载接口入参及跨层传输数据
-│   └── vo                      ## 展示对象：面向客户端的响应数据
-├── album                       # 时光及其中的瞬间
-├── gathering                   # 一次共同经历、成员、邀请码与阶段管理
-├── circle                      # 圈子、成员、内容分享
-├── media                       # 图片上传、文件元数据、访问地址、RustFS 接入
-├── message                     # 用户信箱、站内通知及各自的已读管理
-└── ai                          # 辅助填写、语义检索、整理与生成能力
+you-backend/
+├── .mvn/                            # Maven Wrapper 配置
+├── mvnw
+├── mvnw.cmd
+├── pom.xml                          # Maven 依赖与构建配置
+└── src/
+    ├── main/
+    │   ├── java/com/you/youbackend/
+    │   │   ├── YouBackendApplication.java
+    │   │   │
+    │   │   ├── album/               # 时光模块
+    │   │   │   ├── controller/
+    │   │   │   ├── entity/
+    │   │   │   ├── event/
+    │   │   │   ├── mapper/
+    │   │   │   ├── model/
+    │   │   │   ├── request/
+    │   │   │   ├── response/
+    │   │   │   └── service/
+    │   │   │
+    │   │   ├── circle/              # 圈子模块
+    │   │   │   ├── controller/
+    │   │   │   ├── entity/
+    │   │   │   ├── event/
+    │   │   │   ├── mapper/
+    │   │   │   ├── model/
+    │   │   │   ├── request/
+    │   │   │   ├── response/
+    │   │   │   └── service/
+    │   │   │
+    │   │   ├── common/              # 公共基础
+    │   │   │   ├── config/
+    │   │   │   ├── enumeration/
+    │   │   │   ├── exception/
+    │   │   │   ├── mybatis/
+    │   │   │   ├── request/
+    │   │   │   ├── response/
+    │   │   │   ├── util/
+    │   │   │   └── validation/
+    │   │   │
+    │   │   ├── gathering/           # 同行模块
+    │   │   │   ├── controller/
+    │   │   │   ├── entity/
+    │   │   │   ├── event/
+    │   │   │   ├── mapper/
+    │   │   │   ├── model/
+    │   │   │   ├── request/
+    │   │   │   ├── response/
+    │   │   │   ├── service/
+    │   │   │   └── validation/
+    │   │   │
+    │   │   ├── inbox/               # 内容收件箱模块
+    │   │   │   ├── entity/
+    │   │   │   ├── listener/
+    │   │   │   ├── mapper/
+    │   │   │   ├── model/
+    │   │   │   └── service/
+    │   │   │
+    │   │   ├── media/               # 媒体模块
+    │   │   │   ├── consumer/
+    │   │   │   ├── controller/
+    │   │   │   ├── entity/
+    │   │   │   ├── event/
+    │   │   │   ├── mapper/
+    │   │   │   ├── request/
+    │   │   │   ├── response/
+    │   │   │   └── service/
+    │   │   │
+    │   │   ├── moment/              # 瞬间模块
+    │   │   │   ├── controller/
+    │   │   │   ├── entity/
+    │   │   │   ├── event/
+    │   │   │   ├── mapper/
+    │   │   │   ├── model/
+    │   │   │   ├── request/
+    │   │   │   ├── response/
+    │   │   │   └── service/
+    │   │   │
+    │   │   └── user/                # 用户与认证模块
+    │   │       ├── controller/
+    │   │       ├── filter/
+    │   │       ├── mapper/
+    │   │       ├── model/
+    │   │       ├── request/
+    │   │       ├── response/
+    │   │       └── service/
+    │   │
+    │   └── resources/
+    │       ├── application.yaml     # 应用及基础设施连接配置
+    │       ├── db/
+    │       │   └── migration/       # Flyway 数据库迁移脚本
+    │       └── mapper/              # 自定义 SQL XML
+    │           ├── inbox/
+    │           └── moment/
+    │
+    └── test/
+        └── java/com/you/youbackend/
+            ├── album/
+            ├── circle/
+            ├── common/
+            │   └── mybatis/
+            ├── gathering/
+            └── moment/
 ```
-
-![image-20261105012812400](assets/image-20261105012812400.png)
