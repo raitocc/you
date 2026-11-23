@@ -59,29 +59,6 @@ public class MediaController {
     }
 
     /**
-     * 接收表单文件，通过给定的签名地址上传至 RustFS。
-     *
-     * @param request 完整签名地址及待上传文件
-     * @return RustFS 返回的上传结果
-     */
-    @Operation(summary = "测试预签名上传", description = """
-            以 multipart/form-data 提交 url 和 file。
-            url 使用申请上传接口返回的完整地址，file 选择实际文件。
-            文件部分的 Content-Type 应与申请时的 mimeType 一致。
-            服务端将文件二进制通过 PUT 发送给 RustFS，返回存储服务的上传结果。
-            """)
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "文件已上传至 RustFS"),
-            @ApiResponse(responseCode = "400", description = "表单参数、文件或目标地址无效"),
-            @ApiResponse(responseCode = "502", description = "RustFS 拒绝上传或上传连接失败")
-    })
-    // todo 测试上传校验与签名器地址不一致
-    @PostMapping(value = "/test", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Result<TestUploadResponse> testUpload(@Valid @ModelAttribute TestUploadRequest request) {
-        return Result.ok(mediaService.testUpload(request));
-    }
-
-    /**
      * 查询图片是否已经登记入库，可供当前用户关联使用。
      */
     @Operation(
@@ -93,7 +70,7 @@ public class MediaController {
     })
     @GetMapping("/{fileId}")
     public Result<UploadStatusResponse> getUploadStatus(
-            @PathVariable("fileId") UUID fileId,
+            @PathVariable UUID fileId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
 
         return Result.ok(mediaService.getUploadStatus(fileId, userId));

@@ -135,4 +135,14 @@ public class BusinessException extends RuntimeException {
     public static BusinessException badGateway(String code, String message, Throwable cause) {
         return new BusinessException(HttpStatus.BAD_GATEWAY, code, message, cause);
     }
+
+    /**
+     * 构造 HTTP 500，服务端数据不一致或代码缺陷的异常。
+     * @param code 具体业务错误码
+     * @param message 面向调用方的具体说明
+     * @return 异常对象，由调用方使用 throw 抛出
+     */
+    public static BusinessException internalError(String code, String message) {
+        return new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, code, message, null);
+    }
 }

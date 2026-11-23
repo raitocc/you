@@ -1,6 +1,7 @@
 package com.you.youbackend.moment.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
+import com.you.youbackend.album.mapper.AlbumMomentMapper;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
@@ -59,6 +60,7 @@ public class MomentService {
     private final GatheringService gatheringService;
     private final UserService userService;
     private final ApplicationEventPublisher events;
+    private final AlbumMomentMapper albumMomentMapper;
 
     /**
      * 浏览有效同行成员可读的瞬间时间线，按发生时间和 ID 正序。
@@ -107,20 +109,6 @@ public class MomentService {
         MomentDetailedResponse response = loadAuthorizedResponses(List.of(moment)).get(0);
         log.debug("查看同行瞬间，gatheringId={}，momentId={}，userId={}", gatheringId, momentId, userId);
         return response;
-    }
-
-    /**
-     * 为业务列表批量加载本人瞬间的图片和标签，复用详情响应及其图片失效处理规则。
-     * 原有 getMoment 是单条详情入口，逐条调用会重复查询瞬间主记录、图片、标签。loadOwnedResponses 直接使用已经查出的主记录，只批量补齐关联数据。
-     *
-     * @param page   调用方已筛选本人且未删除的完整瞬间实体，列表顺序即响应顺序，允许为空
-     * @param userId 当前用户 ID；本人范围由调用方查询保证，媒体读取沿用已授权加载规则
-     * @return 与输入顺序一致的完整详情列表；不逐条查询瞬间详情
-     */
-    @Transactional(readOnly = true)
-    public List<MomentDetailedResponse> loadOwnedResponses(List<Moment> page, UUID userId) {
-        // 本人范围由调用方业务查询保证，内容加载沿用统一已授权入口。
-        return loadAuthorizedResponses(page);
     }
 
     /**
@@ -298,11 +286,11 @@ public class MomentService {
         // 4.1 删除moment TODO Mapper按道理会自动处理软删除
         momentMapper.softDeleteById(momentId, deletedAt);
         // 4.2 删除image关联
-        momentImageMapper.removeAssociations(momentId, deletedAt);
+        momentImageMapper.removeAssociationsByMomentId(momentId, deletedAt);
         // 4.3 删除tag关联
-        momentTagMapper.removeAssociations(momentId, deletedAt);
-
-        // TODO 业务要保证删除的时候 清理掉关联表中的关联，例如albummoment
+        momentTagMapper.removeAssociationsByMomentId(momentId, deletedAt);
+        // 4.4 清理albummoment关联
+        albumMomentMapper.removeAssociationsByMomentId(momentId,deletedAt);
 
         // 5. 发布事件：【一个瞬间已删除】
         events.publishEvent(new MomentDeletedEvent(
@@ -370,7 +358,6 @@ public class MomentService {
         // 1.1 查询到所有 moment 的所有 images
         List<UUID> momentIds = moments.stream().map(Moment::getId).toList();
         Map<UUID, List<MomentImage>> imagesByMomentId = momentImageMapper.selectMomentsImages(momentIds);
-        // TODO 如果封面失效，说明有业务没遵守业务规则，应该抛异常或者记录日志
         // 1.2 拿到封面文件的 key，全部签名
         List<UUID> coverFileIds = imagesByMomentId.values().stream()
                 .filter(images -> !images.isEmpty())
@@ -393,6 +380,11 @@ public class MomentService {
             if (!images.isEmpty()) {
                 UUID fileId = images.get(0).getFileId();
                 coverUrl = coverUrlsByFileId.get(fileId);
+                if (coverUrl == null) {
+                    // 走到这里只可能是“有图却失效”：违反“关联建立后文件不消失”的规则；没图的情况到不了这。
+                    log.error("封面签不出地址，关联指向了失效文件，momentId={}，fileId={}", momentId, fileId);
+                    throw BusinessException.internalError("MEDIA_INCONSISTENT", "图片关联指向了失效文件");
+                }
             }
             // 3.2 拿到 imageCount
             int imageCount = images.size();
@@ -705,7 +697,7 @@ public class MomentService {
      * @throws BusinessException 任一标签超长时抛出（400）
      */
     private List<String> validateTags(List<String> tags) {
-        Objects.requireNonNull(tags, "tags 至少需要有一个");
+        Objects.requireNonNull(tags, "tags 不能为 null");
         List<String> normalized = tags.stream().map(String::strip)
                 .filter(StringUtils::hasText).distinct().toList();
         for (String tag : normalized) {

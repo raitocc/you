@@ -35,7 +35,8 @@ public interface MediaFileMapper extends BaseMapper<MediaFile> {
     default List<MediaFile> selectStorageKeys(Collection<UUID> fileIds) {
         // 为已授权的展示场景批量准备签名，文件 ID 本身不授予业务访问资格。
         return selectList(Wrappers.<MediaFile>lambdaQuery()
-                .select(MediaFile::getId, MediaFile::getStorageKey).in(MediaFile::getId, fileIds));
+                .select(MediaFile::getId, MediaFile::getStorageKey)
+                .in(MediaFile::getId, fileIds));
     }
 
     /**
@@ -51,15 +52,18 @@ public interface MediaFileMapper extends BaseMapper<MediaFile> {
     }
 
     /**
-     * 判断指定用户的有效文件记录是否存在，沿用 MyBatis-Plus 全局软删除过滤。
+     * 判断指定用户的有效图片记录是否存在，沿用 MyBatis-Plus 全局软删除过滤。
+     * 口径与关联校验一致：存在、未删除、属于该用户、MIME 在白名单内才算就绪。
      *
      * @param fileId 文件 ID
      * @param userId 文件所属用户 ID
-     * @return 已登记、未删除且属于该用户时返回 true，否则返回 false
+     * @param mimeTypes 允许的图片 MIME 类型，调用方必须保证非空
+     * @return 四项全部满足时返回 true，否则返回 false
      */
-    default boolean existsOwnedFile(UUID fileId, UUID userId) {
+    default boolean existsOwnedFile(UUID fileId, UUID userId, Collection<String> mimeTypes) {
         return selectCount(Wrappers.<MediaFile>lambdaQuery()
                 .eq(MediaFile::getId, fileId)
-                .eq(MediaFile::getOwnerUserId, userId)) > 0;
+                .eq(MediaFile::getOwnerUserId, userId)
+                .in(MediaFile::getMimeType, mimeTypes)) > 0;
     }
 }

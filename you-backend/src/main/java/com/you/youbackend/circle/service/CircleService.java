@@ -460,7 +460,7 @@ public class CircleService {
         // 2. 以时光所有者统计瞬间、读取封面，查看者身份只用于来源授权。
         log.debug("查询圈子共享时光，circleId={}，shareId={}，albumId={}，userId={}",
                 circleId, shareId, album.getId(), userId);
-        return albumService.convertToDetailedRespone(album);
+        return albumService.convertToDetailedResponse(album);
     }
 
     /**

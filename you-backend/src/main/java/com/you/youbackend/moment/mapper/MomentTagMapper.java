@@ -45,7 +45,7 @@ public interface MomentTagMapper extends BaseMapper<MomentTag> {
      * @param momentId 瞬间 ID
      * @param deletedAt 本次解除关联的 UTC 时间
      */
-    default void removeAssociations(UUID momentId, LocalDateTime deletedAt) {
+    default void removeAssociationsByMomentId(UUID momentId, LocalDateTime deletedAt) {
         update(Wrappers.<MomentTag>lambdaUpdate()
                 .eq(MomentTag::getMomentId, momentId)
                 .set(MomentTag::getDeletedAt, deletedAt)

@@ -22,8 +22,6 @@ import com.you.youbackend.moment.response.MomentSummaryResponse;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.media.service.MediaService;
-import com.you.youbackend.moment.mapper.MomentMapper;
-import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.context.ApplicationEventPublisher;
@@ -37,7 +35,6 @@ import java.time.DateTimeException;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 时光创建、信息维护、删除及访问权限查询。
@@ -53,12 +50,17 @@ public class AlbumService {
     private final ApplicationEventPublisher events;
 
     /**
-     * 整批校验后新增、保留或恢复关联，关联及修改时间在同一事务中保存。
+     * 往本人时光里批量加瞬间：整批校验通过才写入，加过的保持原样（幂等），移出过的自动恢复。
+     * 恢复保留原关联 ID 和创建时间；关联和时光的修改时间统一刷新。
      *
-     * @param albumId 有效时光 ID，不存在返回 404，非本人返回 403
-     * @param request 已通过非空及 UUID 校验的请求
-     * @param userId  当前用户 ID，任一瞬间非本人或无效则整批返回 400
-     * @return 最新时光信息及有效瞬间数量
+     * <p>流程：归属校验 → 瞬间 ID 去重 → 校验全为本人有效瞬间 → 批量新增或恢复关联 → 刷新时光修改时间 → 组装详情。
+     * 副作用：album_moment、album 同事务写入，失败整体回滚。</p>
+     *
+     * @param albumId 时光 ID
+     * @param request 已由 MVC 校验非空的请求；momentIds 重复 ID 合并
+     * @param userId  当前登录用户 ID
+     * @return 时光最新详情
+     * @throws BusinessException 时光不存在、非本人（404/403），或任一瞬间不存在、已删除、非本人（400）
      */
     // TODO 可以完全什么都不返回，让前端自己再查一次！
     @Transactional
@@ -80,10 +82,18 @@ public class AlbumService {
         log.info("已写入时光瞬间添加，albumId={}，userId={}，submittedCount={}", albumId, userId, momentIds.size());
         // 6. 获取该 Moment 的响应体，手动回显 updatedAt
         album.setUpdatedAt(savedAt);
-        return convertToDetailedRespone(album);
+        return convertToDetailedResponse(album);
     }
 
     // TODO 讨论方法命名
+    /**
+     * 给一批瞬间 ID 拼待写入的时光关联实体，只填字段不入库。
+     *
+     * @param albumId   所属时光 ID
+     * @param momentIds 已去重的瞬间 ID
+     * @param savedAt   本次写入时间，UTC，同时给 createdAt 和 updatedAt
+     * @return 关联实体列表，和 momentIds 一一对应；插库还是恢复由 Mapper 的 upsert 决定
+     */
     private List<AlbumMoment> newAssociations(UUID albumId, List<UUID> momentIds, LocalDateTime savedAt) {
         return momentIds.stream().map(momentId -> {
             AlbumMoment association = new AlbumMoment();
@@ -97,12 +107,16 @@ public class AlbumService {
     }
 
     /**
-     * 批量移出当前时光关联，原瞬间及其他时光关系保留，允许移出全部。
+     * 把指定瞬间移出本人时光：没加过和已移出的直接跳过，允许全部移出。原瞬间和其他时光的关联不受影响。
      *
-     * @param albumId 有效时光 ID，不存在返回 404，非本人返回 403
-     * @param request 已通过非空及 UUID 校验的请求，未加入和已移出项视为完成
+     * <p>流程：归属校验 → 瞬间 ID 去重 → 软删本时光内的匹配关联 → 刷新时光修改时间 → 组装详情。
+     * 副作用：album_moment、album 同事务写入，失败整体回滚。</p>
+     *
+     * @param albumId 时光 ID
+     * @param request 已由 MVC 校验非空的请求；momentIds 重复 ID 合并
      * @param userId  当前登录用户 ID
-     * @return 最新时光信息，关联移出与修改时间共同提交或回滚
+     * @return 时光最新详情
+     * @throws BusinessException 时光不存在或非本人时抛出（404/403）
      */
     // TODO 关于savedAt，可以考虑让mapper层自己生成？同样可以啥都不返回
     @Transactional
@@ -119,16 +133,20 @@ public class AlbumService {
         log.info("已写入时光瞬间移出，albumId={}，userId={}，submittedCount={}", albumId, userId, ids.size());
         // 5. 构造响应，手动回显
         album.setUpdatedAt(savedAt);
-        return convertToDetailedRespone(album);
+        return convertToDetailedResponse(album);
     }
 
     /**
-     * 全量修改本人时光展示信息，在同一事务内校验封面、保存并组装响应，不改变瞬间关联。
+     * 全量修改本人时光的展示信息（名称、介绍、封面），不动瞬间关联。
      *
-     * @param albumId 时光 ID，不存在或已删除返回 404，非本人返回 403
-     * @param request 已完成必填、名称及介绍长度校验的请求，null 清空可空字段
+     * <p>流程：归属校验 → 校验封面是本人可用图片 → 覆盖展示字段并记修改时间 → 落库 → 组装详情。
+     * 副作用：只更新 album 表的展示字段和修改时间，同事务提交。</p>
+     *
+     * @param albumId 时光 ID
+     * @param request 全量请求；description、coverFileId 传 null 表示清空
      * @param userId  当前登录用户 ID
-     * @return 保存后的完整信息，包含有效瞬间数及封面签名 URL
+     * @return 修改后的时光详情
+     * @throws BusinessException 时光不存在、已删除或非本人（404/403），封面不可用（400）
      */
     @Transactional
     public AlbumDetailedResponse updateAlbum(UUID albumId, UpdateAlbumRequest request, UUID userId) {
@@ -145,14 +163,18 @@ public class AlbumService {
         albumMapper.updateDisplayInfo(album);
         log.info("已写入时光信息修改，albumId={}，userId={}", albumId, userId);
         // 5. 构造响应
-        return convertToDetailedRespone(album);
+        return convertToDetailedResponse(album);
     }
 
     /**
-     * 删除本人时光及其有效关联，两类写入共同提交或回滚，保留原瞬间和媒体。
+     * 软删除本人时光，连同全部有效关联一起删；删过的再删直接返回（幂等）。原瞬间和媒体文件保留。
      *
-     * @param albumId 时光 ID，不存在返回 404，本人已删除记录直接成功
-     * @param userId  当前登录用户 ID，非所有者返回 403
+     * <p>流程：归属校验（含已删除）→ 已删过就返回 → 软删全部有效关联 → 软删主记录 → 发“时光已删除”事件。
+     * 副作用：album_moment、album 两处软删同事务提交，失败整体回滚。</p>
+     *
+     * @param albumId 时光 ID
+     * @param userId  当前登录用户 ID
+     * @throws BusinessException 时光不存在或非本人时抛出（404/403）
      */
     @Transactional
     public void deleteAlbum(UUID albumId, UUID userId) {
@@ -174,11 +196,15 @@ public class AlbumService {
     }
 
     /**
-     * 分页浏览本人时光：按创建时间、ID 倒序读取，批量统计数量和加载封面，空时光正常返回。
+     * 分页浏览本人时光列表：按创建时间、ID 倒序查一页多一条，批量补数量和封面。
      *
-     * @param userId  当前登录用户 ID
-     * @param request 已校验分页请求，游标为 null 时读取首屏
-     * @return 卡片及结构化游标，末页和空页的 nextCursor 为 null
+     * <p>流程：游标时间换算成数据库 UTC 时间 → 查一页多一条 → 空页直接返回 → 本页批量签封面、数有效关联（没关联算 0）→ 组装卡片 → 多的那条只判断下一页，游标取本页最后一条。
+     * 只读事务，无副作用。</p>
+     *
+     * @param userId  当前登录用户 ID，只查本人的有效时光
+     * @param request 已校验分页请求；游标为空表示首屏
+     * @return 卡片列表和下一页游标，末页游标为 null
+     * @throws BusinessException 游标时间超出可查范围时抛出（400）
      */
     @Transactional(readOnly = true)
     public ResultPage<AlbumSummaryResponse, AlbumListCursor> browseAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
@@ -205,13 +231,17 @@ public class AlbumService {
     }
 
     /**
-     * 浏览本人时光线：先校验时光归属，再按发生时间、发布时间、ID 正序分页，批量加载详情。
+     * 分页浏览时光内的瞬间：按发生时间、ID 正序（从早到晚）查一页多一条，返回摘要卡片。
+     * 只看本人瞬间和有效关联；瞬间的软删状态不过滤——业务保证删除瞬间时同步清理关联。
      *
-     * @param albumId 时光 ID，不存在或已删除返回 404，非本人返回 403
+     * <p>流程：时光归属校验 → 游标时间换算 → 关联表 join 瞬间表查一页多一条 → 空页直接返回 → 本页转摘要卡片 → 多的那条只判断下一页，游标取本页最后一条。
+     * 只读事务，无副作用。</p>
+     *
+     * @param albumId 时光 ID
      * @param userId  当前登录用户 ID
-     * @param request 已校验的分页请求，结构化游标为 null 时从最早瞬间开始
-     * @return 与当前瞬间详情一致的响应和下一页游标，排除失效关联及无效瞬间
-     * TODO 应该返回 Summary
+     * @param request 已校验分页请求；游标为空表示从最早的瞬间开始
+     * @return 摘要卡片和下一页游标，末页游标为 null
+     * @throws BusinessException 时光不存在、非本人（404/403），或游标时间超出可查范围（400）
      */
     @Transactional(readOnly = true)
     public ResultPage<MomentSummaryResponse, AlbumMomentCursor> browseAlbumMoments(
@@ -239,13 +269,15 @@ public class AlbumService {
     }
 
     /**
-     * 手动创建时光：整理瞬间 ID，校验封面及所有瞬间，再保存主记录和批量关联，返回信息。
-     * 主记录及关联在同一事务中写入，校验或后续操作失败全部回滚；允许无初始瞬间。
+     * 手动创建时光：校验封面和初始瞬间，保存主记录和关联，返回完整信息。
      *
-     * @param request 已由 MVC 完成名称、介绍长度、UUID 格式及必填校验的请求
-     * @param userId  当前登录用户，作为时光所有者及资源校验依据
-     * @return 已保存的时光信息，含有效瞬间数量和封面签名 URL
-     * @throws BusinessException 封面不可用或任一瞬间不属于本人、已删除或不存在
+     * <p>流程：校验封面是本人可用图片 → 生成主记录（整理模式固定 manual）→ 瞬间 ID 去重并校验全为本人有效瞬间 → 批量写关联 → 组装详情。
+     * 副作用：album、album_moment 两表同事务写入，失败整体回滚。</p>
+     *
+     * @param request 已由 MVC 校验的请求；momentIds 重复 ID 合并
+     * @param userId  当前登录用户 ID，作所有者和图片、瞬间归属校验用
+     * @return 新时光详情，含有效瞬间数和封面地址
+     * @throws BusinessException 封面不是本人可用图片（400），或任一瞬间不存在、已删除、非本人（400）
      */
     @Transactional
     public AlbumDetailedResponse createAlbum(CreateAlbumRequest request, UUID userId) {
@@ -254,40 +286,48 @@ public class AlbumService {
         // 1. 创建一个新的 Album
         LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
         Album album = saveNewAlbum(request.name(), request.description(), request.coverFileId(), userId, savedAt);
-
-        // 2. 保存关联
+        // 2. 有初始的关联就关联，没有则跳过
         List<UUID> momentIds = request.momentIds().stream().distinct().toList();
-        List<AlbumMoment> associations = newAssociations(album.getId(), momentIds, savedAt);
-        albumMomentMapper.insertOrRestoreAssociations(associations, savedAt);
+        if (!request.momentIds().isEmpty()){
+            // 先校验权限，再保存关联
+            momentService.validateOwnedMoments(momentIds, userId);
+            List<AlbumMoment> associations = newAssociations(album.getId(), momentIds, savedAt);
+            albumMomentMapper.insertOrRestoreAssociations(associations, savedAt);
 
+        }
         log.info("已写入时光，albumId={}，userId={}，associationCount={}", album.getId(), userId, momentIds.size());
         // 3. 构造响应
-        return convertToDetailedRespone(album);
+        return convertToDetailedResponse(album);
     }
 
     /**
-     * 查看时光信息：先检查存在和归属，再统计有效的本人瞬间、读取有效封面并组装响应。
+     * 查看本人时光信息（不含瞬间列表）。
      *
-     * @param albumId 时光 ID，软删除记录不可访问
+     * <p>流程：存在和归属校验 → 数有效关联、签封面地址 → 组装详情。
+     * 只读事务，无副作用。</p>
+     *
+     * @param albumId 时光 ID，软删除的查不到
      * @param userId  当前登录用户 ID
-     * @return 时光信息，不包含瞬间列表；封面失效时 URL 为 null
-     * @throws BusinessException 时光不存在、已删除或非当前用户所有
+     * @return 时光详情；封面为空或已失效时 URL 为 null，文件 ID 保留
+     * @throws BusinessException 时光不存在、已删除或非本人时抛出（404/403）
      */
     @Transactional(readOnly = true)
     public AlbumDetailedResponse getAlbum(UUID albumId, UUID userId) {
         // 1. 先确认时光存在且属于当前用户，通过后才加载详情相关资源。
         Album album = getOwnedAlbum(albumId, userId);
         // 2. 复用已授权时光的内容加载，所有者与共享入口分别完成各自的权限校验。
-        return convertToDetailedRespone(album);
+        return convertToDetailedResponse(album);
     }
 
     /**
-     * 为已通过访问及归属校验的时光加载详情，调用方负责本人或共享来源的授权。
+     * 组装时光详情：数有效关联当瞬间数、签封面地址，不改传入实体。授权由调用方做完。
      *
-     * @param album 已加载且已校验有效的完整时光实体
-     * @return 有效瞬间数量与封面签名补齐后的详情，封面失效时保留文件 ID、URL 为 null
+     * <p>只读查询，无副作用。</p>
+     *
+     * @param album 已通过访问校验的完整时光实体
+     * @return 详情响应；封面为空或已失效时 URL 为 null，文件 ID 保留
      */
-    public AlbumDetailedResponse convertToDetailedRespone(Album album) {
+    public AlbumDetailedResponse convertToDetailedResponse(Album album) {
         // 1. 统计有效瞬间
         long momentCount = albumMomentMapper.countMomentsByAlbumId(album.getId());
         String coverUrl = mediaService.getReadUrl(album.getCoverFileId());
@@ -307,10 +347,13 @@ public class AlbumService {
 
 
     /**
-     * 转换游标时间，超出 MySQL DATETIME 年份范围返回 400。
+     * 把游标时间换算成数据库用的 UTC 毫秒时间。
      *
-     * @param value 已由请求边界解析且保证非空的时间点
-     * @return UTC 毫秒精度的数据库时间
+     * <p>不改数据，无副作用。</p>
+     *
+     * @param value 时间点，调用方保证非空
+     * @return UTC 毫秒精度的 LocalDateTime
+     * @throws BusinessException 转换失败或年份超出 1000～9999（数据库存不下）时抛出（400）
      */
     private LocalDateTime toCursorTime(Instant value) {
         // 先验证数据库可表示范围，避免客户端构造极端时间触发数据库异常。
@@ -326,10 +369,17 @@ public class AlbumService {
     }
 
     /**
-     * 批量加载本页卡片所需数量和封面，保持原分页顺序。
+     * 把一页时光批量组装成卡片，顺序和入参一致。
+     *
+     * <p>流程：批量签封面地址 → 批量数有效关联（没关联的补 0）→ 逐条拼卡片。
+     * 只读查询，无副作用。</p>
+     *
+     * @param albums 非空的时光实体列表，调用方保证非空
+     * @return 与入参同序等长的卡片；无封面或封面失效时 URL 为 null
+     * @throws IllegalArgumentException albums 为 null 或空（属服务端缺陷，转 500）
      */
     public List<AlbumSummaryResponse> convertToSummaryResponse(List<Album> albums) {
-        Assert.notEmpty(albums, "至少传入一个 moment");
+        Assert.notEmpty(albums, "至少传入一个 album");
         // 1. 拿到所有 fileId 的签名 url
         List<UUID> coverFileIds = albums.stream().map(Album::getCoverFileId).toList();
         Map<UUID, String> coverUrlsByFileId = mediaService.getReadUrls(coverFileIds);
@@ -349,6 +399,14 @@ public class AlbumService {
         return albumSummaryResponses;
     }
 
+    /**
+     * 拼单条时光卡片，不查库，封面地址和数量由调用方算好传进来。
+     *
+     * @param album       时光实体，用到 ID、名称、整理模式、创建和修改时间
+     * @param coverUrl    已签名的封面地址，无封面或失效时为 null
+     * @param momentCount 该时光的有效关联数
+     * @return 卡片响应，时间转 Instant
+     */
     private AlbumSummaryResponse convertToSummaryResponse(
             Album album,
             String coverUrl,
@@ -365,6 +423,18 @@ public class AlbumService {
                 .build();
     }
 
+    /**
+     * 组装并插入新时光主记录：服务端生成 UUIDv7 ID，整理模式固定 manual，审计时间用统一的保存时间。
+     *
+     * <p>副作用：往 album 表插一行，跟随外层事务。</p>
+     *
+     * @param name        已校验的名称
+     * @param description 已校验的介绍，null 表示未设置
+     * @param coverFileId 已确认可用的封面图片 ID，null 表示无封面
+     * @param userId      所有者 ID
+     * @param savedAt     本次写入时间，UTC，同时给 createdAt 和 updatedAt
+     * @return 插入后的时光实体，供关联创建和响应组装复用
+     */
     private Album saveNewAlbum(String name,
                                String description,
                                UUID coverFileId,
@@ -388,14 +458,14 @@ public class AlbumService {
 
 
     /**
-     * 按 ID 查时光，并确认是不是当前用户自己的（默认不查已删除的）。
+     * 按 ID 查时光，并确认是当前用户自己的（默认不查已删除的）。
      *
-     * <p>查不到抛 404，不是自己的抛 403；没有副作用。</p>
+     * <p>查不到抛 404，不是自己的抛 403；只读查询，无副作用。</p>
      *
-     * @param albumId     相册 ID
+     * @param albumId     时光 ID
      * @param ownerUserId 当前用户 ID
-     * @return 属于该用户的相册实体
-     * @throws BusinessException 相册不存在或不属于该用户时抛出
+     * @return 属于该用户的时光实体
+     * @throws BusinessException 时光不存在或不属于该用户时抛出
      */
     private Album getOwnedAlbum(UUID albumId, UUID ownerUserId) {
         return getOwnedAlbum(albumId, ownerUserId, false);
@@ -404,14 +474,14 @@ public class AlbumService {
     /**
      * 按 ID 查时光，并校验归属权（可选是否包含已删除的）。
      *
-     * <p>流程：先查库拿相册 → 没查到记 debug 日志并抛未找到异常 → 归属人不是当前用户记 warn 日志并抛无权限异常 → 返回相册。
+     * <p>流程：查库拿时光 → 没查到记 debug 日志并抛未找到异常 → 不是当前用户记 warn 日志并抛无权限异常 → 返回时光。
      * 只读查询，无副作用。</p>
      *
-     * @param albumId          相册 ID
+     * @param albumId          时光 ID
      * @param ownerUserId      当前用户 ID
-     * @param includingDeleted 是否包含已逻辑删除的相册（{@code true} 包含，{@code false} 只查正常状态）
-     * @return 校验通过的相册实体
-     * @throws BusinessException 相册不存在（{@code ALBUM_NOT_FOUND}）或非本人所有时抛出
+     * @param includingDeleted 是否包含已逻辑删除的时光（{@code true} 包含，{@code false} 只查正常状态）
+     * @return 校验通过的时光实体
+     * @throws BusinessException 时光不存在（{@code ALBUM_NOT_FOUND}）或非本人所有时抛出
      */
     private Album getOwnedAlbum(UUID albumId, UUID ownerUserId, boolean includingDeleted) {
         Album album = null;

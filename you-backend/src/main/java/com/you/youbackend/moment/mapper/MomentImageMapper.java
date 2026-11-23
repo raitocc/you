@@ -23,7 +23,7 @@ public interface MomentImageMapper extends BaseMapper<MomentImage> {
      * @param momentId  瞬间 ID
      * @param deletedAt 本次解除关联的 UTC 时间
      */
-    default void removeAssociations(UUID momentId, LocalDateTime deletedAt) {
+    default void removeAssociationsByMomentId(UUID momentId, LocalDateTime deletedAt) {
         update(Wrappers.<MomentImage>lambdaUpdate()
                 .eq(MomentImage::getMomentId, momentId)
                 .set(MomentImage::getDeletedAt, deletedAt)
