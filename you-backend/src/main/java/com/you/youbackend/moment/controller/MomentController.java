@@ -9,7 +9,7 @@ import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.model.RelatedFeedCursor;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
-import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentDetailedResponse;
 import com.you.youbackend.moment.response.MomentSummaryResponse;
 import com.you.youbackend.moment.response.RelatedFeedResponse;
 import com.you.youbackend.moment.service.MomentService;
@@ -44,25 +44,45 @@ public class MomentController {
     private final RelatedFeedService relatedFeedService;
 
     /**
-     * 浏览本人瞬间，首屏省略游标，后续将 nextCursor 展开为 cursor.字段名 查询参数。
+     * 浏览本人瞬间
      */
     @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentYours")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "分页参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
     @Parameters({
-            @Parameter(name = "limit", in = ParameterIn.QUERY, description = "每页数量，默认 20",
-                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
-            @Parameter(name = "cursor.memoryTime", in = ParameterIn.QUERY, description = "上一页最后一条记录的发生时间；首屏省略",
-                    schema = @Schema(type = "string", format = "date-time")),
-            @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "与游标时间成组提供的 UUIDv7；首屏省略",
-                    schema = @Schema(type = "string", format = "uuid"))
+            @Parameter(
+                    name = "limit",
+                    in = ParameterIn.QUERY,
+                    description = "每页数量，默认 20",
+                    schema = @Schema(
+                            type = "integer",
+                            defaultValue = "20",
+                            minimum = "1",
+                            maximum = "100")),
+            @Parameter(
+                    name = "cursor.memoryTime",
+                    in = ParameterIn.QUERY,
+                    description = "上一页最后一条记录的发生时间；首屏省略",
+                    schema = @Schema(
+                            type = "string",
+                            format = "date-time")),
+            @Parameter(
+                    name = "cursor.id",
+                    in = ParameterIn.QUERY,
+                    description = "与游标时间成组提供的 UUIDv7；首屏省略",
+                    schema = @Schema(
+                            type = "string",
+                            format = "uuid"))
     })
     @GetMapping("/yours")
     public Result<ResultPage<MomentSummaryResponse, MomentFeedCursor>> browseYours(
-            @Parameter(hidden = true) @PageQuery PageRequest<MomentFeedCursor> request,
+            // 分页请求
+            @Parameter(hidden = true)
+            @PageQuery
+            PageRequest<MomentFeedCursor> request,
+            // 用户id
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        // 参数解析器已完成分页转换和校验，委托业务层读取当前用户的瞬间流。
         return Result.ok(momentService.browseYours(userId, request));
     }
 
@@ -76,12 +96,18 @@ public class MomentController {
     @ApiResponse(responseCode = "403", description = "当前用户不是作者")
     @ApiResponse(responseCode = "404", description = "瞬间不存在或已删除")
     @GetMapping("/{momentId}")
-    public Result<MomentResponse> getMoment(
-            @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
+    public Result<MomentDetailedResponse> getMoment(
+            @Parameter(
+                    description = "瞬间 UUIDv7",
+                    schema = @Schema(
+                            type = "string",
+                            format = "uuid"))
             @PathVariable
             @UUIDv7(checkTimestamp = false)
             UUID momentId,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         return Result.ok(momentService.getMoment(momentId, userId));
     }
 
@@ -95,13 +121,22 @@ public class MomentController {
     @ApiResponse(responseCode = "403", description = "当前用户不是作者")
     @ApiResponse(responseCode = "404", description = "瞬间不存在或已删除")
     @PutMapping(path = "/{momentId}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Result<MomentResponse> updateMoment(
-            @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
+    public Result<MomentDetailedResponse> updateMoment(
+            @Parameter(
+                    description = "瞬间 UUIDv7",
+                    schema = @Schema(
+                            type = "string",
+                            format = "uuid"))
             @PathVariable
             @UUIDv7(checkTimestamp = false)
             UUID momentId,
-            @Valid @RequestBody UpdateMomentRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+
+            @Valid
+            @RequestBody
+            UpdateMomentRequest request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         return Result.ok(momentService.updateMoment(momentId, request, userId));
     }
 
@@ -116,11 +151,17 @@ public class MomentController {
     @ApiResponse(responseCode = "404", description = "瞬间不存在")
     @DeleteMapping("/{momentId}")
     public Result<Void> deleteMoment(
-            @Parameter(description = "瞬间 UUIDv7", schema = @Schema(type = "string", format = "uuid"))
+            @Parameter(
+                    description = "瞬间 UUIDv7",
+                    schema = @Schema(
+                            type = "string",
+                            format = "uuid"))
             @PathVariable
             @UUIDv7(checkTimestamp = false)
             UUID momentId,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         momentService.deleteMoment(momentId, userId);
         return Result.ok(null);
     }
@@ -135,10 +176,13 @@ public class MomentController {
     @ApiResponse(responseCode = "409", description = "瞬间 ID 已被使用")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Result<MomentResponse> createMoment(
-            @Valid @RequestBody CreateMomentRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    public Result<MomentDetailedResponse> createMoment(
+            @Valid
+            @RequestBody
+            CreateMomentRequest request,
 
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         return Result.ok(momentService.createMoment(request, userId));
     }
 

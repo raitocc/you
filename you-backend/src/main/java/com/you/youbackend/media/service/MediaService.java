@@ -37,10 +37,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -185,6 +182,7 @@ public class MediaService {
 
     /**
      * 批量生成文件读取地址，调用方负责确认每个文件的业务读取资格。
+     *
      * @param fileIds 已授权展示的文件 ID 集合，允许为空
      * @return 有效文件 ID 到签名 URL 的映射，文件失效时省略该项
      */
@@ -293,18 +291,19 @@ public class MediaService {
      * @param userId 当前用户 ID
      */
     public void validateOwnedImage(UUID fileId, UUID userId) {
-        requireOwnedImage(fileId, userId);
+        getOwnedImage(fileId, userId);
     }
 
     /**
      * 校验图片归属并生成临时读取地址。
      */
     public String createOwnedImageReadUrl(UUID fileId, UUID userId) {
-        return createReadUrl(requireOwnedImage(fileId, userId).getStorageKey());
+        return createReadUrl(getOwnedImage(fileId, userId).getStorageKey());
     }
 
     /**
      * 批量取得有效图片对象键，不限定上传者。
+     *
      * @param fileIds 由已授权业务内容取得的文件 ID，允许为空
      * @return 有效图片 ID 到对象键的映射，查不到的文件省略
      * <p>调用方须已校验内容访问权限；此方法只查询文件，不授予读取资格。
@@ -321,18 +320,25 @@ public class MediaService {
     /**
      * 批量取得本人有效图片的对象键，供列表筛选和封面签名。
      */
-    public Map<UUID, String> findOwnedImageKeys(UUID userId, Collection<UUID> fileIds) {
-        if (fileIds.isEmpty()) {
-            return Map.of();
-        }
+    public Map<UUID, String> getOwnedImageKeys(UUID userId, Collection<UUID> fileIds) {
+        Objects.requireNonNull(fileIds, "fileId 至少需要有一个");
         return mediaFileMapper.selectOwnedStorageKeys(userId, fileIds, ALLOWED_IMAGE_TYPES)
                 .stream().collect(Collectors.toMap(MediaFile::getId, MediaFile::getStorageKey));
+    }
+
+    public String getOwnedImageKey(UUID userId, UUID fileId) {
+        String key = getOwnedImageKeys(userId, List.of(fileId)).get(fileId);
+        if (key == null) {
+            log.warn("时光封面校验失败，fileId={}，userId={}，reason=非本人有效图片", fileId, userId);
+            throw BusinessException.badRequest("FILE_NOT_USABLE", "请选择已上传完成的本人封面图片");
+        }
+        return key;
     }
 
     /**
      * 读取当前用户已入库的有效图片，校验失败时抛出业务异常。
      */
-    private MediaFile requireOwnedImage(UUID fileId, UUID userId) {
+    public MediaFile getOwnedImage(UUID fileId, UUID userId) {
         MediaFile file = mediaFileMapper.selectById(fileId);
 
         if (file == null
@@ -363,4 +369,5 @@ public class MediaService {
         log.debug("查询上传就绪状态，userId={}，fileId={}，ready={}", userId, fileId, ready);
         return new UploadStatusResponse(fileId, ready);
     }
+
 }

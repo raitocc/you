@@ -14,7 +14,11 @@ import java.util.UUID;
 @Schema(description = "时光列表游标，后续将 nextCursor 展开为 cursor.字段名 查询参数")
 public record AlbumListCursor(
         @NotNull(message = "请提供游标创建时间")
-        @Schema(description = "上一页最后一条时光的创建时间", format = "date-time") Instant createdAt,
-        @NotNull(message = "请提供游标时光 ID") @UUIDv7(checkTimestamp = false)
-        @Schema(description = "上一页最后一条时光 UUIDv7", format = "uuid") UUID id
+        @Schema(description = "上一页最后一条时光的创建时间", format = "date-time")
+        Instant createdAt,
+
+        @NotNull(message = "请提供游标时光 ID")
+        @UUIDv7(checkTimestamp = false)
+        @Schema(description = "上一页最后一条时光 UUIDv7", format = "uuid")
+        UUID id
 ) {}

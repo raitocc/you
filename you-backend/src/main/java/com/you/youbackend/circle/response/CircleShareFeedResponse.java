@@ -1,6 +1,6 @@
 package com.you.youbackend.circle.response;
 import com.you.youbackend.common.enumeration.ObjectType;
-import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentDetailedResponse;
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
@@ -17,6 +17,6 @@ public record CircleShareFeedResponse(
         @Schema(description = "本次分享时间，UTC；重复分享不改变") Instant sharedAt,
         @Schema(description = "分享关系最后修改时间，UTC") Instant updatedAt,
         @Schema(description = "当前用户为分享者或圈子创建者时为 true") boolean canWithdraw,
-        @Schema(description = "moment 类型的完整瞬间；album 类型为 null") MomentResponse moment,
+        @Schema(description = "moment 类型的完整瞬间；album 类型为 null") MomentDetailedResponse moment,
         @Schema(description = "album 类型的时光卡片；moment 类型为 null") CircleSharedAlbumResponse album
 ) {}

@@ -20,7 +20,7 @@ public interface AlbumMapper extends BaseMapper<Album> {
      * @param updatedAt 本次统一 UTC 毫秒时间
      * @return 更新行数
      */
-    default int touch(UUID id, LocalDateTime updatedAt) {
+    default int updateUpdatedAtById(UUID id, LocalDateTime updatedAt) {
         // 关联变化只影响修改时间，不覆盖名称、介绍或封面。
         return update(Wrappers.<Album>lambdaUpdate().eq(Album::getId, id)
                 .set(Album::getUpdatedAt, updatedAt));
@@ -31,19 +31,23 @@ public interface AlbumMapper extends BaseMapper<Album> {
      * @param id 时光 ID
      * @return 完整实体，不存在返回 null
      */
+    // TODO 用 SELECT * 好吗？
     @Select("SELECT * FROM album WHERE id = #{id}")
-    Album selectIncludingDeleted(@Param("id") UUID id);
+    Album selectIncludingDeletedById(@Param("id") UUID id);
 
     /**
      * 全量保存已校验的展示信息，显式 set 确保 null 能清空介绍和封面。
      * @param album 本人有效时光，已填充最终字段及 UTC 修改时间
      * @return 更新行数，已删除记录不会更新
      */
-    default int updateContent(Album album) {
+    default int updateDisplayInfo(Album album) {
         // 仅修改展示信息和审计时间，保留所有者、整理设置及创建时间。
-        return update(Wrappers.<Album>lambdaUpdate().eq(Album::getId, album.getId())
-                .set(Album::getName, album.getName()).set(Album::getDescription, album.getDescription())
-                .set(Album::getCoverFileId, album.getCoverFileId()).set(Album::getUpdatedAt, album.getUpdatedAt()));
+        return update(Wrappers.<Album>lambdaUpdate()
+                .eq(Album::getId, album.getId())
+                .set(Album::getName, album.getName())
+                .set(Album::getDescription, album.getDescription())
+                .set(Album::getCoverFileId, album.getCoverFileId())
+                .set(Album::getUpdatedAt, album.getUpdatedAt()));
     }
 
     /**
@@ -51,10 +55,12 @@ public interface AlbumMapper extends BaseMapper<Album> {
      * @param id 已校验归属的时光 ID
      * @param deletedAt 本次统一 UTC 毫秒时间
      */
-    default void softDelete(UUID id, LocalDateTime deletedAt) {
+    default void softDeleteById(UUID id, LocalDateTime deletedAt) {
         // 同时记录删除和修改时间，重复请求不覆盖原删除时间。
-        update(Wrappers.<Album>lambdaUpdate().eq(Album::getId, id)
-                .set(Album::getDeletedAt, deletedAt).set(Album::getUpdatedAt, deletedAt));
+        update(Wrappers.<Album>lambdaUpdate()
+                .eq(Album::getId, id)
+                .set(Album::getDeletedAt, deletedAt)
+                .set(Album::getUpdatedAt, deletedAt));
     }
 
     /**
@@ -65,7 +71,7 @@ public interface AlbumMapper extends BaseMapper<Album> {
      * @param rowCount 已校验页大小加一，用于判断下一页
      * @return 有序的完整时光实体列表，沿用全局逻辑删除过滤
      */
-    default List<Album> selectPage(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
+    default List<Album> selectPageAfterCursor(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
         // 1. 基础查询只读取当前用户的有效时光。
         var query = Wrappers.<Album>lambdaQuery().eq(Album::getOwnerUserId, userId);
         // 2. 有游标时读取更早时间，或相同时间下更小的 ID；首屏不加边界。

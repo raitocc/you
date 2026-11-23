@@ -4,6 +4,7 @@ import com.you.youbackend.moment.model.MomentLocation;
 import com.you.youbackend.moment.model.MomentMood;
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,7 +26,8 @@ import java.util.UUID;
  * @param updatedAt 最后修改时间，UTC
  */
 @Schema(description = "瞬间完整详情")
-public record MomentResponse(
+@Builder
+public record MomentDetailedResponse(
         @Schema(description = "瞬间 UUIDv7", format = "uuid")
         UUID id,
 

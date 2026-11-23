@@ -3,6 +3,7 @@ package com.you.youbackend.moment.response;
 import com.you.youbackend.moment.model.MomentMood;
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -20,6 +21,7 @@ import java.util.UUID;
  * @param memoryTime 经历实际发生时间，UTC，用于时间展示和排序
  */
 @Schema(description = "瞬间卡片摘要")
+@Builder
 public record MomentSummaryResponse(
         @Schema(description = "瞬间 ID", format = "uuid")
         UUID id,

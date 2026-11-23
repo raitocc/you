@@ -152,7 +152,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param ids 非空且已去重的候选瞬间 ID
      * @return 有效且属于本人的瞬间 ID，逻辑删除由 MP 自动过滤
      */
-    default List<UUID> selectOwnedIds(UUID userId, List<UUID> ids) {
+    default List<UUID> selectMomentIdsByAuthorUserIdAndIds(UUID userId, List<UUID> ids) {
         // 按当前用户和候选 ID 批量筛选，沿用逻辑删除过滤，最终只向业务层返回有效 ID。
         return selectList(Wrappers.<Moment>lambdaQuery()
                 .select(Moment::getId)
@@ -160,12 +160,17 @@ public interface MomentMapper extends BaseMapper<Moment> {
                 .in(Moment::getId, ids)).stream().map(Moment::getId).toList();
     }
 
+    default long countByAuthorUserIdAndIds(UUID userId, List<UUID> ids) {
+        return selectCount(Wrappers.<Moment>lambdaQuery()
+                .eq(Moment::getAuthorUserId, userId)
+                .in(Moment::getId, ids));
+    }
+
     /**
-     * 查询瞬间，包含已软删除的记录，用于删除时校验归属和识别重复请求。
-     * 自定义查询绕过 MP 的逻辑删除过滤，直接返回完整实体。
+     * 按 ID 查瞬间，包含已软删除的记录（自定义 SQL，绕过 MP 的逻辑删除过滤），给删除流程做幂等判断用。
      *
      * @param id 瞬间 ID
-     * @return 瞬间实体，不存在时为 null
+     * @return 瞬间实体，不存在返回 null
      */
     @Select("""
             SELECT id, author_user_id, gathering_id, title, body, mood, memory_time,
@@ -173,15 +178,15 @@ public interface MomentMapper extends BaseMapper<Moment> {
                 created_at, updated_at, deleted_at
             FROM moment WHERE id = #{id}
             """)
-    Moment selectIncludingDeleted(@Param("id") UUID id);
+    Moment selectIncludingDeletedById(@Param("id") UUID id);
 
     /**
-     * 软删除有效瞬间，同时记录本次修改时间；MP 自动过滤已删除记录。
+     * 软删除有效瞬间，同时把 updated_at 记成本次删除时间；已删记录由 MP 的逻辑删除条件自动跳过。
      *
-     * @param id 瞬间 ID
+     * @param id        瞬间 ID
      * @param deletedAt 本次删除的 UTC 时间
      */
-    default void softDelete(UUID id, LocalDateTime deletedAt) {
+    default void softDeleteById(UUID id, LocalDateTime deletedAt) {
         update(Wrappers.<Moment>lambdaUpdate()
                 .eq(Moment::getId, id)
                 .set(Moment::getDeletedAt, deletedAt)
@@ -189,10 +194,11 @@ public interface MomentMapper extends BaseMapper<Moment> {
     }
 
     /**
-     * 全量更新可编辑字段，允许显式清空可空字段。
-     * 实体由 Service 完成校验和整理；显式 set 将 null 写入数据库，清空对应字段。
+     * 全量更新可编辑字段；逐字段显式 set，把 null 也写进库完成清空。实体由 Service 校验整理好再传。
+     *
+     * @param moment 已整理的瞬间实体，按 ID 更新
      */
-    default void updateContent(Moment moment) {
+    default void updateContentById(Moment moment) {
         update(Wrappers.<Moment>lambdaUpdate()
                 .eq(Moment::getId, moment.getId())
                 .set(Moment::getTitle, moment.getTitle())
@@ -207,17 +213,18 @@ public interface MomentMapper extends BaseMapper<Moment> {
     }
 
     /**
-     * 读取本人瞬间流中位于游标之后的卡片数据。
-     * 按发生时间、ID 双字段倒序排列，发生时间相同的记录按唯一 ID 确定顺序。
+     * 查本人瞬间流里排在游标后面的一页卡片数据，给摘要分页用。
      *
-     * @param userId 当前用户 ID，仅查询本人有效瞬间
-     * @param cursorTime 游标的 UTC 入库时间，null 表示首屏
-     * @param cursorId 游标记录 ID，由 Service 与 cursorTime 成对传入
-     * @param rowCount 实际页大小加一，额外一条用于判断下一页
-     * @return 仅填充卡片查询所需字段的瞬间列表
-     * 返回实体仅含 id、authorUserId、title、body、mood、memoryTime，供卡片组装使用。
+     * <p>流程：按“发生时间倒序、同一时间按 ID 倒序”排 → 游标条件是“时间更早，或时间相同且 ID 更小”（和排序配套，保证不重不漏）→ 按 rowCount 截断。
+     * 只读查询，无副作用。</p>
+     *
+     * @param userId     当前用户 ID，只查本人的有效瞬间（逻辑删除自动过滤）
+     * @param cursorTime 游标的 UTC 时间，null 表示首屏
+     * @param cursorId   游标记录 ID，和 cursorTime 成对传入
+     * @param rowCount   本页大小 + 1，多出的那条只用来判断下一页
+     * @return 卡片用的部分实体（ID、作者、标题、正文、心情、发生时间），新到旧排列，最多 rowCount 条
      */
-    default List<Moment> selectFeed(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
+    default List<Moment> selectPageAfterCursor(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
         var query = Wrappers.<Moment>lambdaQuery()
                 .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody, Moment::getMood, Moment::getMemoryTime)
                 .eq(Moment::getAuthorUserId, userId);

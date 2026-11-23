@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import org.hibernate.validator.constraints.CodePointLength;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,15 +17,15 @@ import java.util.UUID;
  * 发布瞬间的请求；客户端草稿生成 ID，图片直传并就绪后提交关联。
  * 正文与图片至少提供一种，发生时间与实际发布时间分别记录。
  *
- * @param id 客户端生成的 UUIDv7，允许历史草稿 ID，最多超前服务端 5 分钟
- * @param title 标题，可省略或为 null，空白标题保存为 null
- * @param body 普通文本正文，可省略或为 null；无有效正文时须提供图片
+ * @param id           客户端生成的 UUIDv7，允许历史草稿 ID，最多超前服务端 5 分钟
+ * @param title        标题，可省略或为 null，空白标题保存为 null
+ * @param body         普通文本正文，可省略或为 null；无有效正文时须提供图片
  * @param imageFileIds 已上传并就绪的本人图片 ID，按展示顺序排列，省略、null 或空数组表示无图片
- * @param tags 标签名称列表，省略、null 或空数组表示无标签，保存前去首尾空白并整理重复项
- * @param mood 心情，省略或 null 表示未设置
- * @param memoryTime 经历实际发生时间，接收带时区的 ISO 8601 时间，保存为 UTC 毫秒时间
- * @param location 地点，省略或 null 表示未设置
- * @param gatheringId 可选同行 UUIDv7，仅允许关联本人已加入且进行中的同行
+ * @param tags         标签名称列表，省略、null 或空数组表示无标签，保存前去首尾空白并整理重复项
+ * @param mood         心情，省略或 null 表示未设置
+ * @param memoryTime   经历实际发生时间，接收带时区的 ISO 8601 时间，保存为 UTC 毫秒时间
+ * @param location     地点，省略或 null 表示未设置
+ * @param gatheringId  可选同行 UUIDv7，仅允许关联本人已加入且进行中的同行
  */
 @Schema(description = "发布瞬间请求，正文与图片至少提供一种")
 public record CreateMomentRequest(
@@ -64,4 +65,9 @@ public record CreateMomentRequest(
         @UUIDv7(checkTimestamp = false)
         UUID gatheringId
 
-) {}
+) {
+    public CreateMomentRequest {
+        imageFileIds = imageFileIds == null ? new ArrayList<>() : imageFileIds;
+        tags = tags == null ? new ArrayList<>() : tags;
+    }
+}

@@ -1,10 +1,10 @@
 package com.you.youbackend.circle.controller;
 import com.you.youbackend.circle.service.CircleService;
-import com.you.youbackend.album.response.AlbumResponse;
+import com.you.youbackend.album.response.AlbumDetailedResponse;
 import com.you.youbackend.common.validation.UUIDv7;
 import com.you.youbackend.circle.response.*;
 import com.you.youbackend.circle.model.*;
-import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentDetailedResponse;
 import com.you.youbackend.circle.request.*;
 import com.you.youbackend.common.request.*;
 import com.you.youbackend.common.response.*;
@@ -246,7 +246,7 @@ public class CircleController {
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享或瞬间不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是瞬间")
-    public Result<MomentResponse> getSharedMoment(
+    public Result<MomentDetailedResponse> getSharedMoment(
             @Parameter(description = "圈子 UUIDv7", schema = @Schema(format = "uuid"))
             @PathVariable @UUIDv7(checkTimestamp = false) UUID circleId,
             @Parameter(description = "圈子分享关系 UUIDv7", schema = @Schema(format = "uuid"))
@@ -262,7 +262,7 @@ public class CircleController {
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享或时光不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是时光")
-    public Result<AlbumResponse> getSharedAlbum(
+    public Result<AlbumDetailedResponse> getSharedAlbum(
             @Parameter(description = "圈子 UUIDv7", schema = @Schema(format = "uuid"))
             @PathVariable @UUIDv7(checkTimestamp = false) UUID circleId,
             @Parameter(description = "圈子分享关系 UUIDv7", schema = @Schema(format = "uuid"))
@@ -278,7 +278,7 @@ public class CircleController {
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享、时光或内部瞬间不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是时光")
-    public Result<MomentResponse> getSharedAlbumMoment(
+    public Result<MomentDetailedResponse> getSharedAlbumMoment(
             @Parameter(description = "圈子 UUIDv7", schema = @Schema(format = "uuid"))
             @PathVariable @UUIDv7(checkTimestamp = false) UUID circleId,
             @Parameter(description = "圈子分享关系 UUIDv7", schema = @Schema(format = "uuid"))
@@ -300,9 +300,9 @@ public class CircleController {
         @Parameter(name = "cursor.memoryTime", in = ParameterIn.QUERY, description = "末项排序时间", schema = @Schema(type = "string", format = "date-time")),
         @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "末项 ID", schema = @Schema(type = "string", format = "uuid"))
     })
-    public Result<ResultPage<MomentResponse, CircleShareMomentCursor>> timeline(@PathVariable UUID circleId, @PathVariable UUID shareId,
-            @Parameter(hidden = true) @PageQuery PageRequest<CircleShareMomentCursor> request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    public Result<ResultPage<MomentDetailedResponse, CircleShareMomentCursor>> timeline(@PathVariable UUID circleId, @PathVariable UUID shareId,
+                                                                                        @Parameter(hidden = true) @PageQuery PageRequest<CircleShareMomentCursor> request,
+                                                                                        @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         return Result.ok(service.browseSharedAlbumMoments(circleId, shareId, userId, request));
     }
 }

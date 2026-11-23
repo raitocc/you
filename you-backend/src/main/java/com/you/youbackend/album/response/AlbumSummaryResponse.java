@@ -2,6 +2,8 @@ package com.you.youbackend.album.response;
 
 import com.you.youbackend.album.model.AlbumOrganizeMode;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -16,6 +18,7 @@ import java.util.UUID;
  * @param updatedAt 时光最后修改时间
  */
 @Schema(description = "时光概要")
+@Builder
 public record AlbumSummaryResponse(
         @Schema(description = "时光 ID", format = "uuid")
         UUID id,

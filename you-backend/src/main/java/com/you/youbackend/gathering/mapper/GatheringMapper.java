@@ -74,7 +74,7 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
     }
 
     /**
-     * 执行同行列表查询，筛选与排序由 selectPage 统一构造。
+     * 执行同行列表查询，筛选与排序由 selectPageAfterCursor 统一构造。
      * @param query 后端构造的带表别名条件，含有效成员 EXISTS、软删除过滤及排序
      * @param rowCount 已校验页大小加一
      * @return 有序完整同行实体

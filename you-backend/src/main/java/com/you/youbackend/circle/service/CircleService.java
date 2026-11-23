@@ -7,13 +7,13 @@ import com.you.youbackend.circle.event.CircleMemberLeftEvent;
 import com.you.youbackend.circle.event.CircleShareWithdrawnEvent;
 import com.you.youbackend.circle.response.*;
 import com.you.youbackend.album.entity.Album;
-import com.you.youbackend.album.response.AlbumResponse;
+import com.you.youbackend.album.response.AlbumDetailedResponse;
 import com.you.youbackend.album.service.AlbumService;
 import com.you.youbackend.album.mapper.*;
 import com.you.youbackend.album.entity.AlbumMoment;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.mapper.MomentMapper;
-import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentDetailedResponse;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.circle.entity.*;
 import com.you.youbackend.circle.mapper.*;
@@ -435,7 +435,7 @@ public class CircleService {
      * @return 原瞬间完整详情，作者资料缺失时为 null
      */
     @Transactional(readOnly = true)
-    public MomentResponse getSharedMoment(UUID circleId, UUID shareId, UUID userId) {
+    public MomentDetailedResponse getSharedMoment(UUID circleId, UUID shareId, UUID userId) {
         // 1. 确认成员和分享有效，分享类型为瞬间，并加载属于分享者的原瞬间。
         CircleShare share = requireAccessibleShare(circleId, shareId, userId, ObjectType.moment);
         Moment moment = requireSharedMoment(share);
@@ -453,14 +453,14 @@ public class CircleService {
      * @return 当前有效时光的完整信息，空时光的瞬间数量为零
      */
     @Transactional(readOnly = true)
-    public AlbumResponse getSharedAlbum(UUID circleId, UUID shareId, UUID userId) {
+    public AlbumDetailedResponse getSharedAlbum(UUID circleId, UUID shareId, UUID userId) {
         // 1. 校验时光分享来源，再读取仍由分享者拥有的时光。
         CircleShare share = requireAccessibleShare(circleId, shareId, userId, ObjectType.album);
         Album album = requireSharedAlbum(share);
         // 2. 以时光所有者统计瞬间、读取封面，查看者身份只用于来源授权。
         log.debug("查询圈子共享时光，circleId={}，shareId={}，albumId={}，userId={}",
                 circleId, shareId, album.getId(), userId);
-        return albumService.loadAuthorizedResponse(album);
+        return albumService.convertToDetailedRespone(album);
     }
 
     /**
@@ -472,7 +472,7 @@ public class CircleService {
      * @return 该时光中仍有效的本人瞬间详情
      */
     @Transactional(readOnly = true)
-    public MomentResponse getSharedAlbumMoment(UUID circleId, UUID shareId, UUID momentId, UUID userId) {
+    public MomentDetailedResponse getSharedAlbumMoment(UUID circleId, UUID shareId, UUID momentId, UUID userId) {
         // 1. 确认当前用户能够访问分享的时光。
         CircleShare share = requireAccessibleShare(circleId, shareId, userId, ObjectType.album);
         Album album = requireSharedAlbum(share);
@@ -485,7 +485,7 @@ public class CircleService {
 
     /** 分页浏览圈子共享时光中的瞬间 ：【查下一页时传上一页最后一个瞬间的发生时间和 ID】 */
     @Transactional(readOnly = true)
-    public ResultPage<MomentResponse, CircleShareMomentCursor> browseSharedAlbumMoments(
+    public ResultPage<MomentDetailedResponse, CircleShareMomentCursor> browseSharedAlbumMoments(
             UUID circleId,
             UUID shareId,
             UUID userId,
@@ -874,9 +874,9 @@ public class CircleService {
         List<UUID> momentIds = objectIds(page, ObjectType.moment);
         List<UUID> albumIds = objectIds(page, ObjectType.album);
         // 批量加载瞬间详情
-        Map<UUID, MomentResponse> momentResponses = momentIds.isEmpty() ? Map.of()
+        Map<UUID, MomentDetailedResponse> momentResponses = momentIds.isEmpty() ? Map.of()
                 : momentService.loadAuthorizedResponses(momentMapper.selectByIds(momentIds)).stream()
-                .collect(Collectors.toMap(MomentResponse::id, Function.identity()));
+                .collect(Collectors.toMap(MomentDetailedResponse::id, Function.identity()));
         // 批量加载时光卡片详情
         Map<UUID, CircleSharedAlbumResponse> albumResponses = loadAlbumCards(albumIds);
         // 批量加载分享者的公开信息
@@ -895,7 +895,7 @@ public class CircleService {
             UUID creatorId,
             UUID userId,
             Map<UUID, PublicUserResponse> profiles,
-            Map<UUID, MomentResponse> momentResponses,
+            Map<UUID, MomentDetailedResponse> momentResponses,
             Map<UUID, CircleSharedAlbumResponse> albumResponses) {
 
         // 获取并校验分享者公开资料
@@ -905,7 +905,7 @@ public class CircleService {
         }
 
         // 获取当前分享记录里的 moment（如果是 moment）
-        MomentResponse moment = momentResponses.get(row.getObjectId());
+        MomentDetailedResponse moment = momentResponses.get(row.getObjectId());
         // 去除当前分享记录里的 album（如果是 album）
         CircleSharedAlbumResponse album = albumResponses.get(row.getObjectId());
 

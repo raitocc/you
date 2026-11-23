@@ -17,6 +17,15 @@ import java.time.LocalDateTime;
  */
 @Mapper
 public interface MomentTagMapper extends BaseMapper<MomentTag> {
+
+    default List<MomentTag> selectMomentTags(UUID momentId) {
+        return selectList(Wrappers.<MomentTag>lambdaQuery()
+                .select(MomentTag::getMomentId,MomentTag::getTagName)
+                .eq(MomentTag::getMomentId,momentId)
+                .orderByAsc(MomentTag::getCreatedAt, MomentTag::getId));
+
+    }
+
     /**
      * 批量读取本页瞬间的有效标签，只投影分组所需字段，保持每条瞬间内的标签顺序稳定。
      * @param momentIds 本页实际返回的非空瞬间 ID 集合

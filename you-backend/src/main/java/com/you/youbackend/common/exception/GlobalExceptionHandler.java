@@ -1,6 +1,7 @@
 package com.you.youbackend.common.exception;
 
 import com.you.youbackend.common.response.Result;
+import lombok.extern.log4j.Log4j2;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -15,6 +16,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 /**
  * 全局接口异常处理，将请求错误转换为统一响应。
  */
+@Log4j2
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -67,6 +69,16 @@ public class GlobalExceptionHandler {
         return Result.fail(
                 "INVALID_REQUEST_BODY",
                 "请求体格式、字段类型或枚举值不正确");
+    }
+
+    /**
+     * 将服务端代码缺陷（如内部调用违反前置约定）转换为 500，详细原因只进日志不外抛。
+     */
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(IllegalArgumentException.class)
+    public Result<Void> handleIllegalArgument(IllegalArgumentException exception) {
+        log.error("服务端参数前置约定被违反", exception);
+        return Result.fail("INTERNAL_ERROR", "服务器内部错误");
     }
 
     /**

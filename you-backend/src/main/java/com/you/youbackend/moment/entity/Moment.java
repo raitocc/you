@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.you.youbackend.moment.model.MomentMood;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 

@@ -101,7 +101,7 @@ public class RelatedFeedService {
         // 3.组装 RelatedFeedResponse 对象列表
         // 通过时光服务，把 Album 对象组装为 AlbumSummaryResponse 对象，建立 Map(时光 ID：时光概要) 的映射
         Map<UUID, AlbumSummaryResponse> albumSummaries =
-                albumService.loadSummaries(albums).stream()
+                albumService.convertToSummaryResponse(albums).stream()
                         .collect(Collectors.toMap(
                                 AlbumSummaryResponse::id, Function.identity() // 表示对象本身
                         ));

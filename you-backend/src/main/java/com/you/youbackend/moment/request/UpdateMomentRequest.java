@@ -62,4 +62,5 @@ public record UpdateMomentRequest(
         @JsonProperty(required = true)
         @Valid
         MomentLocation location
-) {}
+) {
+}

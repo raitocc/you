@@ -4,6 +4,7 @@ import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.common.util.TextUtils;
 import com.you.youbackend.gathering.event.GatheringMomentsLinkedEvent;
 import com.you.youbackend.gathering.model.GatheringMomentCursor;
 import com.you.youbackend.gathering.service.GatheringService;
@@ -17,12 +18,10 @@ import com.you.youbackend.moment.mapper.MomentMapper;
 import com.you.youbackend.moment.mapper.MomentTagMapper;
 import com.you.youbackend.moment.model.MomentFeedCursor;
 import com.you.youbackend.moment.model.MomentLocation;
-import com.you.youbackend.moment.model.RelatedFeedCursor;
 import com.you.youbackend.moment.request.CreateMomentRequest;
 import com.you.youbackend.moment.request.UpdateMomentRequest;
-import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentDetailedResponse;
 import com.you.youbackend.moment.response.MomentSummaryResponse;
-import com.you.youbackend.moment.response.RelatedFeedResponse;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +30,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 import java.math.RoundingMode;
@@ -40,11 +40,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Log4j2
@@ -66,9 +62,10 @@ public class MomentService {
 
     /**
      * 浏览有效同行成员可读的瞬间时间线，按发生时间和 ID 正序。
+     *
      * @param gatheringId 目标同行 ID
-     * @param request 已校验的分页参数
-     * @param userId 当前认证用户 ID
+     * @param request     已校验的分页参数
+     * @param userId      当前认证用户 ID
      * @return 同行瞬间摘要页，作者资料查不到时为 null
      */
     @Transactional(readOnly = true)
@@ -92,13 +89,14 @@ public class MomentService {
 
     /**
      * 经同行入口读取共享详情，成员资格和当前关联均须有效。
+     *
      * @param gatheringId 入口同行 ID
-     * @param momentId 瞬间 ID，即使为本人所写也检查当前同行关联
-     * @param userId 当前认证用户 ID
+     * @param momentId    瞬间 ID，即使为本人所写也检查当前同行关联
+     * @param userId      当前认证用户 ID
      * @return 当前完整内容、图片及作者资料
      */
     @Transactional(readOnly = true)
-    public MomentResponse getGatheringMoment(UUID gatheringId, UUID momentId, UUID userId) {
+    public MomentDetailedResponse getGatheringMoment(UUID gatheringId, UUID momentId, UUID userId) {
         // 1. 校验同行成员资格，再确认瞬间仍在当前同行。
         gatheringService.requireMemberGathering(gatheringId, userId);
         Moment moment = momentMapper.selectById(momentId);
@@ -106,7 +104,7 @@ public class MomentService {
             throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在、已删除或已移出当前同行");
         }
         // 2. 访问资格通过后，统一加载关联图片、标签及公开作者资料。
-        MomentResponse response = loadAuthorizedResponses(List.of(moment)).get(0);
+        MomentDetailedResponse response = loadAuthorizedResponses(List.of(moment)).get(0);
         log.debug("查看同行瞬间，gatheringId={}，momentId={}，userId={}", gatheringId, momentId, userId);
         return response;
     }
@@ -114,170 +112,214 @@ public class MomentService {
     /**
      * 为业务列表批量加载本人瞬间的图片和标签，复用详情响应及其图片失效处理规则。
      * 原有 getMoment 是单条详情入口，逐条调用会重复查询瞬间主记录、图片、标签。loadOwnedResponses 直接使用已经查出的主记录，只批量补齐关联数据。
-     * @param page 调用方已筛选本人且未删除的完整瞬间实体，列表顺序即响应顺序，允许为空
+     *
+     * @param page   调用方已筛选本人且未删除的完整瞬间实体，列表顺序即响应顺序，允许为空
      * @param userId 当前用户 ID；本人范围由调用方查询保证，媒体读取沿用已授权加载规则
      * @return 与输入顺序一致的完整详情列表；不逐条查询瞬间详情
      */
     @Transactional(readOnly = true)
-    public List<MomentResponse> loadOwnedResponses(List<Moment> page, UUID userId) {
+    public List<MomentDetailedResponse> loadOwnedResponses(List<Moment> page, UUID userId) {
         // 本人范围由调用方业务查询保证，内容加载沿用统一已授权入口。
         return loadAuthorizedResponses(page);
     }
 
     /**
-     * 分页浏览本人瞬间：按游标查询、批量加载有效图片、组装卡片和分页结果。
-     * 按发生时间和 ID 倒序，多查一条判断下一页，额外记录不加载图片。
-     * @param userId 当前登录用户 ID，查询仅限本人的有效瞬间
-     * @param request 已校验的分页请求，游标为空表示首屏
-     * @return 摘要列表及下一页游标；空页或末页游标为 null
+     * 分页浏览本人的瞬间，返回摘要卡片和下一页游标。
+     *
+     * <p>流程：游标时间换算成数据库 UTC 时间 → 按“发生时间、ID 倒序”查一页多一条 → 空页直接返回 → 只对本页记录批量取图片和作者、组装卡片 → 多出的那条只用来判断还有没有下一页（不给它加载图片），游标取本页最后一条。
+     * 只读事务，无副作用。</p>
+     *
+     * @param userId  当前登录用户 ID，只查本人的有效瞬间
+     * @param request 已校验的分页请求；游标为空表示首屏，limit 为本页最大条数
+     * @return 分页结果：items 为摘要卡片，nextCursor 为下一页边界（末页为 null），hasMore 表示还有没有下一页
+     * @throws BusinessException 游标时间超出数据库可存范围时抛出（{@code INVALID_ARGUMENT}）
      */
     @Transactional(readOnly = true)
     public ResultPage<MomentSummaryResponse, MomentFeedCursor> browseYours(
-            UUID userId, PageRequest<MomentFeedCursor> request) {
-        List<Moment> rows = queryFeedMoments(userId, request);
+            UUID userId,
+            PageRequest<MomentFeedCursor> request) {
+        // 1. 通过游标查到数据库中的 Moment 实体
+        MomentFeedCursor cursor = request.cursor();
+        LocalDateTime cursorTime = cursor == null ? null : toDatabaseMemoryTime(cursor.memoryTime());
+        UUID cursorId = (cursor == null) ? null : cursor.id();
+        List<Moment> rows = momentMapper.selectPageAfterCursor(userId, cursorTime, cursorId, request.limit() + 1);
+        // 2. 空集直接返回
         if (rows.isEmpty()) {
             log.debug("浏览本人瞬间，userId={}，limit={}，itemCount=0，hasMore=false", userId, request.limit());
-            return new ResultPage<>(List.of(), null, false);
+            return ResultPage.empty();
         }
+
+        // 3. 将 List<Moment> rows 转换为 List<MomentSummaryResponse> 对象，顺序不变
+        List<Moment> page = rows.subList(0, Math.min(rows.size(), request.limit()));
+        List<MomentSummaryResponse> momentSummaryResponses = convertToSummaryResponse(page);
+
+        // 4. 构造分页响应
         boolean hasMore = rows.size() > request.limit();
-        List<Moment> page = rows.subList(0, Math.min(request.limit(), rows.size()));
-        List<MomentSummaryResponse> items = loadSummaries(page);
-        log.debug("浏览本人瞬间，userId={}，limit={}，itemCount={}，hasMore={}",
-                userId, request.limit(), items.size(), hasMore);
-        return toFeedPage(items, hasMore);
+        log.debug("浏览本人瞬间，userId={}，limit={}，momentCount={}，hasMore={}",
+                userId, request.limit(), momentSummaryResponses.size(), hasMore);
+        return ResultPage.toResultPage(
+                momentSummaryResponses,
+                hasMore,
+                last -> new MomentFeedCursor(last.memoryTime(), last.id()));
     }
 
     /**
-     * 发布客户端草稿，关联已直传并登记就绪的本人图片，返回完整详情。
+     * 发布一条瞬间：校验图文、标签、地点和时间，写主记录和图片、标签关联，返回完整详情。
+     * 图片必须已直传并登记好，这里只确认可用性并建关联；空白标题存 null。
      *
-     * <p>1. 校验图文至少一种及图片不重复，整理标签、发生时间和地点，批量确认图片可用。
-     * 2. 提供同行 ID 时校验同行进行中且本人为有效成员，随主记录保存关联，再保存图片及标签。
-     * 3. 生成图片临时读取地址，组装详情并记录写入日志。
-     * 主记录和关联在同一事务中保存，任一步骤失败均回滚。</p>
+     * <p>流程：校验图文至少一种 → 带同行则校验同行可关联 → 整理标签、地点、时间 → 批量确认图片本人可用 → 写主记录 → 写图片关联 → 写标签关联 → 带同行则发“已加入同行”事件 → 组装详情。
+     * 副作用：主记录和两张关联表在同一事务写入，失败整体回滚。</p>
      *
-     * @param request 已由 MVC 完成 UUIDv7、字段格式及必填校验的发布请求
-     * @param userId 当前登录用户 ID，作为瞬间作者和图片归属校验依据
-     * @return 已保存的瞬间详情，图片顺序与提交顺序一致
-     * @throws BusinessException 图文内容不符合要求、图片不可用、发生时间超出范围，或瞬间 ID 已被使用，或目标同行不可关联
+     * @param request 已由 MVC 校验过的发布请求，瞬间 ID 由客户端按 UUIDv7 生成
+     * @param userId  当前登录用户 ID，作作者和图片归属校验用
+     * @return 刚保存的完整详情，图片顺序和提交一致
+     * @throws BusinessException 内容、标签、地点、时间或图片不合规（400），瞬间 ID 被占（409，已软删除的记录也占 ID），或同行不可关联
      */
+    // TODO 完全不需要返回一大堆，直接返回success
     @Transactional
-    public MomentResponse createMoment(CreateMomentRequest request, UUID userId) {
-        List<UUID> fileIds = request.imageFileIds() == null ? List.of() : request.imageFileIds();
-        validateContent(request.body(), fileIds);
-        // 提供目标同行时先确认关联资格，校验通过后再执行发布写入。
+    public MomentDetailedResponse createMoment(CreateMomentRequest request, UUID userId) {
+        // 1. 验证内容，图片与文字必须至少有一个
+        List<UUID> imageFileIds = request.imageFileIds();
+        validateMomentContent(request.body(), imageFileIds);
+        // 2. 验证同行权限
         if (request.gatheringId() != null) {
             gatheringService.validateMomentAssociation(request.gatheringId(), userId);
         }
-        List<String> tags = prepareTags(request.tags());
-        MomentLocation location = normalizeLocation(request.location());
+        // 3. 验证并标准化标签内容
+        List<String> tags = validateTags(request.tags());
+        // 4. 处理位置信息
+        MomentLocation location = validateLocation(request.location());
+        // 5. 处理时间信息 TODO 后续统一用 Instant
         LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
-        Map<UUID, String> imageKeys = requireOwnedImageKeys(userId, fileIds);
+        // 6. 校验并处理图片为key TODO 还要细说图片的问题，这里不考虑重用，相当于批量校验
+        // TODO 改用mediaService中的方法，批量校验
+        Map<UUID, String> imageKeys = getOwnedImageKeys(userId, imageFileIds);
+        // 7. 审计字段
         LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
-
+        // 8.1 保存 moment 到表中
         Moment moment = saveNewMoment(request, userId, memoryTime, location, savedAt);
-        saveNewImages(moment.getId(), fileIds, savedAt);
-        List<String> savedTags = saveNewTags(moment.getId(), tags, savedAt);
-
-        List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
-        log.info("已写入瞬间，momentId={}，userId={}，gatheringId={}，imageCount={}，tagCount={}",
-                moment.getId(), userId, moment.getGatheringId(), images.size(), savedTags.size());
-        PublicUserResponse author = loadAuthors(List.of(moment)).get(moment.getAuthorUserId());
-        // 发布事件：【一个或多个瞬间已加入同行】
+        // 8.2 保存 image 到关联表
+        saveNewMomentImages(moment.getId(), imageFileIds, savedAt);
+        // 8.3 保存 tag 到关联表
+        List<String> savedTags = saveNewMomentTags(moment.getId(), tags, savedAt);
+        // 9. 发布事件：【一个或多个瞬间已加入同行】
         if (moment.getGatheringId() != null) {
             events.publishEvent(new GatheringMomentsLinkedEvent(
                     moment.getGatheringId(), userId, List.of(moment.getId()), savedAt
             ));
         }
-        return toResponse(moment, images, savedTags, author);
+        // 10. 构造响应
+        return convertToDetailedResponse(moment);
     }
 
     /**
-     * 全量保存本人瞬间：校验归属和完整请求，更新主记录，再分别同步图片、标签关联，返回详情。
-     * 空数组移除全部对应关联，null 清空可空字段。关联保留软删除历史，媒体文件保留；失败整体回滚。
+     * 全量更新本人瞬间：请求覆盖主记录可编辑字段，图片和标签按本次提交整体替换，返回完整详情。
+     * 图片、标签传空列表就是清空；图片只解除关联，文件保留；历史关联的 ID 和创建时间保留，之后可恢复。
      *
-     * @param id 待编辑瞬间 ID
-     * @param request 已由 MVC 校验必填字段的全量请求
-     * @param userId 当前登录用户 ID
-     * @return 更新后的完整详情，图片按本次提交顺序返回
-     * @throws BusinessException 瞬间不存在、非本人，或内容、图片不符合要求
+     * <p>流程：归属校验 → 校验图文 → 整理标签、地点、时间 → 批量确认图片可用 → 更新主记录 → 同步图片关联 → 同步标签关联 → 组装详情。
+     * 副作用：主记录和关联在同一事务更新，失败整体回滚。</p>
+     *
+     * @param momentId 待编辑瞬间 ID
+     * @param request  全量请求；标题、正文、心情、地点传 null 表示清空，图片、标签必须传列表（空列表=清空）
+     * @param userId   当前登录用户 ID
+     * @return 更新后的完整详情，图片顺序和本次提交一致
+     * @throws BusinessException 瞬间不存在或非本人（404/403），内容、标签、时间、图片不合规（400）
      */
+    // TODO 其实这个也完全没必要，前端再查一下就好了
     @Transactional
-    public MomentResponse updateMoment(UUID id, UpdateMomentRequest request, UUID userId) {
-        Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
-        List<UUID> fileIds = request.imageFileIds();
-        validateContent(request.body(), fileIds);
-        List<String> tags = prepareTags(request.tags());
-        MomentLocation location = normalizeLocation(request.location());
+    public MomentDetailedResponse updateMoment(UUID momentId, UpdateMomentRequest request, UUID userId) {
+        // 1. 权限验证
+        Moment moment = getOwnedMoment(momentId, userId);
+        // 2. 验证内容，图片与文字必须至少有一个
+        List<UUID> imageFileIds = request.imageFileIds();
+        validateMomentContent(request.body(), imageFileIds);
+        // 3. 验证并处理标签
+        List<String> tags = validateTags(request.tags());
+        // 4. 处理位置信息
+        MomentLocation location = validateLocation(request.location());
+        // 5. 处理时间信息 TODO 统一用 Instant
         LocalDateTime memoryTime = toDatabaseMemoryTime(request.memoryTime());
-        Map<UUID, String> imageKeys = requireOwnedImageKeys(userId, fileIds);
+        // 6. 校验并处理图片变为key
+        Map<UUID, String> imageKeys = getOwnedImageKeys(userId, imageFileIds);
+        // 7. 审计字段
         LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
-
-        updateMomentContent(moment, request, memoryTime, location, savedAt);
-        syncMomentImages(id, fileIds, savedAt);
-        syncMomentTags(id, tags, savedAt);
-
-        List<MomentResponse.Image> images = toImageResponses(fileIds, imageKeys);
-        List<String> savedTags = momentTagMapper.selectNames(id);
-        log.info("已修改瞬间，momentId={}，userId={}，imageCount={}，tagCount={}",
-                id, userId, images.size(), savedTags.size());
-        PublicUserResponse author = loadAuthors(List.of(moment)).get(moment.getAuthorUserId());
-        return toResponse(moment, images, savedTags, author);
+        // 8.1 处理moment本体
+        updateMoment(moment, request, memoryTime, location, savedAt);
+        // 8.2 处理image到关联表 TODO 写得很烂
+        syncMomentImages(momentId, imageFileIds, savedAt);
+        // 8.3 处理tag到关联表 TODO 写得很烂
+        syncMomentTags(momentId, tags, savedAt);
+        log.info("已修改瞬间，momentId={}，userId={}，imageCount={}",
+                momentId, userId, imageFileIds.size());
+        return convertToDetailedResponse(moment);
     }
 
     /**
-     * 查看本人瞬间详情，供阅读和编辑回填使用。
-     * 先查询并校验作者归属，再加载有效图片和标签，最后组装详情；图片按展示顺序返回，失效图片跳过。
+     * 查一条本人瞬间的完整详情
      *
-     * @param id 瞬间 ID，查询由 MyBatis-Plus 自动排除软删除记录
-     * @param userId 当前登录用户 ID
-     * @return 完整详情，图片附带临时读取地址，时间统一为 UTC
-     * @throws BusinessException 瞬间不存在或不属于当前用户
+     * <p>流程：归属校验 → 读图片并签临时地址 → 读标签和作者资料 → 组装详情。
+     * 只读事务，无副作用。</p>
+     *
+     * @param momentId 瞬间 ID
+     * @param userId   当前登录用户 ID
+     * @return 完整详情，图片按展示顺序
+     * @throws BusinessException 瞬间不存在或非本人时抛出（404/403）
      */
     @Transactional(readOnly = true)
-    public MomentResponse getMoment(UUID id, UUID userId) {
-        Moment moment = requireOwnedMoment(momentMapper.selectById(id), userId);
-        // 已确认作者身份，统一加载图片、标签及作者公开资料。
-        MomentResponse response = loadAuthorizedResponses(List.of(moment)).get(0);
-        log.debug("查询瞬间详情，momentId={}，userId={}", id, userId);
+    public MomentDetailedResponse getMoment(UUID momentId, UUID userId) {
+        // 1. 获取已鉴权的 moment
+        Moment moment = getOwnedMoment(momentId, userId);
+        // 2. 转换为响应对象
+        MomentDetailedResponse response = convertToDetailedResponse(moment);
+        log.debug("查询瞬间详情，momentId={}，userId={}", momentId, userId);
         return response;
     }
 
     /**
-     * 删除本人瞬间：查询并校验作者，已删除时直接返回；随后软删除主记录、图片和标签关联。
-     * 全部写入在同一事务内完成，媒体文件保留。
+     * 软删除本人瞬间，删过的再删直接返回（幂等）；媒体文件保留。
      *
-     * @param id 瞬间 ID
-     * @param userId 当前登录用户 ID
-     * @throws BusinessException 瞬间不存在或不属于当前用户
+     * <p>流程：归属校验（含已删除记录）→ 已删过就返回 → 软删主记录 → 解除图片关联 → 解除标签关联 → 发“瞬间已删除”事件。
+     * 副作用：三处软删在同一事务提交，失败整体回滚。</p>
+     *
+     * @param momentId 瞬间 ID
+     * @param userId   当前登录用户 ID
+     * @throws BusinessException 瞬间不存在或不属于当前用户时抛出（404/403）
      */
     @Transactional
-    public void deleteMoment(UUID id, UUID userId) {
-        Moment moment = requireOwnedMoment(momentMapper.selectIncludingDeleted(id), userId);
+    public void deleteMoment(UUID momentId, UUID userId) {
+        // 1. 鉴权
+        Moment moment = getOwnedMoment(momentId, userId, true);
+        // 2. 幂等
         if (moment.getDeletedAt() != null) {
-            log.debug("瞬间已删除，跳过重复操作，momentId={}，userId={}", id, userId);
             return;
         }
-
+        // 3. 审计字段
         LocalDateTime deletedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
-        momentMapper.softDelete(id, deletedAt);
-        momentImageMapper.removeAssociations(id, deletedAt);
-        momentTagMapper.removeAssociations(id, deletedAt);
+        // 4.1 删除moment TODO Mapper按道理会自动处理软删除
+        momentMapper.softDeleteById(momentId, deletedAt);
+        // 4.2 删除image关联
+        momentImageMapper.removeAssociations(momentId, deletedAt);
+        // 4.3 删除tag关联
+        momentTagMapper.removeAssociations(momentId, deletedAt);
 
-        // 发布事件：【一个瞬间已删除】
+        // TODO 业务要保证删除的时候 清理掉关联表中的关联，例如albummoment
+
+        // 5. 发布事件：【一个瞬间已删除】
         events.publishEvent(new MomentDeletedEvent(
-                id,
+                momentId,
                 deletedAt
         ));
 
-        log.info("已删除瞬间，momentId={}，userId={}", id, userId);
+        log.info("已删除瞬间，momentId={}，userId={}", momentId, userId);
     }
 
     /**
      * 为已通过访问检查的瞬间批量加载图片、标签和作者资料，返回完整详情。调用方负责检查权限。
+     *
      * @param page 已经检查访问权限的瞬间列表，可以为空
      * @return 按输入顺序返回瞬间详情，找不到作者资料时该字段为 null
      */
-    public List<MomentResponse> loadAuthorizedResponses(List<Moment> page) {
+    public List<MomentDetailedResponse> loadAuthorizedResponses(List<Moment> page) {
         // 1. 空列表直接返回，避免再查图片、标签和作者。
         if (page.isEmpty()) {
             return List.of();
@@ -301,7 +343,9 @@ public class MomentService {
                 tagsByMoment.getOrDefault(moment.getId(), List.of()), authors.get(moment.getAuthorUserId()))).toList();
     }
 
-    /** 按同行时间线首屏或后续页读取摘要投影，调用方已确认成员资格。 */
+    /**
+     * 按同行时间线首屏或后续页读取摘要投影，调用方已确认成员资格。
+     */
     private List<Moment> queryGatheringMoments(UUID gatheringId, PageRequest<GatheringMomentCursor> request) {
         // 将游标转换为数据库 UTC 时间，首屏不提供边界。
         GatheringMomentCursor cursor = request.cursor();
@@ -310,7 +354,134 @@ public class MomentService {
         return momentMapper.selectGatheringPage(gatheringId, cursorTime, cursorId, request.limit() + 1);
     }
 
-    /** 为已授权的摘要投影批量加载图片与作者，空页直接结束，保持输入顺序。 */
+    /**
+     * 把一页瞬间实体批量组装成摘要卡片，顺序和入参一致。
+     *
+     * <p>流程：查每个瞬间的图片关联（按展示顺序）→ 取第一张图签好名当封面 → 批量查作者公开资料 → 逐条拼卡片。
+     * 只读查询，无副作用。</p>
+     *
+     * @param moments 瞬间实体列表，至少填 ID、作者、标题、正文、心情、发生时间；调用方保证非空
+     * @return 与入参同序等长的摘要卡片；没有图的瞬间封面为 null、图片数为 0
+     * @throws IllegalArgumentException moments 为 null 或空（属服务端缺陷，全局异常处理器转 500）
+     */
+    public List<MomentSummaryResponse> convertToSummaryResponse(List<Moment> moments) {
+        Assert.notEmpty(moments, "至少传入一个 moment");
+
+        // 1.1 查询到所有 moment 的所有 images
+        List<UUID> momentIds = moments.stream().map(Moment::getId).toList();
+        Map<UUID, List<MomentImage>> imagesByMomentId = momentImageMapper.selectMomentsImages(momentIds);
+        // TODO 如果封面失效，说明有业务没遵守业务规则，应该抛异常或者记录日志
+        // 1.2 拿到封面文件的 key，全部签名
+        List<UUID> coverFileIds = imagesByMomentId.values().stream()
+                .filter(images -> !images.isEmpty())
+                .map(images -> images.get(0).getFileId())
+                .distinct()
+                .toList();
+        Map<UUID, String> coverUrlsByFileId = mediaService.getReadUrls(coverFileIds);
+
+        // 3. 批量获取作者资料
+        List<UUID> autherUserId = moments.stream().map(Moment::getAuthorUserId).toList();
+        Map<UUID, PublicUserResponse> authorsByUserId = userService.getPublicUsers(autherUserId);
+
+        // 3. 构造响应
+        List<MomentSummaryResponse> summaryResponses = new ArrayList<>();
+        for (Moment moment : moments) {
+            // 3.1 拿到 coverUrl
+            UUID momentId = moment.getId();
+            List<MomentImage> images = imagesByMomentId.get(momentId);
+            String coverUrl = null;
+            if (!images.isEmpty()) {
+                UUID fileId = images.get(0).getFileId();
+                coverUrl = coverUrlsByFileId.get(fileId);
+            }
+            // 3.2 拿到 imageCount
+            int imageCount = images.size();
+            // 3.3 拿到作者信息
+            PublicUserResponse authorInfo = authorsByUserId.get(moment.getAuthorUserId());
+            // 3.4 构造响应对象
+            MomentSummaryResponse summary = convertToSummaryResponse(moment, coverUrl, imageCount, authorInfo);
+            summaryResponses.add(summary);
+        }
+        return summaryResponses;
+    }
+
+    /**
+     * 拼单条摘要卡片，不查库，封面地址由调用方签好名传进来。
+     *
+     * <p>流程：正文截前 100 个 Unicode 码点当预览（空正文预览为 null）→ 发生时间换成 UTC 的 Instant → 拼卡片。
+     * 不改数据，无副作用。</p>
+     *
+     * @param moment     瞬间实体，用到 ID、标题、正文、心情、发生时间
+     * @param coverUrl   已签名的第一张图地址，没有图时为 null
+     * @param imageCount 这条瞬间的图片总数
+     * @param authorInfo 作者公开资料，查不到时为 null
+     * @return 摘要卡片
+     */
+    private MomentSummaryResponse convertToSummaryResponse(
+            Moment moment,
+            String coverUrl,
+            int imageCount,
+            PublicUserResponse authorInfo) {
+        return MomentSummaryResponse.builder()
+                .id(moment.getId())
+                .title(moment.getTitle())
+                .bodyPreview(TextUtils.truncateByCodePoints(moment.getBody(), 100)) // TODO 预览长度不能在这里写死 / 约定 null 或者空串
+                .coverUrl(coverUrl)
+                .imageCount(imageCount)
+                .mood(moment.getMood())
+                .memoryTime(moment.getMemoryTime().toInstant(ZoneOffset.UTC)) // TODO 全部统一用Instant
+                .author(authorInfo)
+                .build();
+    }
+
+    /**
+     * 查库组装瞬间详情：图片签名、标签、地点、作者资料都现读现拼。
+     *
+     * <p>只读查询，无副作用。</p>
+     *
+     * @param moment 完整瞬间实体，时间字段为 UTC
+     * @return 详情响应，时间转 Instant；注意地点四字段全空时也返回空地点对象，不归 null（和 toResponse 行为不同）
+     * @throws NullPointerException moment 为 null（属服务端缺陷，转 500）
+     */
+    public MomentDetailedResponse convertToDetailedResponse(Moment moment) {
+        Objects.requireNonNull(moment, "moment 为空");
+        UUID momentId = moment.getId();
+        // 1. 获取所有图片并签名
+        List<MomentImage> momentImages = momentImageMapper.selectMomentImages(momentId);
+        List<UUID> imageIds = momentImages.stream().map(MomentImage::getFileId).toList();
+        Map<UUID, String> readUrlByFileId = mediaService.getReadUrls(imageIds);
+        // 2. 构造图片列表
+        List<MomentDetailedResponse.Image> images = new ArrayList<>();
+        for (UUID fileId : imageIds) {
+            images.add(new MomentDetailedResponse.Image(fileId, readUrlByFileId.get(fileId)));
+        }
+        // 3. 处理 tag 列表
+        List<MomentTag> momentTags = momentTagMapper.selectMomentTags(momentId);
+        List<String> tagNames = momentTags.stream().map(MomentTag::getTagName).toList();
+        // 4. 处理 MomentLocation
+        MomentLocation location = new MomentLocation( // TODO 关于 location 的业务规则需要完善
+                moment.getLatitude(), moment.getLongitude(), moment.getLocationName(), moment.getLocationAddress());
+
+        PublicUserResponse publicUser = userService.getPublicUser(moment.getAuthorUserId());
+
+        return MomentDetailedResponse.builder().id(momentId)
+                .title(moment.getTitle())
+                .body(moment.getBody())
+                .images(images)
+                .tags(tagNames)
+                .mood(moment.getMood())
+                .memoryTime(moment.getMemoryTime().toInstant(ZoneOffset.UTC))
+                .location(location)
+                .createdAt(moment.getCreatedAt().toInstant(ZoneOffset.UTC))
+                .updatedAt(moment.getUpdatedAt().toInstant(ZoneOffset.UTC))
+                .author(publicUser)
+                .build();
+    }
+
+
+    /**
+     * 为已授权的摘要投影批量加载图片与作者，空页直接结束，保持输入顺序。
+     */
     public List<MomentSummaryResponse> loadSummaries(List<Moment> page) {
         // 只处理返回页，额外记录不查询图片和作者资料。
         if (page.isEmpty()) {
@@ -325,28 +496,17 @@ public class MomentService {
         ).toList();
     }
 
-    /** 按瞬间作者去重批量加载公开资料，缺失资料由响应映射为 null。 */
+    /**
+     * 按瞬间作者去重批量加载公开资料，缺失资料由响应映射为 null。
+     */
     private Map<UUID, PublicUserResponse> loadAuthors(List<Moment> moments) {
         // 作者来自已读取的瞬间，不根据当前查看者推断。
         return userService.getPublicUsers(moments.stream().map(Moment::getAuthorUserId).distinct().toList());
     }
 
     /**
-     * 将游标转换为数据库 UTC 时间，查询实际页大小加一条记录。
-     * @param userId 当前用户 ID
-     * @param request 已校验的分页请求
-     * @return 按发生时间、ID 倒序的摘要数据，额外记录供判断下一页
-     */
-    private List<Moment> queryFeedMoments(UUID userId, PageRequest<MomentFeedCursor> request) {
-        MomentFeedCursor cursor = request.cursor();
-        LocalDateTime cursorTime = (cursor == null) ? null : toDatabaseMemoryTime(cursor.memoryTime());
-        UUID cursorId = (cursor == null) ? null : cursor.id();
-        // 多查一条判断是否还有下一页，图片只按实际返回的记录批量查询。
-        return momentMapper.selectFeed(userId, cursorTime, cursorId, request.limit() + 1);
-    }
-
-    /**
      * 批量读取本页图片关联及有效文件，按瞬间分组，保留展示顺序；首个 key 用作封面。
+     *
      * @param page 实际返回的非空瞬间列表，不含额外记录
      * @return 瞬间 ID 到有序有效图片 key 列表的映射；无有效图片的瞬间不在映射中
      */
@@ -361,8 +521,9 @@ public class MomentService {
 
     /**
      * 组装摘要卡片，为首张有效图片签名，无有效图片时封面为 null、图片数为 0。
-     * @param moment 含 ID、作者、标题、正文、心情和发生时间的摘要实体
-     * @param author 已加载的作者公开资料，查不到时为 null
+     *
+     * @param moment    含 ID、作者、标题、正文、心情和发生时间的摘要实体
+     * @param author    已加载的作者公开资料，查不到时为 null
      * @param imageKeys 有效图片 key，按展示顺序排列，允许为空
      * @return 卡片摘要；本方法不查库
      */
@@ -374,7 +535,8 @@ public class MomentService {
 
     /**
      * 以实际返回的最后一条卡片作为下一页边界，组装分页响应。
-     * @param items 按查询顺序排列的非空卡片列表
+     *
+     * @param items   按查询顺序排列的非空卡片列表
      * @param hasMore 是否多查到了额外记录
      * @return 分页结果，末页游标为 null；本方法不查库
      */
@@ -386,6 +548,7 @@ public class MomentService {
 
     /**
      * 截取正文开头最多 100 个 Unicode 码点，保留原有文本。
+     *
      * @param body 正文，可空
      * @return 正文摘要，null 或空字符串返回 null
      */
@@ -398,43 +561,93 @@ public class MomentService {
     }
 
     /**
-     * 检查查询结果存在且归当前用户所有，成功时返回原实体。
+     * 按 ID 查瞬间，并确认是不是当前用户自己的（默认不查已删除的）。
      *
-     * @param moment Mapper 查询结果，可空；是否过滤软删除由调用方的查询决定
-     * @param userId 当前登录用户 ID
-     * @return 原瞬间实体
-     * @throws BusinessException 记录不存在或作者与当前用户不一致
+     * <p>查不到抛 404，不是自己的抛 403；只读查询，无副作用。</p>
+     *
+     * @param momentId    瞬间 ID
+     * @param ownerUserId 当前用户 ID
+     * @return 属于该用户的瞬间实体
+     * @throws BusinessException 瞬间不存在或不属于该用户时抛出
      */
-    private Moment requireOwnedMoment(Moment moment, UUID userId) {
+    private Moment getOwnedMoment(UUID momentId, UUID ownerUserId) {
+        return getOwnedMoment(momentId, ownerUserId, false);
+    }
+
+    /**
+     * 按 ID 查瞬间，并校验归属权（可选是否包含已删除的）。
+     *
+     * <p>流程：按开关查库拿瞬间 → 没查到记 debug 日志并抛未找到异常 → 作者不是当前用户记 warn 日志并抛无权限异常 → 返回瞬间。
+     * 只读查询，无副作用。</p>
+     *
+     * @param momentId      瞬间 ID
+     * @param ownerUserId   当前用户 ID
+     * @param includeDeleted 是否包含已逻辑删除的瞬间（{@code true} 包含，给删除流程识别重复删除用；{@code false} 只查正常状态）
+     * @return 校验通过的瞬间实体
+     * @throws BusinessException 瞬间不存在（{@code MOMENT_NOT_FOUND}）或非本人所有时抛出
+     */
+    private Moment getOwnedMoment(UUID momentId, UUID ownerUserId, boolean includeDeleted) {
+        Moment moment;
+        if (includeDeleted) {
+            moment = momentMapper.selectIncludingDeletedById(momentId);
+        } else {
+            moment = momentMapper.selectById(momentId);
+        }
         if (moment == null) {
-            log.debug("瞬间查询未命中，userId={}", userId);
+            log.debug("瞬间查询未命中，userId={}", ownerUserId);
             throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在");
         }
-        if (!userId.equals(moment.getAuthorUserId())) {
-            log.warn("瞬间访问被拒绝，momentId={}，userId={}，reason=非本人瞬间", moment.getId(), userId);
+        if (!ownerUserId.equals(moment.getAuthorUserId())) {
+            log.warn("瞬间访问被拒绝，momentId={}，userId={}，reason=非本人瞬间", moment.getId(), ownerUserId);
             throw BusinessException.forbidden("仅作者可以操作此瞬间");
         }
         return moment;
     }
 
     /**
-     * 填写并保存可编辑字段，同时更新传入实体，供响应组装复用。
+     * 校验这批瞬间全是本人的、没删的，全对才放行。
      *
-     * @param moment 已确认归属的有效瞬间
-     * @param request 已校验的完整编辑请求，空白标题转为 null
-     * @param memoryTime 已整理为 UTC 毫秒精度的发生时间
-     * @param location 已校验的地点，null 清空全部地点字段
-     * @param savedAt 本次修改时间，UTC
+     * <p>流程：列表非空检查 → 数出列表里属于本人且未删除的条数 → 和列表长度比对，对不上整体报错，不指认具体哪个 ID。
+     * 只读查询，无副作用。</p>
+     *
+     * @param momentIds   要检查的瞬间 ID 列表（调用方需提前去重；重复 ID 会被多算，导致误判失败）
+     * @param ownerUserId 当前用户 ID
+     * @throws IllegalArgumentException momentIds 为 null 或空时抛出
+     * @throws BusinessException        有瞬间不存在、已删除或不属于本人时抛出（{@code INVALID_ARGUMENT}）
      */
-    private void updateMomentContent(Moment moment, UpdateMomentRequest request, LocalDateTime memoryTime,
-                                     MomentLocation location, LocalDateTime savedAt) {
+    public void validateOwnedMoments(List<UUID> momentIds, UUID ownerUserId) {
+        // TODO Assert.notEmpty 的异常会逃出统一错误结构，都是服务端自己的 bug，500 是准确语义。
+        Assert.notEmpty(momentIds,"至少传入一个 momentId");
+        long validCount = momentMapper.countByAuthorUserIdAndIds(ownerUserId, momentIds);
+        if (validCount != momentIds.size()) {
+            throw BusinessException.invalidArgument("部分瞬间不存在、已删除或无权限");
+        }
+    }
+
+    /**
+     * 把请求里的可编辑字段写进实体并更新数据库，空白标题存 null，地点传 null 时清空。
+     * 顺手把保存值回填进传入实体，供调用方直接组装响应；不碰图片和标签关联。
+     *
+     * <p>副作用：更新 moment 表的可编辑字段，跟随外层事务。</p>
+     *
+     * @param moment     已确认归属的有效瞬间，本方法直接改它
+     * @param request    全量编辑请求
+     * @param memoryTime 已换算好的 UTC 毫秒发生时间
+     * @param location   已校验的地点，null 清空全部地点字段
+     * @param savedAt    本次修改时间，UTC，写入 updatedAt
+     */
+    private void updateMoment(Moment moment,
+                              UpdateMomentRequest request,
+                              LocalDateTime memoryTime,
+                              MomentLocation location,
+                              LocalDateTime savedAt) {
         moment.setTitle(StringUtils.hasText(request.title()) ? request.title() : null);
         moment.setBody(request.body());
         moment.setMood(request.mood());
         moment.setMemoryTime(memoryTime);
         moment.setUpdatedAt(savedAt);
         fillLocation(moment, location);
-        momentMapper.updateContent(moment);
+        momentMapper.updateContentById(moment);
     }
 
     /**
@@ -443,28 +656,30 @@ public class MomentService {
      * @param moment 已保存或查询到的完整瞬间实体，时间字段为 UTC
      * @param images 已生成读取地址且按展示顺序排列的图片列表，可为空列表
      * @param author 已加载的作者公开资料，查不到时为 null
-     * @param tags 实际保存或查询到的标签名称，可为空列表
+     * @param tags   实际保存或查询到的标签名称，可为空列表
      * @return 独立的详情响应，时间转换为 Instant；本方法不访问数据库或修改实体
      */
-    private MomentResponse toResponse(
-            Moment moment, List<MomentResponse.Image> images, List<String> tags, PublicUserResponse author) {
+    private MomentDetailedResponse toResponse(
+            Moment moment, List<MomentDetailedResponse.Image> images, List<String> tags, PublicUserResponse author) {
         MomentLocation location = moment.getLatitude() == null && moment.getLongitude() == null
                 && moment.getLocationName() == null && moment.getLocationAddress() == null ? null
                 : new MomentLocation(moment.getLatitude(), moment.getLongitude(),
-                        moment.getLocationName(), moment.getLocationAddress());
-        return new MomentResponse(moment.getId(), moment.getTitle(), moment.getBody(),
+                moment.getLocationName(), moment.getLocationAddress());
+        return new MomentDetailedResponse(moment.getId(), moment.getTitle(), moment.getBody(),
                 images, tags, moment.getMood(), moment.getMemoryTime().toInstant(ZoneOffset.UTC), location,
                 moment.getCreatedAt().toInstant(ZoneOffset.UTC), moment.getUpdatedAt().toInstant(ZoneOffset.UTC), author);
     }
 
     /**
-     * 检查正文与图片是否满足发布要求。
+     * 检查图文够不够发布：正文和图片至少有一个，正文不超长，图片不重复。
      *
-     * @param body 普通文本正文，可空，空白文本视为无有效正文
-     * @param fileIds 已解析的图片 ID 列表，非 null，允许为空列表
-     * @throws BusinessException 图文均为空、正文超过 UTF-8 字节上限或存在重复图片；本方法不修改入参
+     * <p>纯校验，不改入参，无副作用。</p>
+     *
+     * @param body    正文，可空，纯空白视为没写
+     * @param fileIds 已解析的图片 ID，非 null，可空列表
+     * @throws BusinessException 图文全空、正文超 UTF-8 字节上限或图片 ID 重复时抛出（400）
      */
-    private void validateContent(String body, List<UUID> fileIds) {
+    private void validateMomentContent(String body, List<UUID> fileIds) {
         if (!StringUtils.hasText(body) && fileIds.isEmpty()) {
             log.debug("瞬间内容校验失败，reason=正文和图片均为空");
             throw BusinessException.invalidArgument("请填写正文或添加图片");
@@ -480,21 +695,21 @@ public class MomentService {
     }
 
     /**
-     * 清理标签空白、校验长度并去除重复项。
+     * 整理标签：去首尾空白、丢空白项、按首次出现去重，再校验长度。
      *
-     * @param tags 可空列表，元素已通过 MVC 非 null 校验
-     * @return 去首尾空白、过滤空白项并按首次出现顺序去除完全相同名称的新列表；null 转为空列表
-     * @throws BusinessException 标签超过长度限制；数据库排序规则下的等价项由 Mapper 进一步去重
-     * TODO：统一标签等价和去重规则；Java distinct 与数据库不区分大小写、重音的排序规则存在差异，需明确保留的写法及创建、修改的一致行为。
+     * <p>纯校验整理，不改入参，无副作用。注意：Java 去重大小写敏感，数据库唯一索引按排序规则可能判等价，
+     * 等价重复由入库层兜底（保留首次写法）。</p>
+     *
+     * @param tags 标签列表，注意非 null
+     * @return 整理后的新列表，保持首次出现顺序
+     * @throws BusinessException 任一标签超长时抛出（400）
      */
-    private List<String> prepareTags(List<String> tags) {
-        if (tags == null) {
-            return List.of();
-        }
+    private List<String> validateTags(List<String> tags) {
+        Objects.requireNonNull(tags, "tags 至少需要有一个");
         List<String> normalized = tags.stream().map(String::strip)
                 .filter(StringUtils::hasText).distinct().toList();
         for (String tag : normalized) {
-            if (tag.codePointCount(0, tag.length()) > MAX_TAG_LENGTH) {
+            if (TextUtils.countCodePoints(tag) > MAX_TAG_LENGTH) {
                 log.debug("瞬间标签校验失败，reason=标签超出长度上限，maxLength={}", MAX_TAG_LENGTH);
                 throw BusinessException.invalidArgument("标签不能超过 " + MAX_TAG_LENGTH + " 字符");
             }
@@ -503,12 +718,16 @@ public class MomentService {
     }
 
     /**
-     * 将发生时间转换为数据库使用的 UTC 毫秒时间。
+     * 把时间点换算成数据库用的 UTC 毫秒时间，创建、修改和游标换算都用它。
      *
-     * @param value 已由请求校验保证非空的时间点；JSON 时间格式由 Jackson 解析
-     * @return UTC 下的 LocalDateTime，截断至 DATETIME(3) 支持的毫秒精度
-     * @throws BusinessException 时间超出 MySQL DATETIME 的 1000～9999 年范围
+     * <p>流程：转成 UTC 的 LocalDateTime 并截断到毫秒 → 年份超出 1000～9999（DATETIME 存不下）抛参数异常。
+     * 不改数据，无副作用。</p>
+     *
+     * @param value 时间点，调用方保证非空
+     * @return UTC 毫秒精度的 LocalDateTime
+     * @throws BusinessException 转换失败或年份超出数据库范围时抛出（{@code INVALID_ARGUMENT}）
      */
+    // TODO 游标超范围复用了发生时间的报错“发生时间超出可保存范围”，换专用文案（如“游标时间超出可查询范围”）
     private LocalDateTime toDatabaseMemoryTime(Instant value) {
         LocalDateTime memoryTime;
         try {
@@ -526,13 +745,15 @@ public class MomentService {
     }
 
     /**
-     * 校验经纬度成对填写，并统一坐标精度。
+     * 校验并整理地点：经纬度必须成对填，允许只填名称和地址，坐标四舍五入到 7 位小数。
      *
-     * @param location 请求中的地点，允许为空；允许仅填写地名和地址，经纬度需成对提供
-     * @return 新的地点对象，坐标四舍五入至七位小数；输入为空时返回 null，不修改原对象
-     * @throws BusinessException 经纬度仅填写其中一项
+     * <p>不改入参，无副作用。</p>
+     *
+     * @param location 请求里的地点，null 合法
+     * @return 整理后的新地点对象；输入 null 返回 null；只填名称地址时坐标为 null
+     * @throws BusinessException 经纬度只填了一项时抛出（400）
      */
-    private MomentLocation normalizeLocation(MomentLocation location) {
+    private MomentLocation validateLocation(MomentLocation location) {
         if (location == null) {
             return null;
         }
@@ -550,18 +771,24 @@ public class MomentService {
     }
 
     /**
-     * 构造并插入新瞬间，空白标题保存为 null；校验由调用方提前完成。
+     * 组装并插入新瞬间主记录，空白标题存 null；要求字段校验调用方已做完。
      *
-     * @param request 已通过字段和业务校验的发布请求
-     * @param userId 当前作者 ID
-     * @param memoryTime 已转换为数据库精度的 UTC 发生时间
-     * @param location 已校验并整理坐标精度的地点，可空
-     * @param savedAt 本次写入的创建和修改时间，UTC
-     * @return 已插入的瞬间实体
-     * @throws BusinessException 瞬间 ID 已存在，包括已软删除的记录
+     * <p>副作用：往 moment 表插一行，跟随外层事务。</p>
+     *
+     * @param request    已校验的发布请求（含客户端生成的瞬间 ID）
+     * @param userId     作者 ID
+     * @param memoryTime 已换算的 UTC 毫秒发生时间
+     * @param location   已整理的地点，null 表示不带地点
+     * @param savedAt    本次写入时间，UTC，同时给 createdAt 和 updatedAt
+     * @return 插入后的瞬间实体
+     * @throws BusinessException 瞬间 ID 被占时抛出（409，已软删除的记录也占 ID）
      */
-    private Moment saveNewMoment(CreateMomentRequest request, UUID userId, LocalDateTime memoryTime,
-                                 MomentLocation location, LocalDateTime savedAt) {
+    private Moment saveNewMoment(
+            CreateMomentRequest request,
+            UUID userId,
+            LocalDateTime memoryTime,
+            MomentLocation location,
+            LocalDateTime savedAt) {
         Moment moment = new Moment();
         moment.setId(request.id());
         moment.setAuthorUserId(userId);
@@ -583,14 +810,16 @@ public class MomentService {
     }
 
     /**
-     * 按提交顺序构造并插入图片关联，展示序号从 1 开始；写入当前发布事务。
+     * 按提交顺序给新瞬间批量插图片关联，展示序号从 1 开始。
      *
-     * @param momentId 本次新建的瞬间 ID
-     * @param fileIds 已确认属于本人且可用的图片 ID，允许为空列表
-     * @param savedAt 本次关联的创建和修改时间，UTC
+     * <p>副作用：往 moment_image 表插数据，跟随外层事务。</p>
+     *
+     * @param momentId 新建瞬间的 ID
+     * @param fileIds  已确认本人可用的图片 ID，可空列表
+     * @param savedAt  本次写入时间，UTC
      */
-    private void saveNewImages(UUID momentId, List<UUID> fileIds, LocalDateTime savedAt) {
-        // TODO：先收集图片关联，再批量插入，减少逐张图片写库的请求次数。
+    private void saveNewMomentImages(UUID momentId, List<UUID> fileIds, LocalDateTime savedAt) {
+        List<MomentImage> images = new ArrayList<>();
         for (int index = 0; index < fileIds.size(); index++) {
             MomentImage image = new MomentImage();
             image.setId(UuidCreator.getTimeOrderedEpoch());
@@ -599,23 +828,26 @@ public class MomentService {
             image.setSortOrder(index + 1);
             image.setCreatedAt(savedAt);
             image.setUpdatedAt(savedAt);
-            momentImageMapper.insert(image);
+            images.add(image);
         }
+        momentImageMapper.insert(images);
     }
 
     /**
-     * 构造并保存新瞬间的标签，数据库判定等价的名称保留首次填写的写法。
+     * 给新瞬间逐条插标签；数据库判等价的重复标签跳过，保留首次填写的写法。
      *
-     * @param momentId 本次新建的瞬间 ID
-     * @param tags 已去空白、去重并校验长度的标签名称，允许为空列表
-     * @param savedAt 本次标签的创建和修改时间，UTC
-     * @return 实际插入的标签名称，按提交顺序排列
+     * <p>副作用：往 moment_tag 表插数据，跟随外层事务。</p>
+     *
+     * @param momentId 新建瞬间的 ID
+     * @param tags     已整理的标签名称，可空列表
+     * @param savedAt  本次写入时间，UTC
+     * @return 实际插入的标签名称，按提交顺序
      */
-    private List<String> saveNewTags(UUID momentId, List<String> tags, LocalDateTime savedAt) {
-        // TODO：在统一标签比较规则后，批量查重并插入，减少逐个标签查库、写库。
+    private List<String> saveNewMomentTags(UUID momentId, List<String> tags, LocalDateTime savedAt) {
         List<String> savedTags = new ArrayList<>(tags.size());
         for (String name : tags) {
             MomentTag tag = newTag(momentId, name, savedAt);
+            // TODO 这个神秘的问题，为什么不用唯一约束？以及为什么不批量？
             if (momentTagMapper.insertIfAbsent(tag)) {
                 savedTags.add(name);
             }
@@ -624,10 +856,10 @@ public class MomentService {
     }
 
     /**
-     * 将整理后的地点写入实体，地点为 null 时清空全部地点字段；本方法不访问数据库。
+     * 把地点四字段写进实体，location 为 null 就全清空；直接改传入实体，不碰数据库。
      *
-     * @param moment 待填充的瞬间实体，本方法直接修改该对象
-     * @param location 已检查坐标成对且统一精度的地点，可空
+     * @param moment   待填的瞬间实体
+     * @param location 已校验的地点，null 表示清空
      */
     private void fillLocation(Moment moment, MomentLocation location) {
         moment.setLatitude(location == null ? null : location.latitude());
@@ -639,13 +871,13 @@ public class MomentService {
     /**
      * 批量读取本人有效图片的对象键，并确认提交的每张图片均可使用，供写入前校验。
      *
-     * @param userId 当前用户 ID
+     * @param userId  当前用户 ID
      * @param fileIds 已校验不重复的图片 ID 列表，允许为空列表
      * @return 文件 ID 到对象键的映射，供后续签名复用；空列表返回空映射
      * @throws BusinessException 任一图片未登记、已删除、非本人上传或类型不支持
      */
-    private Map<UUID, String> requireOwnedImageKeys(UUID userId, List<UUID> fileIds) {
-        Map<UUID, String> keys = mediaService.findOwnedImageKeys(userId, fileIds);
+    private Map<UUID, String> getOwnedImageKeys(UUID userId, List<UUID> fileIds) {
+        Map<UUID, String> keys = mediaService.getOwnedImageKeys(userId, fileIds);
         if (keys.size() != fileIds.size()) {
             log.warn("瞬间图片校验失败，userId={}，submittedCount={}，usableCount={}",
                     userId, fileIds.size(), keys.size());
@@ -656,13 +888,14 @@ public class MomentService {
 
     /**
      * 对比全部历史图片关联与目标列表：新增不存在的、恢复已删除的、调整保留项顺序、软删除移除项。
+     *
      * @param momentId 当前有效瞬间 ID
-     * @param fileIds 已校验归属且不重复的目标图片 ID，空列表移除全部有效关联
-     * @param savedAt 本次修改时间，UTC；历史关联 ID 和创建时间保留
+     * @param fileIds  已校验归属且不重复的目标图片 ID，空列表移除全部有效关联
+     * @param savedAt  本次修改时间，UTC；历史关联 ID 和创建时间保留
      */
     private void syncMomentImages(UUID momentId, List<UUID> fileIds, LocalDateTime savedAt) {
         // TODO：将新增、恢复、调整顺序、移除项分类收集后批量执行，减少逐条写库。
-        List<MomentImage> existing = momentImageMapper.selectIncludingDeleted(momentId);
+        List<MomentImage> existing = momentImageMapper.selectIncludingDeletedByMomentId(momentId);
         Map<UUID, MomentImage> byFileId = existing.stream()
                 .collect(Collectors.toMap(MomentImage::getFileId, image -> image));
         for (int index = 0; index < fileIds.size(); index++) {
@@ -689,7 +922,7 @@ public class MomentService {
         var retained = new HashSet<>(fileIds);
         for (MomentImage image : existing) {
             if (image.getDeletedAt() == null && !retained.contains(image.getFileId())) {
-                momentImageMapper.softDelete(image.getId(), savedAt);
+                momentImageMapper.softDeleteById(image.getId(), savedAt);
             }
         }
     }
@@ -698,8 +931,8 @@ public class MomentService {
      * 按名称同步标签：新增、恢复、保留或软删除。名称匹配交给数据库，遵循唯一索引的比较规则。
      *
      * @param momentId 当前有效瞬间 ID
-     * @param names 已去空白、去重并校验长度的目标名称，空列表清空有效标签
-     * @param savedAt 本次修改时间，UTC；恢复时保留历史 ID 和创建时间
+     * @param names    已去空白、去重并校验长度的目标名称，空列表清空有效标签
+     * @param savedAt  本次修改时间，UTC；恢复时保留历史 ID 和创建时间
      */
     private void syncMomentTags(UUID momentId, List<String> names, LocalDateTime savedAt) {
         // TODO：批量匹配名称并收集新增、恢复、移除项后批量写入，保持与唯一索引相同的比较规则。
@@ -730,12 +963,12 @@ public class MomentService {
     /**
      * 为已校验图片生成响应，沿用提交顺序和批量查询得到的对象键，本方法不访问数据库。
      *
-     * @param fileIds 有序图片 ID，允许为空列表
+     * @param fileIds   有序图片 ID，允许为空列表
      * @param imageKeys 每个图片 ID 对应的对象键，调用方已校验或过滤，保证键齐全
      * @return 带临时读取地址的图片列表，空输入返回空列表
      */
-    private List<MomentResponse.Image> toImageResponses(List<UUID> fileIds, Map<UUID, String> imageKeys) {
-        return fileIds.stream().map(fileId -> new MomentResponse.Image(
+    private List<MomentDetailedResponse.Image> toImageResponses(List<UUID> fileIds, Map<UUID, String> imageKeys) {
+        return fileIds.stream().map(fileId -> new MomentDetailedResponse.Image(
                 fileId, mediaService.createReadUrl(imageKeys.get(fileId)))).toList();
     }
 
@@ -743,8 +976,8 @@ public class MomentService {
      * 创建待保存的瞬间标签关联。
      *
      * @param momentId 所属瞬间 ID
-     * @param name 已整理的标签名称
-     * @param savedAt 本次写入的 UTC 毫秒时间
+     * @param name     已整理的标签名称
+     * @param savedAt  本次写入的 UTC 毫秒时间
      * @return 填写 UUIDv7 及审计字段的标签实体；实际插入或恢复由调用方选择
      */
     private MomentTag newTag(UUID momentId, String name, LocalDateTime savedAt) {

@@ -24,7 +24,7 @@ import com.you.youbackend.gathering.response.GatheringResponse;
 import com.you.youbackend.gathering.response.GatheringSummaryResponse;
 import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
 import com.you.youbackend.gathering.service.GatheringService;
-import com.you.youbackend.moment.response.MomentResponse;
+import com.you.youbackend.moment.response.MomentDetailedResponse;
 import com.you.youbackend.moment.response.MomentSummaryResponse;
 import com.you.youbackend.moment.service.MomentService;
 import com.you.youbackend.user.filter.JwtAuthFilter;
@@ -146,7 +146,7 @@ public class GatheringController {
     @ApiResponse(responseCode = "403", description = "当前用户不是有效成员")
     @ApiResponse(responseCode = "404", description = "同行失效、瞬间不存在、已删除或已移出同行")
     @GetMapping("/{gatheringId}/moments/{momentId}")
-    public Result<MomentResponse> getMoment(
+    public Result<MomentDetailedResponse> getMoment(
             @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
             @Parameter(description = "瞬间 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID momentId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
