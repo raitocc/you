@@ -1,0 +1,91 @@
+# M06 编辑瞬间
+## 约定
+### 1. 数据隔离：每条用例独立初始化与清理数据，用例间互不影响。
+### 2. 实体标识前缀：A、B、C、D 为已注册用户，默认已登录；M 为瞬间，IMG 为图片，G 为同行，C 后接数字为圈子，AL 为时光，S 为分享记录。
+### 3. 变量引用：as: <var> 保存步骤输出，$<var>.<field> 引用其字段。
+### 4. 断言视角：browse* 动作验证持久化后的可见结果，列表中的 ID 按展示顺序排列。
+id: MOMENT-UPDATE
+module: moment
+
+tests:
+  - name: shouldSaveChangesAndPreserveIdentityWhenAuthorEditsMoment
+    comment: 作者已发布瞬间时，修改瞬间内容，成功
+    given:
+      user: A
+      readyImages: [IMG1, IMG2, IMG3]
+      moments:
+        - id: M1
+          author: A
+          title: "江边"
+          content: "看了晚霞"
+          images: [IMG1, IMG2]
+          tags: ["散步", "晚霞"]
+          createdAt: "2026-11-21T10:00:00Z"
+          updatedAt: "2026-11-21T10:00:00Z"
+          memoryTime: "2026-11-20T10:00:00Z"
+    steps:
+      - actor: A
+        action: updateMoment
+        momentId: M1
+        title: "江边夜色"
+        content: "走到江边看夜景"
+        images: [IMG3, IMG1]
+        tags: ["夜景"]
+        mood: CALM
+        location: {name: "江边步道"}
+        memoryTime: "2026-11-20T20:00:00+08:00"
+        as: result
+      - {actor: A, action: browseMomentDetail, momentId: M1, as: detail}
+    then:
+      result: {success: true, id: M1, author: A}
+      detail:
+        id: M1
+        author: A
+        title: "江边夜色"
+        content: "走到江边看夜景"
+        images: [IMG3, IMG1]
+        tags: ["夜景"]
+        mood: CALM
+        location: {name: "江边步道"}
+        memoryTime: "2026-11-20T12:00:00Z"
+        createdAt: "2026-11-21T10:00:00Z"
+        updatedAtAfter: "2026-11-21T10:00:00Z"
+
+  - name: shouldRejectUpdateWhenReaderIsNotAuthor
+    comment: 同行成员有权查看瞬间但并非作者时，编辑该瞬间，失败
+    given:
+      user: B
+      gatherings: [{id: G1, members: [A, B]}]
+      moments: [{id: M1, author: A, content: "原正文", gatheringId: G1}]
+    steps:
+      - {actor: B, action: updateMoment, momentId: M1, content: "别人改写的正文", as: result}
+    then:
+      result: {success: false, error: FORBIDDEN}
+
+  - name: shouldKeepPriorContentWhenReplacementImageIsUnavailable
+    comment: 作者提交的替换图片不可用时，保存瞬间修改，失败
+    given:
+      user: A
+      readyImages: [IMG1]
+      failedImages: [IMG2]
+      moments: [{id: M1, author: A, content: "原正文", images: [IMG1]}]
+    steps:
+      - {actor: A, action: updateMoment, momentId: M1, content: "修改后的正文", images: [IMG2], as: result}
+    then:
+      result: {success: false, error: FILE_NOT_USABLE}
+
+  - name: shouldRejectUpdateWhenMomentIsDeleted
+    comment: 瞬间已被作者删除时，作者再次编辑该瞬间，失败
+    given: {user: A, moments: [{id: M1, author: A, status: deleted}]}
+    steps:
+      - {actor: A, action: updateMoment, momentId: M1, content: "尝试恢复", as: result}
+    then:
+      result: {success: false, error: MOMENT_NOT_FOUND}
+
+  - name: shouldRejectUpdateWhenUserIsUnauthenticated
+    comment: 作者未登录时，编辑自己的瞬间，失败
+    given: {user: A, authenticated: false, moments: [{id: M1, author: A, content: "原正文"}]}
+    steps:
+      - {actor: A, action: updateMoment, momentId: M1, content: "尝试修改", as: result}
+    then:
+      result: {success: false, error: UNAUTHORIZED}

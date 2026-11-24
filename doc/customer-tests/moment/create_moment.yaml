@@ -7,7 +7,7 @@
 #### - G1, G2：同行（Gathering）标识；C1, C2：圈子（Circle）标识（未声明 status 时默认正常可用）。
 ### 3. 变量引用：as: <var> 保存当前步骤输出；$<var>.<field> 引用其字段值（如 $result.id）。
 ### 4. 断言视角：browse* 动作断言持久化后的可见性结果。
-id: MOMENT-CREATE-001
+id: MOMENT-CREATE
 module: moment
 
 tests:

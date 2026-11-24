@@ -1,0 +1,107 @@
+# M11 浏览“与你有关”信息流
+## 约定
+### 1. 数据隔离：每条用例独立初始化与清理数据，用例间互不影响。
+### 2. 实体标识前缀：A、B、C、D 为已注册用户，默认已登录；M 为瞬间，IMG 为图片，G 为同行，C 后接数字为圈子，AL 为时光，S 为分享记录。
+### 3. 变量引用：as: <var> 保存步骤输出，$<var>.<field> 引用其字段。
+### 4. 断言视角：browse* 动作验证持久化后的可见结果，列表中的 ID 按展示顺序排列。
+### 5. shares 表示用户收到的分享，status 为 revoked 时代表分享已撤回；同一分享时间下，S 标识的数字后缀表示分享记录 ID 的相对大小。
+id: MOMENT-BROWSE-RELATED
+module: moment
+
+tests:
+  - name: shouldListReceivedMomentsAndAlbumsWhenBothAreShared
+    comment: 用户同时收到瞬间和时光分享时，浏览两种内容，成功
+    given:
+      user: A
+      gatherings: [{id: G1, members: [A, B]}]
+      circles: [{id: C1, members: [A, C]}, {id: C2, members: [C, D]}]
+      albums: [{id: AL1, owner: C, name: "旅行相册", momentIds: [M2]}]
+      moments:
+        - {id: M1, author: B, content: "一起看展", gatheringId: G1}
+        - {id: M2, author: C, content: "时光里的照片"}
+        - {id: M3, author: C, content: "只分享给 D"}
+        - {id: M4, author: A, content: "自己的私人记录"}
+      shares:
+        - {id: S1, objectType: moment, objectId: M1, sharer: B, recipients: [A], source: G1, sharedAt: "2026-11-20T10:00:00Z"}
+        - {id: S2, objectType: album, objectId: AL1, sharer: C, recipients: [A], source: C1, sharedAt: "2026-11-21T10:00:00Z"}
+        - {id: S3, objectType: moment, objectId: M3, sharer: C, recipients: [D], source: C2, sharedAt: "2026-11-22T10:00:00Z"}
+    steps:
+      - {actor: A, action: browseRelated, as: feed}
+    then:
+      feed:
+        success: true
+        items:
+          - {objectType: album, objectId: AL1, sharer: C, name: "旅行相册", momentCount: 1}
+          - {objectType: moment, objectId: M1, sharer: B, contentSummary: "一起看展"}
+        hasMore: false
+        nextCursor: null
+
+  - name: shouldUseLatestValidShareWhenSameMomentWasReceivedMoreThanOnce
+    comment: 同一瞬间收到多条分享且最新一条已撤回时，浏览剩余有效分享中最新的一条，成功
+    given:
+      user: A
+      gatherings: [{id: G1, members: [A, B]}]
+      circles: [{id: C1, members: [A, B]}, {id: C2, members: [A, B]}]
+      moments: [{id: M1, author: B, content: "一起看展", gatheringId: G1}]
+      shares:
+        - {id: S1, objectType: moment, objectId: M1, sharer: B, recipients: [A], source: G1, sharedAt: "2026-11-20T10:00:00Z"}
+        - {id: S2, objectType: moment, objectId: M1, sharer: B, recipients: [A], source: C1, sharedAt: "2026-11-21T10:00:00Z"}
+        - {id: S3, objectType: moment, objectId: M1, sharer: B, recipients: [A], source: C2, sharedAt: "2026-11-22T10:00:00Z", status: revoked}
+    steps:
+      - {actor: A, action: browseRelated, as: feed}
+    then:
+      feed:
+        success: true
+        items: [{objectType: moment, objectId: M1, sharedAt: "2026-11-21T10:00:00Z", sharer: B}]
+        hasMore: false
+        nextCursor: null
+
+  - name: shouldContinueByShareOrderWhenSharingTimesAreEqual
+    comment: 分享时间相同且原瞬间的记忆时间顺序不同时，按分享顺序跨页浏览与你有关的信息流，成功
+    given:
+      user: A
+      circles: [{id: C1, members: [A, B]}]
+      moments:
+        - {id: M1, author: B, content: "较早分享", memoryTime: "2026-11-20T10:00:00Z"}
+        - {id: M2, author: B, content: "较小分享 ID", memoryTime: "2026-11-19T10:00:00Z"}
+        - {id: M3, author: B, content: "较大分享 ID", memoryTime: "2026-11-18T10:00:00Z"}
+      shares:
+        - {id: S1, objectType: moment, objectId: M1, sharer: B, recipients: [A], source: C1, sharedAt: "2026-11-21T10:00:00Z"}
+        - {id: S2, objectType: moment, objectId: M2, sharer: B, recipients: [A], source: C1, sharedAt: "2026-11-22T10:00:00Z"}
+        - {id: S3, objectType: moment, objectId: M3, sharer: B, recipients: [A], source: C1, sharedAt: "2026-11-22T10:00:00Z"}
+    steps:
+      - {actor: A, action: browseRelated, limit: 1, as: first}
+      - {actor: A, action: browseRelated, limit: 2, cursor: $first.nextCursor, as: second}
+    then:
+      first: {success: true, objectIds: [M3], hasMore: true}
+      second: {success: true, objectIds: [M2, M1], hasMore: false, nextCursor: null}
+
+  - name: shouldReturnEmptyPageWhenPreviouslyReceivedContentBecomesUnavailable
+    comment: 用户退出一个分享圈子且另一条分享的瞬间已被作者删除时，刷新与你有关的信息流并获取空列表，成功
+    given:
+      user: A
+      circles: [{id: C1, members: [A, B]}, {id: C2, members: [A, B]}]
+      moments:
+        - {id: M1, author: B, content: "退出后不可见", memoryTime: "2026-11-20T10:00:00Z"}
+        - {id: M2, author: B, content: "删除后不可见", memoryTime: "2026-11-21T10:00:00Z"}
+      shares:
+        - {id: S1, objectType: moment, objectId: M1, sharer: B, recipients: [A], source: C1, sharedAt: "2026-11-21T10:00:00Z"}
+        - {id: S2, objectType: moment, objectId: M2, sharer: B, recipients: [A], source: C2, sharedAt: "2026-11-22T10:00:00Z"}
+    steps:
+      - {actor: A, action: browseRelated, as: before}
+      - {actor: A, action: leaveCircle, circleId: C1, as: leave}
+      - {actor: B, action: deleteMoment, momentId: M2, as: deletion}
+      - {actor: A, action: browseRelated, as: after}
+    then:
+      before: {objectIds: [M2, M1]}
+      leave: {success: true}
+      deletion: {success: true}
+      after: {success: true, items: [], hasMore: false, nextCursor: null}
+
+  - name: shouldRejectBrowsingRelatedWhenUserIsUnauthenticated
+    comment: 用户未登录时，浏览与你有关的信息流，失败
+    given: {user: A, authenticated: false}
+    steps:
+      - {actor: A, action: browseRelated, as: result}
+    then:
+      result: {success: false, error: UNAUTHORIZED}

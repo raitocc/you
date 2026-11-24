@@ -2,7 +2,7 @@
 
 ## 测试用例
 
-项目的唯一测试用例来源：`you\doc\customer-tests`。
+测试用例保存在`you\doc\customer-tests`不同的模块目录下。
 
 使用 Customer Tests（客户测试）作为测试标准。当前阶段主要面向服务端设计测试，暂不考虑客户端。将每个客户测试设计为 yaml 文件，具体结构如下：
 
@@ -64,7 +64,7 @@ tests:
 - `module`：必填，表示功能所属模块。
 - `tests`：必填，至少包含一个测试用例。
 - `name`：必填，在所属功能内唯一，建议使用 `shouldXxxWhenYyy` 风格。
-- `comment`：必填，使用中文，使用“when-what-that”的句式，例如“用户已登录时，发布纯文字瞬间，成功”、“正文空白、但存在有效图片时，发布图片瞬间，成功”。
+- `comment`：必填，使用中文，使用“[...时]-[具体动作]-[成功/失败]”的句式，例如“用户已登录时，发布纯文字瞬间，成功”、“正文空白、但存在有效图片时，发布图片瞬间，成功”。
 - `given`：可以为空，例如测试无须准备数据。
 - `steps`：至少包含一个业务操作，只描述业务行为，不指定 Controller、Service、Mapper 等内部调用。
 - `then`：至少包含一项可验证的预期结果。error 错误码使用后端规定错误码。
@@ -89,7 +89,7 @@ tests:
 
 ## 技术选型
 
-1. JUnit 5 、 @SpringBootTest 、 MockMvc
+1. 使用 JUnit 5 、 @SpringBootTest 、 MockMvc
 2. 使用 Testcontainers 自动拉起与仓库 Docker Compose 一致的 **MySQL 8.4** 和 **Redis 7** 容器，保证测试环境与开发环境一致
 3. 测试库表结构直接使用开发环境的 Flyway 迁移脚本，保证测试环境 Schema 与开发环境一致
 
@@ -99,8 +99,9 @@ tests:
 
 项目的唯一测试用例来源：`you\doc\customer-tests`。编写的测试需要基于我们的测试用例，YAML 文件是用表达设计测试场景的结构化文件。写测试时，基于测试用例的结构性表达，YAML 里的字段名不用和代码一一对应，测试用例与实际实现应当解耦，目标是测试用例要求的行为和结果。
 
-1. 测试类命名规则：将 YAML 用例文件名（去掉 `.yaml` 后缀）从 `snake_case` 转为 `PascalCase`，并在末尾拼接 `CustomerTest`。示例，`create_moment.yaml` $\rightarrow$ `CreateMomentCustomerTest.java`
-2. 每条 YAML 场景对应一个同名的 JUnit 测试方法。
+1. 测试文件新建在 `test.java.com.you.youbackend` 下具体 YAML 中的 `module` 包里。	
+2. 测试类命名规则：将 YAML 用例文件名（去掉 `.yaml` 后缀）从 `snake_case` 转为 `PascalCase`，并在末尾拼接 `CustomerTest`。示例，`create_moment.yaml` $\rightarrow$ `CreateMomentCustomerTest.java`。
+3. 每条 YAML 场景对应一个同名的 JUnit 测试方法。
 
 ### 注释规范
 

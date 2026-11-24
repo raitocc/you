@@ -1,0 +1,82 @@
+# M07 删除瞬间
+## 约定
+### 1. 数据隔离：每条用例独立初始化与清理数据，用例间互不影响。
+### 2. 实体标识前缀：A、B、C、D 为已注册用户，默认已登录；M 为瞬间，IMG 为图片，G 为同行，C 后接数字为圈子，AL 为时光，S 为分享记录。
+### 3. 变量引用：as: <var> 保存步骤输出，$<var>.<field> 引用其字段。
+### 4. 断言视角：browse* 动作验证持久化后的可见结果，列表中的 ID 按展示顺序排列。
+id: MOMENT-DELETE
+module: moment
+
+tests:
+  - name: shouldRemoveMomentFromAllViewsWhenAuthorDeletesIt
+    comment: 作者的瞬间同时被时光、同行和圈子引用时，删除该瞬间，成功
+    given:
+      user: A
+      gatherings: [{id: G1, members: [A, B]}]
+      circles: [{id: C1, members: [A, B]}]
+      albums: [{id: AL1, owner: A, momentIds: [M1, M2]}]
+      moments:
+        - {id: M1, author: A, content: "删除这条", gatheringId: G1, circleIds: [C1]}
+        - {id: M2, author: A, content: "保留这条", gatheringId: G1, circleIds: [C1]}
+    steps:
+      - {actor: A, action: deleteMoment, momentId: M1, as: result}
+      - {actor: A, action: browseYours, as: yours}
+      - {actor: A, action: browseMomentDetail, momentId: M1, as: detail}
+      - {actor: A, action: browseAlbumDetail, albumId: AL1, as: album}
+      - {actor: A, action: browseAlbumMoments, albumId: AL1, as: albumMoments}
+      - {actor: B, action: browseGatheringMoments, gatheringId: G1, as: gathering}
+      - {actor: B, action: browseCircleShares, circleId: C1, as: circle}
+      - {actor: B, action: browseRelated, as: related}
+    then:
+      result: {success: true}
+      yours: {itemIds: [M2]}
+      detail: {success: false, error: MOMENT_NOT_FOUND}
+      album: {success: true, momentCount: 1}
+      albumMoments: {itemIds: [M2]}
+      gathering: {itemIds: [M2]}
+      circle: {momentIds: [M2]}
+      related: {objectIds: [M2]}
+      references:
+        M1:
+          album: {id: AL1, active: false}
+          gathering: {id: G1, active: false}
+          circle: {id: C1, active: false}
+        M2:
+          album: {id: AL1, active: true}
+          gathering: {id: G1, active: true}
+          circle: {id: C1, active: true}
+
+  - name: shouldKeepMomentWhenReaderAttemptsDeletion
+    comment: 圈子成员有权查看瞬间但并非作者时，删除该瞬间，失败
+    given:
+      user: B
+      circles: [{id: C1, members: [A, B]}]
+      moments: [{id: M1, author: A, content: "仍然可见", circleIds: [C1]}]
+    steps:
+      - {actor: B, action: deleteMoment, momentId: M1, as: result}
+    then:
+      result: {success: false, error: FORBIDDEN}
+
+  - name: shouldLeaveStateUnchangedWhenAuthorRetriesDeletion
+    comment: 作者已删除该瞬间时，重试删除同一瞬间，成功
+    given:
+      user: A
+      moments:
+        - {id: M1, author: A, content: "删除这条"}
+        - {id: M2, author: A, content: "保留这条"}
+    steps:
+      - {actor: A, action: deleteMoment, momentId: M1, as: first}
+      - {actor: A, action: deleteMoment, momentId: M1, as: retry}
+      - {actor: A, action: browseYours, as: feed}
+    then:
+      first: {success: true}
+      retry: {success: true}
+      feed: {itemIds: [M2]}
+
+  - name: shouldRejectDeletionWhenUserIsUnauthenticated
+    comment: 作者未登录时，删除自己的瞬间，失败
+    given: {user: A, authenticated: false, moments: [{id: M1, author: A, content: "保留原文"}]}
+    steps:
+      - {actor: A, action: deleteMoment, momentId: M1, as: result}
+    then:
+      result: {success: false, error: UNAUTHORIZED}

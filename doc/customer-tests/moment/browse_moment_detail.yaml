@@ -1,0 +1,123 @@
+# M04 查看瞬间详情
+## 约定
+### 1. 数据隔离：每条用例独立初始化与清理数据，用例间互不影响。
+### 2. 实体标识前缀：A、B、C、D 为已注册用户，默认已登录；M 为瞬间，IMG 为图片，G 为同行，C 后接数字为圈子，AL 为时光，S 为分享记录。
+### 3. 变量引用：as: <var> 保存步骤输出，$<var>.<field> 引用其字段。
+### 4. 断言视角：browse* 动作验证持久化后的可见结果，列表中的 ID 按展示顺序排列。
+### 5. viaGathering 和 viaCircle 表示读者打开原瞬间的业务入口；拒绝读取时，contentReturned 为 false 表示不返回瞬间内容。
+id: MOMENT-BROWSE-DETAIL
+module: moment
+
+tests:
+  - name: shouldShowFullDetailAndAssociationsWhenViewerIsAuthor
+    comment: 作者的瞬间包含图文和关联时，查看完整详情及关联信息，成功
+    given:
+      user: A
+      readyImages: [IMG1, IMG2]
+      gatherings: [{id: G1, members: [A, B]}]
+      circles: [{id: C1, members: [A, B]}]
+      moments:
+        - id: M1
+          author: A
+          title: "江边"
+          content: "沿着江边散步，停下来拍了晚霞和远处的桥。"
+          images: [IMG2, IMG1]
+          tags: ["散步", "晚霞"]
+          mood: HAPPY
+          location: {name: "江边步道"}
+          memoryTime: "2026-11-20T10:00:00Z"
+          gatheringId: G1
+          circleIds: [C1]
+    steps:
+      - {actor: A, action: browseMomentDetail, momentId: M1, as: detail}
+    then:
+      detail:
+        success: true
+        id: M1
+        author: A
+        title: "江边"
+        content: "沿着江边散步，停下来拍了晚霞和远处的桥。"
+        images: [IMG2, IMG1]
+        tags: ["散步", "晚霞"]
+        mood: HAPPY
+        location: {name: "江边步道"}
+        memoryTime: "2026-11-20T10:00:00Z"
+        gatheringId: G1
+        circleIds: [C1]
+        canEdit: true
+        canDelete: true
+        canShare: true
+
+  - name: shouldShowContentWithoutAuthorPermissionsWhenReaderIsGatheringMember
+    comment: 读者是同行成员且并非作者时，通过同行入口查看瞬间内容，成功
+    given:
+      user: B
+      gatherings: [{id: G1, members: [A, B]}]
+      circles: [{id: C1, members: [A]}]
+      moments: [{id: M1, author: A, content: "一起看展", gatheringId: G1, circleIds: [C1]}]
+    steps:
+      - {actor: B, action: browseMomentDetail, momentId: M1, viaGathering: G1, as: detail}
+    then:
+      detail:
+        success: true
+        id: M1
+        author: A
+        content: "一起看展"
+        showsAssociations: false
+        canEdit: false
+        canDelete: false
+        canShare: false
+
+  - name: shouldShowOriginalDetailWhenMomentIsSharedToReadersCircle
+    comment: 瞬间已有效分享给读者所在圈子时，通过圈子入口查看原瞬间的正文和图片，成功
+    given:
+      user: B
+      readyImages: [IMG1]
+      circles: [{id: C1, members: [A, B]}]
+      moments: [{id: M1, author: A, content: "海边日落", images: [IMG1], circleIds: [C1]}]
+    steps:
+      - {actor: B, action: browseMomentDetail, momentId: M1, viaCircle: C1, as: detail}
+    then:
+      detail: {success: true, id: M1, author: A, content: "海边日落", images: [IMG1]}
+
+  - name: shouldDenyDetailWhenViewerHasNoAccess
+    comment: 非作者没有同行或圈子访问资格时，按瞬间标识打开详情，失败
+    given:
+      user: B
+      readyImages: [IMG1]
+      moments: [{id: M1, author: A, content: "私人记录", images: [IMG1]}]
+    steps:
+      - {actor: B, action: browseMomentDetail, momentId: M1, as: detail}
+    then:
+      detail: {success: false, contentReturned: false}
+
+  - name: shouldDenyPreviouslyVisibleDetailWhenReaderLeavesCircle
+    comment: 读者此前能查看瞬间但已退出圈子时，通过原圈子入口再次打开瞬间，失败
+    given:
+      user: B
+      circles: [{id: C1, members: [A, B]}]
+      moments: [{id: M1, author: A, content: "原来可见的记录", circleIds: [C1]}]
+    steps:
+      - {actor: B, action: browseMomentDetail, momentId: M1, viaCircle: C1, as: before}
+      - {actor: B, action: leaveCircle, circleId: C1, as: leave}
+      - {actor: B, action: browseMomentDetail, momentId: M1, viaCircle: C1, as: after}
+    then:
+      before: {success: true, id: M1, content: "原来可见的记录"}
+      leave: {success: true}
+      after: {success: false, contentReturned: false}
+
+  - name: shouldDenyDetailWhenMomentIsDeleted
+    comment: 瞬间已被作者删除时，作者打开该瞬间详情，失败
+    given: {user: A, moments: [{id: M1, author: A, content: "已删除的记录", status: deleted}]}
+    steps:
+      - {actor: A, action: browseMomentDetail, momentId: M1, as: detail}
+    then:
+      detail: {success: false, error: MOMENT_NOT_FOUND, contentReturned: false}
+
+  - name: shouldRejectDetailWhenUserIsUnauthenticated
+    comment: 作者未登录时，查看自己的瞬间详情，失败
+    given: {user: A, authenticated: false, moments: [{id: M1, author: A, content: "私人记录"}]}
+    steps:
+      - {actor: A, action: browseMomentDetail, momentId: M1, as: detail}
+    then:
+      detail: {success: false, error: UNAUTHORIZED, contentReturned: false}

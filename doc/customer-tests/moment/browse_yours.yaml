@@ -1,0 +1,67 @@
+# M03 浏览自己的瞬间流
+## 约定
+### 1. 数据隔离：每条用例独立初始化与清理数据，用例间互不影响。
+### 2. 实体标识前缀：A、B、C、D 为已注册用户，默认已登录；M 为瞬间，IMG 为图片，G 为同行，C 后接数字为圈子，AL 为时光，S 为分享记录。
+### 3. 变量引用：as: <var> 保存步骤输出，$<var>.<field> 引用其字段。
+### 4. 断言视角：browse* 动作验证持久化后的可见结果，列表中的 ID 按展示顺序排列。
+### 5. 相同记忆时间下，M 标识的数字后缀表示瞬间 ID 的相对大小。
+id: MOMENT-BROWSE-YOURS
+module: moment
+
+tests:
+  - name: shouldListOnlyOwnActiveMomentsWhenBrowsingYours
+    comment: 浏览自己的瞬间流，成功
+    given:
+      user: A
+      circles: [{id: C1, members: [A, B]}]
+      moments:
+        - {id: M1, author: A, content: "私人记录", memoryTime: "2026-11-20T10:00:00Z"}
+        - {id: M2, author: A, content: "我的分享", circleIds: [C1], memoryTime: "2026-11-21T10:00:00Z"}
+        - {id: M3, author: A, status: deleted}
+    steps:
+      - {actor: A, action: browseYours, as: feed}
+    then:
+      feed: {success: true, itemIds: [M2, M1], hasMore: false, nextCursor: null}
+
+  - name: shouldShowOnlyExistingSummaryContentWhenMomentHasNoTitleOrImage
+    comment: 本人纯文字瞬间没有标题和图片时，读取该瞬间的卡片摘要，成功
+    given:
+      user: A
+      moments: [{id: M1, author: A, content: "今天很开心", images: [], mood: HAPPY}]
+    steps:
+      - {actor: A, action: browseYours, as: feed}
+    then:
+      feed:
+        success: true
+        items: [{id: M1, title: null, contentSummary: "今天很开心", imageCount: 0, mood: HAPPY}]
+
+  - name: shouldContinueWithoutDuplicatesWhenMemoryTimesAreEqual
+    comment: 记忆时间相同的瞬间分布在不同页时，按游标继续浏览自己的瞬间流，成功
+    given:
+      user: A
+      moments:
+        - {id: M1, author: A, content: "较晚发布", memoryTime: "2026-11-19T10:00:00Z", createdAt: "2026-11-22T10:00:00Z"}
+        - {id: M2, author: A, content: "较小 ID", memoryTime: "2026-11-20T10:00:00Z", createdAt: "2026-11-20T12:00:00Z"}
+        - {id: M3, author: A, content: "较大 ID", memoryTime: "2026-11-20T10:00:00Z", createdAt: "2026-11-20T12:00:00Z"}
+    steps:
+      - {actor: A, action: browseYours, limit: 1, as: first}
+      - {actor: A, action: browseYours, limit: 2, cursor: $first.nextCursor, as: second}
+    then:
+      first: {success: true, itemIds: [M3], hasMore: true}
+      second: {success: true, itemIds: [M2, M1], hasMore: false, nextCursor: null}
+
+  - name: shouldReturnEmptyPageWhenUserHasNoActiveMoments
+    comment: 本人没有有效瞬间时，浏览自己的瞬间流并获取空列表，成功
+    given: {user: A, moments: [{id: M1, author: A, status: deleted}]}
+    steps:
+      - {actor: A, action: browseYours, as: feed}
+    then:
+      feed: {success: true, items: [], hasMore: false, nextCursor: null}
+
+  - name: shouldRejectBrowsingYoursWhenUserIsUnauthenticated
+    comment: 用户未登录时，浏览自己的瞬间流，失败
+    given: {user: A, authenticated: false}
+    steps:
+      - {actor: A, action: browseYours, as: result}
+    then:
+      result: {success: false, error: UNAUTHORIZED}
