@@ -1,0 +1,114 @@
+# M01 发布瞬间
+## 约定
+### 1. 数据隔离：每条测试用例独立初始化与清理数据，用例间互不影响。
+### 2. 实体标识前缀：
+#### - A, B, C：已注册测试用户（未显式声明 authenticated: false 时，默认已登录）。
+#### - IMG1~IMG3：图片资源标识（readyImages 为已就绪可发布图片，failedImages 为上传失败的附件）。
+#### - G1, G2：同行（Gathering）标识；C1, C2：圈子（Circle）标识（未声明 status 时默认正常可用）。
+### 3. 变量引用：as: <var> 保存当前步骤输出；$<var>.<field> 引用其字段值（如 $result.id）。
+### 4. 断言视角：browse* 动作断言持久化后的可见性结果。
+id: MOMENT-CREATE-001
+module: moment
+
+tests:
+  - name: shouldCreateTextOnlyMomentWhenContentIsProvided
+    comment: 用户已登录时，发布纯文字瞬间，成功
+    given: {user: A, authenticated: true}
+    steps:
+      - {actor: A, action: createMoment, content: "今天很开心", as: result}
+    then:
+      result: {success: true, author: A, content: "今天很开心", images: []}
+
+  - name: shouldCreateImageOnlyMomentWhenContentIsBlank
+    comment: 正文空白、但存在有效图片时，发布图片瞬间，成功
+    given: {user: A, authenticated: true, readyImages: [IMG1]}
+    steps:
+      - {actor: A, action: createMoment, content: "  ", images: [IMG1], as: result}
+    then:
+      result: {success: true, author: A, content: "", images: [IMG1]}
+
+  - name: shouldRejectCreationWhenUserIsUnauthenticated
+    comment: 未登录时，发布瞬间，失败
+    given: {user: A, authenticated: false}
+    steps:
+      - {actor: A, action: createMoment, content: "今天很开心", as: result}
+    then:
+      result: {success: false, error: UNAUTHORIZED}
+
+  - name: shouldRequireContentOrImageWhenOnlyTitleIsProvided
+    comment: 瞬间只有标题且正文为空白时，发布瞬间，失败
+    given: {user: A, authenticated: true}
+    steps:
+      - {actor: A, action: createMoment, title: "周末", content: "  ", images: [], as: result}
+      - {actor: A, action: browseYours, as: feed}
+    then:
+      result: {success: false, error: INVALID_ARGUMENT}
+      feed: {items: []}
+
+  - name: shouldSaveOptionalFieldsWhenTheyAreProvided
+    comment: 用户已登录时，发布完整瞬间，成功
+    given: {user: A, authenticated: true}
+    steps:
+      - actor: A
+        action: createMoment
+        content: "看到了晚霞"
+        title: "江边"
+        tags: ["散步", "晚霞"]
+        mood: HAPPY
+        location: {name: "江边步道"}
+        memoryTime: "2026-11-20T18:00:00+08:00"
+        as: result
+    then:
+      result:
+        success: true
+        title: "江边"
+        tags: ["散步", "晚霞"]
+        mood: HAPPY
+        location: {name: "江边步道"}
+        memoryTime: "2026-11-20T10:00:00Z"
+
+  - name: shouldPublishWithAssociationsWhenTargetsAreAvailable
+    comment: 关联一个有效同行并分享到多个本人所在的圈子时，发布瞬间，成功
+    given:
+      user: A
+      authenticated: true
+      gatherings: [{id: G1, members: [A, B]}]
+      circles: [{id: C1, members: [A, B]}, {id: C2, members: [A, C]}]
+    steps:
+      - {actor: A, action: createMoment, content: "一起看展", gatheringId: G1, circleIds: [C1, C2], as: result}
+      - {actor: A, action: browseGatheringMoments, gatheringId: G1, as: gathering}
+      - {actor: B, action: browseCircleShares, circleId: C1, as: firstCircle}
+      - {actor: C, action: browseCircleShares, circleId: C2, as: secondCircle}
+    then:
+      result: {success: true, author: A}
+      gathering: {itemIds: [$result.id]}
+      firstCircle: {momentIds: [$result.id]}
+      secondCircle: {momentIds: [$result.id]}
+
+  - name: shouldRejectCreationWhenGatheringIsUnavailable
+    comment: 关联同行失效时，发布瞬间，失败
+    given:
+      user: A
+      authenticated: true
+      gatherings: [{id: G1, members: [A], status: closed}]
+    steps:
+      - {actor: A, action: createMoment, content: "一起看展", gatheringId: G1, as: result}
+      - {actor: A, action: browseYours, as: feed}
+    then:
+      result: {success: false, unavailableGatheringId: G1}
+      feed: {items: []}
+
+  - name: shouldRejectCreationWhenAnySelectedCircleIsUnavailable
+    comment: 分享到多个目标圈子中有一个失效时，发布瞬间，失败
+    given:
+      user: A
+      authenticated: true
+      circles: [{id: C1, members: [A, B]}, {id: C2, members: [B]}]
+    steps:
+      - {actor: A, action: createMoment, content: "一起看展", circleIds: [C1, C2], as: result}
+      - {actor: A, action: browseYours, as: feed}
+      - {actor: B, action: browseCircleShares, circleId: C1, as: circle}
+    then:
+      result: {success: false, unavailableCircleIds: [C2]}
+      feed: {items: []}
+      circle: {momentIds: []}
