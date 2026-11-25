@@ -12,6 +12,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -37,7 +38,7 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
     }
 
     /** 软删除同行，解散时间同时作为修改时间；重复请求由业务层识别。 */
-    default void dissolveGathering(UUID id, LocalDateTime deletedAt) {
+    default void dissolveGathering(UUID id, Instant deletedAt) {
         // 沿用全局逻辑删除过滤，仅更新有效同行。
         update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, id)
                 .set(Gathering::getDeletedAt, deletedAt).set(Gathering::getUpdatedAt, deletedAt));

@@ -1,6 +1,6 @@
 package com.you.youbackend.moment.event;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -11,6 +11,6 @@ import java.util.UUID;
  */
 public record MomentDeletedEvent(
         UUID momentId,
-        LocalDateTime deletedAt
+        Instant deletedAt
 ) {
 }

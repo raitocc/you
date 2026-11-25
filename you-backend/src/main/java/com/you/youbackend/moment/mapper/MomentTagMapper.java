@@ -8,9 +8,9 @@ import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.time.LocalDateTime;
 
 /**
  * 访问瞬间标签记录。
@@ -45,7 +45,7 @@ public interface MomentTagMapper extends BaseMapper<MomentTag> {
      * @param momentId 瞬间 ID
      * @param deletedAt 本次解除关联的 UTC 时间
      */
-    default void removeAssociationsByMomentId(UUID momentId, LocalDateTime deletedAt) {
+    default void removeAssociationsByMomentId(UUID momentId, Instant deletedAt) {
         update(Wrappers.<MomentTag>lambdaUpdate()
                 .eq(MomentTag::getMomentId, momentId)
                 .set(MomentTag::getDeletedAt, deletedAt)
@@ -96,7 +96,7 @@ public interface MomentTagMapper extends BaseMapper<MomentTag> {
     }
 
     /** 软删除指定有效标签，同时更新修改时间。 */
-    default void softDelete(UUID id, LocalDateTime deletedAt) {
+    default void softDelete(UUID id, Instant deletedAt) {
         update(Wrappers.<MomentTag>lambdaUpdate().eq(MomentTag::getId, id)
                 .set(MomentTag::getDeletedAt, deletedAt).set(MomentTag::getUpdatedAt, deletedAt));
     }

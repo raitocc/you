@@ -7,7 +7,7 @@ import com.you.youbackend.album.model.AlbumOrganizeMode;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /** 时光主记录，软删除沿用 MyBatis-Plus 全局配置。 */
@@ -31,9 +31,9 @@ public class Album {
     /** 封面文件 ID；null 表示无封面。 */
     private UUID coverFileId;
     /** 创建时间，UTC 毫秒精度。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     /** 最后修改时间，UTC 毫秒精度。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
     /** 删除时间，UTC；null 表示有效。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

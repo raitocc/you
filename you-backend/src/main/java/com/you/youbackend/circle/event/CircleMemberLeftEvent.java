@@ -1,6 +1,6 @@
 package com.you.youbackend.circle.event;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -13,6 +13,6 @@ import java.util.UUID;
 public record CircleMemberLeftEvent(
         UUID circleId,
         UUID userId,
-        LocalDateTime leftAt
+        Instant leftAt
 ) {
 }

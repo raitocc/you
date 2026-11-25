@@ -5,6 +5,7 @@ import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.common.util.InviteCodeGenerator;
+import com.you.youbackend.common.util.TimeUtils;
 import com.you.youbackend.gathering.entity.Gathering;
 import com.you.youbackend.gathering.entity.GatheringMember;
 import com.you.youbackend.gathering.event.GatheringDissolvedEvent;
@@ -48,12 +49,16 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/** 同行创建、成员加入与瞬间关联资格校验。 */
+/**
+ * 同行创建、成员加入与瞬间关联资格校验。
+ */
 @Log4j2
 @Service
 @RequiredArgsConstructor
 public class GatheringService {
-    /** 列表介绍摘要的最大 Unicode 码点数。 */
+    /**
+     * 列表介绍摘要的最大 Unicode 码点数。
+     */
     private static final int SUMMARY_DESCRIPTION_LENGTH = 100;
     private final GatheringMapper gatheringMapper;
     private final GatheringMemberMapper gatheringMemberMapper;
@@ -63,8 +68,9 @@ public class GatheringService {
 
     /**
      * 普通成员主动退出并解除本人全部瞬间关联，两个写操作在同一事务中完成。
+     *
      * @param gatheringId 未解散的同行 ID，允许已结束
-     * @param userId 当前认证用户 ID，创建者须选择解散
+     * @param userId      当前认证用户 ID，创建者须选择解散
      */
     @Transactional
     public void leaveGathering(UUID gatheringId, UUID userId) {
@@ -85,7 +91,7 @@ public class GatheringService {
             return;
         }
         // 3. 成员退出和本人瞬间解绑共同提交，原始瞬间与媒体保留。
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        Instant now = TimeUtils.now();
         gatheringMemberMapper.leaveGathering(member.getId(), now);
         int removed = momentMapper.removeAllOwnedGathering(gatheringId, userId, now);
         // 发布事件：【名成员已退出同行】
@@ -95,8 +101,9 @@ public class GatheringService {
 
     /**
      * 创建者结束同行并关闭邀请，原有成员与瞬间关联保留。
+     *
      * @param gatheringId 有效同行 ID
-     * @param userId 当前认证用户 ID
+     * @param userId      当前认证用户 ID
      */
     @Transactional
     public void endGathering(UUID gatheringId, UUID userId) {
@@ -115,8 +122,9 @@ public class GatheringService {
 
     /**
      * 创建者解散同行并解除全部瞬间关联，同一事务提交，成员记录和原始瞬间保留。
+     *
      * @param gatheringId 同行 ID，已解散记录用于识别重复请求
-     * @param userId 当前认证用户 ID
+     * @param userId      当前认证用户 ID
      */
     @Transactional
     public void dissolveGathering(UUID gatheringId, UUID userId) {
@@ -131,7 +139,7 @@ public class GatheringService {
             return;
         }
         // 2. 关闭同行入口并批量解除关联，任一步骤失败整体回滚。
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        Instant now = TimeUtils.now();
         gatheringMapper.dissolveGathering(gatheringId, now);
         int removed = momentMapper.removeAllGathering(gatheringId, now);
 
@@ -146,9 +154,10 @@ public class GatheringService {
 
     /**
      * 批量关联本人瞬间，整批校验与写入共同提交或回滚。
+     *
      * @param gatheringId 进行中的目标同行 ID
-     * @param request 已通过列表及 UUIDv7 校验的请求
-     * @param userId 当前认证用户 ID
+     * @param request     已通过列表及 UUIDv7 校验的请求
+     * @param userId      当前认证用户 ID
      */
     @Transactional
     public void addMoments(UUID gatheringId, AddGatheringMomentsRequest request, UUID userId) {
@@ -164,7 +173,7 @@ public class GatheringService {
             return;
         }
         // 3. 只更新新增关联；条件更新与行数检查共同保证不会覆盖其他请求建立的关联。
-        LocalDateTime updatedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        Instant updatedAt = TimeUtils.now();
         int changed = momentMapper.associateGathering(userId, gatheringId, pendingIds, updatedAt);
         if (changed != pendingIds.size()) {
             throw BusinessException.conflict("MOMENT_ASSOCIATION_CHANGED", "瞬间关联状态已变化，请刷新后重试");
@@ -178,9 +187,10 @@ public class GatheringService {
 
     /**
      * 批量取消本人瞬间在指定同行中的关联，允许已结束同行，重复取消成功。
+     *
      * @param gatheringId 当前操作的同行 ID
-     * @param request 已通过列表及 UUIDv7 校验的请求
-     * @param userId 当前认证用户 ID
+     * @param request     已通过列表及 UUIDv7 校验的请求
+     * @param userId      当前认证用户 ID
      */
     @Transactional
     public void removeMoments(UUID gatheringId, RemoveGatheringMomentsRequest request, UUID userId) {
@@ -195,7 +205,7 @@ public class GatheringService {
             return;
         }
         // 3. 一次清空符合条件的关联，原瞬间及媒体内容保留。
-        LocalDateTime updatedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        Instant updatedAt = TimeUtils.now();
         int changed = momentMapper.removeGathering(userId, gatheringId, pendingIds, updatedAt);
         // 发布事件：【一个或多个瞬间已从同行中移出】
         if (changed > 0) {
@@ -208,8 +218,9 @@ public class GatheringService {
 
     /**
      * 浏览本人已加入的有效同行，分页后批量补齐数量。
+     *
      * @param request 已由 PageQuery 校验的分页参数
-     * @param userId 当前认证用户 ID
+     * @param userId  当前认证用户 ID
      * @return 按创建时间、ID 倒序的同行摘要页
      */
     @Transactional(readOnly = true)
@@ -232,8 +243,9 @@ public class GatheringService {
 
     /**
      * 有效成员读取同行详情，分页内容从各自入口读取。
+     *
      * @param gatheringId 同行 ID
-     * @param userId 当前认证用户 ID
+     * @param userId      当前认证用户 ID
      * @return 同行信息、实际数量与创建者公开资料
      */
     @Transactional(readOnly = true)
@@ -246,9 +258,10 @@ public class GatheringService {
 
     /**
      * 创建者全量修改基本信息，保存及响应加载在同一事务完成。
+     *
      * @param gatheringId 同行 ID
-     * @param request 已校验名称、介绍，null 介绍表示清空
-     * @param userId 当前认证用户 ID
+     * @param request     已校验名称、介绍，null 介绍表示清空
+     * @param userId      当前认证用户 ID
      * @return 最新同行信息
      */
     @Transactional
@@ -272,9 +285,10 @@ public class GatheringService {
 
     /**
      * 有效成员分页读取其他有效成员的公开资料。
+     *
      * @param gatheringId 同行 ID
-     * @param request 已校验的成员关系创建时间、用户 ID 游标
-     * @param userId 当前认证用户 ID
+     * @param request     已校验的成员关系创建时间、用户 ID 游标
+     * @param userId      当前认证用户 ID
      * @return 按成员关系创建时间、用户 ID 正序的公开资料页
      */
     @Transactional(readOnly = true)
@@ -301,8 +315,9 @@ public class GatheringService {
 
     /**
      * 创建同行与创建者成员关系，两类记录共同提交或回滚。
+     *
      * @param request 已通过名称及介绍校验的请求
-     * @param userId 当前登录用户 ID，由统一认证过滤器提供
+     * @param userId  当前登录用户 ID，由统一认证过滤器提供
      * @return 初始成员数为 1、瞬间数为 0 的同行信息，包含长期邀请码
      */
     @Transactional
@@ -321,8 +336,9 @@ public class GatheringService {
 
     /**
      * 根据长期邀请码预览加入目标，整个流程只读取数据。
+     *
      * @param request 已通过邀请码校验的查询参数
-     * @param userId 当前登录用户 ID
+     * @param userId  当前登录用户 ID
      * @return 目标基本信息、创建者公开资料和当前有效成员标记
      * @throws BusinessException 邀请码不存在、同行已解散或邀请关闭时返回 404
      */
@@ -340,8 +356,9 @@ public class GatheringService {
 
     /**
      * 确认加入同行：按提交时状态校验，建立或恢复成员关系后返回最新同行信息。
+     *
      * @param request 已通过邀请码校验的请求，支持直接调用
-     * @param userId 当前登录用户 ID，由统一认证过滤器提供
+     * @param userId  当前登录用户 ID，由统一认证过滤器提供
      * @return 当前同行信息和实际成员、瞬间数量；已是有效成员时返回现有结果
      * @throws BusinessException 邀请码不存在、同行已解散或邀请关闭时返回 404
      */
@@ -359,8 +376,9 @@ public class GatheringService {
      * 凭同行 ID 和短码确认加入，全部校验与成员写入在一个数据库事务内完成。
      * <p>流程：查询并校验目标 → 新增、恢复或沿用成员关系 → 组装当前同行信息。
      * 附近预览只帮助发现目标，本方法直接根据数据库短码、邀请开关和创建时间判断加入资格。
+     *
      * @param request 已校验的同行 ID 与四位短码
-     * @param userId 统一认证过滤器提供的用户 ID
+     * @param userId  统一认证过滤器提供的用户 ID
      * @return 加入后的同行信息，重复加入保持原关系
      */
     @Transactional
@@ -375,8 +393,9 @@ public class GatheringService {
 
     /**
      * 校验用户能否向指定同行关联本人瞬间，由发布等业务在写入前调用。
+     *
      * @param gatheringId 请求中已提供的同行 ID
-     * @param userId 当前登录用户 ID
+     * @param userId      当前登录用户 ID
      * @throws BusinessException 同行不存在或已解散返回 404，已结束返回 400，非有效成员返回 403
      */
     public void validateMomentAssociation(UUID gatheringId, UUID userId) {
@@ -400,8 +419,9 @@ public class GatheringService {
 
     /**
      * 去重并批量确认瞬间有效且属于本人，供关联及取消关联共同使用。
+     *
      * @param momentIds 已校验非空、元素非空的瞬间 ID
-     * @param userId 当前作者 ID
+     * @param userId    当前作者 ID
      * @return 只含关联校验字段的瞬间列表，候选全部通过校验
      */
     private List<Moment> requireOwnedMoments(List<UUID> momentIds, UUID userId) {
@@ -417,7 +437,8 @@ public class GatheringService {
 
     /**
      * 确认整批瞬间均未关联其他同行，写入前调用。
-     * @param moments 已确认有效且属于本人的瞬间关联投影
+     *
+     * @param moments     已确认有效且属于本人的瞬间关联投影
      * @param gatheringId 本次目标同行 ID
      */
     private void validateNoOtherGathering(List<Moment> moments, UUID gatheringId) {
@@ -432,8 +453,9 @@ public class GatheringService {
 
     /**
      * 读取有效同行并校验当前用户成员资格，供同行和内容读取入口共用。
+     *
      * @param gatheringId 同行 ID
-     * @param userId 当前认证用户 ID
+     * @param userId      当前认证用户 ID
      * @return 已确认有效且本人为有效成员的同行
      */
     public Gathering requireMemberGathering(UUID gatheringId, UUID userId) {
@@ -446,7 +468,9 @@ public class GatheringService {
         return gathering;
     }
 
-    /** 按首屏或后续页意图读取本人同行，分页参数已由请求边界校验。 */
+    /**
+     * 按首屏或后续页意图读取本人同行，分页参数已由请求边界校验。
+     */
     private List<Gathering> findGatheringPage(PageRequest<GatheringListCursor> request, UUID userId) {
         // 将游标转换为数据库 UTC 时间，首屏不提供边界。
         GatheringListCursor cursor = request.cursor();
@@ -455,7 +479,9 @@ public class GatheringService {
         return gatheringMapper.selectPage(userId, cursorTime, cursorId, request.limit() + 1);
     }
 
-    /** 为非空本页批量加载创建者资料、成员数及瞬间数，空页直接返回空列表。 */
+    /**
+     * 为非空本页批量加载创建者资料、成员数及瞬间数，空页直接返回空列表。
+     */
     private List<GatheringSummaryResponse> buildSummaries(List<Gathering> page) {
         // 零记录时跳过 IN 查询；无统计行表示当前数量为零。
         if (page.isEmpty()) {
@@ -473,13 +499,17 @@ public class GatheringService {
                 momentCounts.getOrDefault(gathering.getId(), 0L))).toList();
     }
 
-    /** 将数据库分组统计投影转换为同行 ID 到数量的动态映射。 */
+    /**
+     * 将数据库分组统计投影转换为同行 ID 到数量的动态映射。
+     */
     private Map<UUID, Long> toCountMap(List<GatheringCount> counts) {
         // 每个同行由 GROUP BY 返回一行，无记录的同行在组装时解释为零。
         return counts.stream().collect(Collectors.toMap(GatheringCount::getGatheringId, GatheringCount::getCount));
     }
 
-    /** 仅转换已加载的同行、创建者资料和数量，介绍截取前 100 个 Unicode 码点，保留原实体。 */
+    /**
+     * 仅转换已加载的同行、创建者资料和数量，介绍截取前 100 个 Unicode 码点，保留原实体。
+     */
     private GatheringSummaryResponse toSummaryResponse(
             Gathering gathering, PublicUserResponse creator, long memberCount, long momentCount) {
         // 使用码点边界保留完整 emoji，null 介绍保持为空。
@@ -492,7 +522,9 @@ public class GatheringService {
                 creator, memberCount, momentCount, gathering.getCreatedAt().toInstant(ZoneOffset.UTC));
     }
 
-    /** 校验已查询同行的创建者身份，供结束、解散操作使用。 */
+    /**
+     * 校验已查询同行的创建者身份，供结束、解散操作使用。
+     */
     private void requireCreator(Gathering gathering, UUID userId) {
         // 创建者身份来自同行主记录，其他成员无管理权限。
         if (!userId.equals(gathering.getCreatorUserId())) {
@@ -501,7 +533,9 @@ public class GatheringService {
         }
     }
 
-    /** 读取有效同行，软删除由全局配置过滤，缺失返回 404。 */
+    /**
+     * 读取有效同行，软删除由全局配置过滤，缺失返回 404。
+     */
     private Gathering requireGathering(UUID gatheringId) {
         // 同行不存在和已解散使用统一业务语义。
         Gathering gathering = gatheringMapper.selectById(gatheringId);
@@ -511,7 +545,9 @@ public class GatheringService {
         return gathering;
     }
 
-    /** 根据已校验的分页参数读取完整成员关系，供后续批量补齐资料。 */
+    /**
+     * 根据已校验的分页参数读取完整成员关系，供后续批量补齐资料。
+     */
     private List<GatheringMember> findMemberPage(UUID gatheringId, PageRequest<GatheringMemberCursor> request) {
         // 将游标转换为数据库 UTC 时间，首屏不提供边界。
         GatheringMemberCursor cursor = request.cursor();
@@ -520,7 +556,9 @@ public class GatheringService {
         return gatheringMemberMapper.selectPage(gatheringId, cursorTime, cursorUserId, request.limit() + 1);
     }
 
-    /** 已校验访问权限后，加载详情所需创建者及数量，创建者资料查不到时返回 null。 */
+    /**
+     * 已校验访问权限后，加载详情所需创建者及数量，创建者资料查不到时返回 null。
+     */
     private GatheringResponse loadMemberGatheringResponse(Gathering gathering) {
         // 创建者资料使用批量查询，查不到时 creator 为 null，同行信息仍正常返回。
         PublicUserResponse creator = userService.getPublicUsers(List.of(gathering.getCreatorUserId())).get(gathering.getCreatorUserId());
@@ -531,8 +569,9 @@ public class GatheringService {
 
     /**
      * 从数据库校验面对面加入资格。
+     *
      * @param gatheringId 用户选择的同行 ID
-     * @param faceCode 用户提交的四位短码
+     * @param faceCode    用户提交的四位短码
      * @return 短码匹配、邀请开启且创建未满 10 分钟的同行
      */
     private Gathering requireFaceToFaceGathering(UUID gatheringId, String faceCode) {
@@ -550,6 +589,7 @@ public class GatheringService {
 
     /**
      * 根据邀请码加载开放邀请的同行；结束操作会关闭邀请。
+     *
      * @param inviteCode 已通过边界校验的长期邀请码
      * @return 未解散且开放邀请的完整同行实体
      * @throws BusinessException 目标不可加入时统一返回 404
@@ -565,8 +605,9 @@ public class GatheringService {
 
     /**
      * 确保用户拥有有效成员关系，须在加入业务事务内调用。
+     *
      * @param gatheringId 已校验可加入的同行 ID
-     * @param userId 统一认证过滤器提供的当前用户 ID
+     * @param userId      统一认证过滤器提供的当前用户 ID
      */
     private void ensureMembership(UUID gatheringId, UUID userId) {
         // 1. 普通重复请求直接使用现有关系，审计时间保持原样。
@@ -582,6 +623,7 @@ public class GatheringService {
 
     /**
      * 加载供有效成员查看的同行信息，调用方已完成业务访问校验。
+     *
      * @param gathering 已确认有效且当前用户可访问的同行
      * @return 包含实际数量与创建者公开资料的同行信息
      */
@@ -595,8 +637,9 @@ public class GatheringService {
 
     /**
      * 保存进行中且开放邀请的同行。
+     *
      * @param request 已校验并整理名称的请求
-     * @param userId 已确认有效的创建者 ID
+     * @param userId  已确认有效的创建者 ID
      * @param savedAt 本次写入统一使用的 UTC 毫秒时间
      * @return 已保存的同行，邀请码冲突时抛出业务异常供客户端重试
      */
@@ -624,9 +667,10 @@ public class GatheringService {
 
     /**
      * 保存创建者的有效成员关系，须在创建同行的事务内调用。
+     *
      * @param gatheringId 当前事务中新建的同行 ID
-     * @param userId 已确认有效的创建者 ID
-     * @param savedAt 与同行主记录一致的 UTC 毫秒时间
+     * @param userId      已确认有效的创建者 ID
+     * @param savedAt     与同行主记录一致的 UTC 毫秒时间
      */
     private void saveCreatorMembership(UUID gatheringId, UUID userId, LocalDateTime savedAt) {
         // 创建者同时是普通成员，后续成员查询统一通过成员表判断。
@@ -635,9 +679,10 @@ public class GatheringService {
 
     /**
      * 构造成员新增候选记录；恢复时由 Mapper 保留原关系 ID 与创建时间。
+     *
      * @param gatheringId 已确认有效的同行 ID
-     * @param userId 已确认有效的用户 ID
-     * @param savedAt 本次写入的 UTC 毫秒时间
+     * @param userId      已确认有效的用户 ID
+     * @param savedAt     本次写入的 UTC 毫秒时间
      * @return 带新 UUIDv7、创建及修改时间的有效成员候选记录
      */
     private GatheringMember newMembership(UUID gatheringId, UUID userId, LocalDateTime savedAt) {
@@ -653,8 +698,9 @@ public class GatheringService {
 
     /**
      * 将已加载的数据组装为同行响应。
-     * @param gathering 已确认有效的同行
-     * @param creator 已加载的创建者公开资料
+     *
+     * @param gathering   已确认有效的同行
+     * @param creator     已加载的创建者公开资料
      * @param memberCount 有效成员数量，创建时直接传入 1
      * @param momentCount 有效关联瞬间数量，创建时直接传入 0
      * @return 时间转换为 UTC Instant 的同行信息

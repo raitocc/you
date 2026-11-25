@@ -7,7 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Param;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,7 +21,7 @@ public interface AlbumMapper extends BaseMapper<Album> {
      * @param updatedAt 本次统一的 UTC 毫秒时间
      * @return 更新行数
      */
-    default int updateUpdatedAtById(UUID id, LocalDateTime updatedAt) {
+    default int updateUpdatedAtById(UUID id, Instant updatedAt) {
         // 关联变化只影响修改时间，不覆盖名称、介绍或封面。
         return update(Wrappers.<Album>lambdaUpdate().eq(Album::getId, id)
                 .set(Album::getUpdatedAt, updatedAt));
@@ -60,7 +60,7 @@ public interface AlbumMapper extends BaseMapper<Album> {
      * @param id        已校验归属的时光 ID
      * @param deletedAt 本次统一的 UTC 毫秒时间
      */
-    default void softDeleteById(UUID id, LocalDateTime deletedAt) {
+    default void softDeleteById(UUID id, Instant deletedAt) {
         // 同时记录删除和修改时间，重复请求不覆盖原删除时间。
         update(Wrappers.<Album>lambdaUpdate()
                 .eq(Album::getId, id)
@@ -80,7 +80,7 @@ public interface AlbumMapper extends BaseMapper<Album> {
      * @param rowCount   本页大小 + 1，多的那条只用来判断下一页
      * @return 新到旧排列的完整实体，最多 rowCount 条
      */
-    default List<Album> selectPageAfterCursor(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
+    default List<Album> selectPageAfterCursor(UUID userId, Instant cursorTime, UUID cursorId, int rowCount) {
         // 1. 基础查询只读取当前用户的有效时光。
         var query = Wrappers.<Album>lambdaQuery().eq(Album::getOwnerUserId, userId);
         // 2. 有游标时读取更早时间，或相同时间下更小的 ID；首屏不加边界。

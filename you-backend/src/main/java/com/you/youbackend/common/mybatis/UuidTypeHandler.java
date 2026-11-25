@@ -15,7 +15,6 @@ import org.apache.ibatis.type.MappedTypes;
  * 在 Java UUID 与数据库 BINARY(16) 之间转换。
  */
 @MappedTypes(UUID.class)
-@MappedJdbcTypes(value = JdbcType.BINARY, includeNullJdbcType = true)
 public class UuidTypeHandler extends BaseTypeHandler<UUID> {
 
     @Override

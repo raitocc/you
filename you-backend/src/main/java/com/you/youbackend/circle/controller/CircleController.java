@@ -242,7 +242,7 @@ public class CircleController {
 
     /** 查看圈子分享的瞬间详情 */
     @GetMapping("/{circleId}/shares/{shareId}/moment")
-    @Operation(summary = "查看圈子分享的瞬间详情", operationId = "getCircleSharedMoment")
+    @Operation(summary = "查看圈子分享的瞬间详情")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享或瞬间不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是瞬间")
@@ -258,7 +258,7 @@ public class CircleController {
 
     /** 查看圈子分享的时光详情 */
     @GetMapping("/{circleId}/shares/{shareId}/album")
-    @Operation(summary = "查看圈子分享的时光详情", operationId = "getCircleSharedAlbum")
+    @Operation(summary = "查看圈子分享的时光详情")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享或时光不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是时光")
@@ -274,7 +274,7 @@ public class CircleController {
 
     /** 查看圈子分享时光内的瞬间详情 */
     @GetMapping("/{circleId}/shares/{shareId}/moments/{momentId}")
-    @Operation(summary = "查看圈子分享时光内的瞬间详情", operationId = "getCircleSharedAlbumMoment")
+    @Operation(summary = "查看圈子分享时光内的瞬间详情")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "404", description = "圈子、分享、时光或内部瞬间不存在或不可访问")
     @ApiResponse(responseCode = "409", description = "分享不是时光")

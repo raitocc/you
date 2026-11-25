@@ -3,7 +3,7 @@ package com.you.youbackend.circle.event;
 import com.you.youbackend.circle.model.CircleSharedContent;
 import com.you.youbackend.circle.request.CreateCircleSharesRequest;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,7 +20,7 @@ public record CircleContentsSharedEvent(
         List<CircleSharedContent> contents,
 
         // 分享时间
-        LocalDateTime sharedAt
+        Instant sharedAt
 ) {
     public CircleContentsSharedEvent {
         // 保存此次业务变更的不可变快照。

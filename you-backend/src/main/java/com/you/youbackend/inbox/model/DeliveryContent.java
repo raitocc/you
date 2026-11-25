@@ -4,7 +4,7 @@ import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.common.enumeration.SourceType;
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 
@@ -30,6 +30,6 @@ public record DeliveryContent(
         UUID shareId,
 
         @Schema(description = "分享实际发生时间：【UTC 毫秒精度，作为分页排序依据】")
-        LocalDateTime sharedAt
+        Instant sharedAt
 ) {
 }

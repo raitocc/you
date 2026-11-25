@@ -1,6 +1,6 @@
 package com.you.youbackend.gathering.event;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -13,6 +13,6 @@ import java.util.UUID;
 public record GatheringMemberLeftEvent(
         UUID gatheringId,
         UUID userId,
-        LocalDateTime leftAt
+        Instant leftAt
 ) {
 }

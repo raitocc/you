@@ -2,6 +2,7 @@ package com.you.youbackend.media.service;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.common.util.TimeUtils;
 import com.you.youbackend.media.entity.MediaFile;
 import com.you.youbackend.media.event.MediaUploadEvent;
 import com.you.youbackend.media.mapper.MediaFileMapper;
@@ -27,9 +28,7 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -195,8 +194,7 @@ public class MediaService {
             return;
         }
 
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC)
-                .truncatedTo(ChronoUnit.MILLIS);
+        Instant now = TimeUtils.now();
 
         MediaFile file = new MediaFile();
         file.setId(fileId);

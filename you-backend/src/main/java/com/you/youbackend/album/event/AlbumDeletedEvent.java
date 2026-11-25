@@ -1,6 +1,6 @@
 package com.you.youbackend.album.event;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -11,6 +11,6 @@ import java.util.UUID;
  */
 public record AlbumDeletedEvent(
         UUID albumId,
-        LocalDateTime deletedAt
+        Instant deletedAt
 ) {
 }

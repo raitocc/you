@@ -17,6 +17,7 @@ import com.you.youbackend.album.model.AlbumListCursor;
 import com.you.youbackend.album.model.AlbumMomentCursor;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
+import com.you.youbackend.common.util.TimeUtils;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.response.MomentSummaryResponse;
 import com.you.youbackend.moment.service.MomentService;
@@ -29,11 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.Assert;
 
-import java.time.LocalDateTime;
 import java.time.Instant;
-import java.time.DateTimeException;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -72,7 +69,7 @@ public class AlbumService {
         // 3. 校验，放入的 moment 必须均为本人的 moment
         momentService.validateOwnedMoments(momentIds, userId);
         // 4. 获取一个统一时间新增或恢复关联，已有效关联保持原样。
-        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS); // TODO 考虑抽离
+        Instant savedAt = TimeUtils.now();
         // 5.1 创建准备写入 AlbumMoment 表的实体
         List<AlbumMoment> associations = newAssociations(albumId, momentIds, savedAt);
         // 5.2 写入或者恢复关联，保持幂等
@@ -94,7 +91,7 @@ public class AlbumService {
      * @param savedAt   本次写入时间，UTC，同时给 createdAt 和 updatedAt
      * @return 关联实体列表，和 momentIds 一一对应；插库还是恢复由 Mapper 的 upsert 决定
      */
-    private List<AlbumMoment> newAssociations(UUID albumId, List<UUID> momentIds, LocalDateTime savedAt) {
+    private List<AlbumMoment> newAssociations(UUID albumId, List<UUID> momentIds, Instant savedAt) {
         return momentIds.stream().map(momentId -> {
             AlbumMoment association = new AlbumMoment();
             association.setId(UuidCreator.getTimeOrderedEpoch());
@@ -126,7 +123,7 @@ public class AlbumService {
         // 2. 拿到新的 momentId 集合，去重
         List<UUID> ids = request.momentIds().stream().distinct().toList();
         // 3. 移出当前时光的匹配有效关联，已移出和不存在项自然跳过。
-        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        Instant savedAt = TimeUtils.now();
         albumMomentMapper.softDeleteByAlbumIdAndMomentIdIn(albumId, ids, savedAt);
         // 4. 更新 album 的更新时间。
         albumMapper.updateUpdatedAtById(albumId, savedAt);
@@ -158,7 +155,7 @@ public class AlbumService {
         album.setName(request.name());
         album.setDescription(request.description());
         album.setCoverFileId(request.coverFileId());
-        album.setUpdatedAt(LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS));
+        album.setUpdatedAt(TimeUtils.now());
         // 4. 落库
         albumMapper.updateDisplayInfo(album);
         log.info("已写入时光信息修改，albumId={}，userId={}", albumId, userId);
@@ -185,7 +182,7 @@ public class AlbumService {
             return;
         }
         // 3. 记录当前的操作时间，统一标记时间
-        LocalDateTime deletedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        Instant deletedAt = TimeUtils.now();
         // 4.1 删除关联
         albumMomentMapper.softDeleteByAlbumId(albumId, deletedAt);
         // 4.2 删除本体
@@ -198,19 +195,19 @@ public class AlbumService {
     /**
      * 分页浏览本人时光列表：按创建时间、ID 倒序查一页多一条，批量补数量和封面。
      *
-     * <p>流程：游标时间换算成数据库 UTC 时间 → 查一页多一条 → 空页直接返回 → 本页批量签封面、数有效关联（没关联算 0）→ 组装卡片 → 多的那条只判断下一页，游标取本页最后一条。
+     * <p>流程：查一页多一条 → 空页直接返回 → 本页批量签封面、数有效关联（没关联算 0）→ 组装卡片 → 多的那条只判断下一页，游标取本页最后一条。
      * 只读事务，无副作用。</p>
      *
      * @param userId  当前登录用户 ID，只查本人的有效时光
      * @param request 已校验分页请求；游标为空表示首屏
      * @return 卡片列表和下一页游标，末页游标为 null
-     * @throws BusinessException 游标时间超出可查范围时抛出（400）
      */
+    // TODO 游标时间缺范围校验：超范围游标会直打数据库变 500，需补 400 参数校验
     @Transactional(readOnly = true)
     public ResultPage<AlbumSummaryResponse, AlbumListCursor> browseAlbums(UUID userId, PageRequest<AlbumListCursor> request) {
         // 1. 通过游标拿到数据库的 album 实体
         AlbumListCursor cursor = request.cursor();
-        LocalDateTime cursorTime = (cursor == null) ? null : toCursorTime(cursor.createdAt());// TODO 和momentservice.toDatabaseMemoryTime一样的重复冗余
+        Instant cursorTime = (cursor == null) ? null : cursor.createdAt();
         UUID cursorId = (cursor == null) ? null : cursor.id();
         List<Album> rows = albumMapper.selectPageAfterCursor(userId, cursorTime, cursorId, request.limit() + 1);
         // 2. 空集合直接返回
@@ -234,15 +231,16 @@ public class AlbumService {
      * 分页浏览时光内的瞬间：按发生时间、ID 正序（从早到晚）查一页多一条，返回摘要卡片。
      * 只看本人瞬间和有效关联；瞬间的软删状态不过滤——业务保证删除瞬间时同步清理关联。
      *
-     * <p>流程：时光归属校验 → 游标时间换算 → 关联表 join 瞬间表查一页多一条 → 空页直接返回 → 本页转摘要卡片 → 多的那条只判断下一页，游标取本页最后一条。
+     * <p>流程：时光归属校验 → 关联表 join 瞬间表查一页多一条 → 空页直接返回 → 本页转摘要卡片 → 多的那条只判断下一页，游标取本页最后一条。
      * 只读事务，无副作用。</p>
      *
      * @param albumId 时光 ID
      * @param userId  当前登录用户 ID
      * @param request 已校验分页请求；游标为空表示从最早的瞬间开始
      * @return 摘要卡片和下一页游标，末页游标为 null
-     * @throws BusinessException 时光不存在、非本人（404/403），或游标时间超出可查范围（400）
+     * @throws BusinessException 时光不存在、非本人时抛出（404/403）
      */
+    // TODO 游标时间缺范围校验：超范围游标会直打数据库变 500，需补 400 参数校验
     @Transactional(readOnly = true)
     public ResultPage<MomentSummaryResponse, AlbumMomentCursor> browseAlbumMoments(
             UUID albumId, UUID userId, PageRequest<AlbumMomentCursor> request) {
@@ -250,7 +248,7 @@ public class AlbumService {
         getOwnedAlbum(albumId, userId);
         // 2. album_moment 关联表 join moment 表，进行游标分页查询拿到 moment 实体，moment 失效不过滤
         AlbumMomentCursor cursor = request.cursor();
-        LocalDateTime cursorTime = cursor == null ? null : toCursorTime(cursor.memoryTime()); // TODO 时间不统一是个问题
+        Instant cursorTime = cursor == null ? null : cursor.memoryTime();
         UUID cursorId = (cursor == null) ? null : cursor.id();
         List<Moment> rows = albumMomentMapper.selectPageByAlbumIdAndUserIdAfterCursor(albumId, userId, cursorTime, cursorId, request.limit() + 1); // 不知道叫什么名字比较好，也不知道放在momentmapper里好还是albummapper里好
         // 3. 转换为 summary( TODO 不知道为什么旧代码是Detailed)
@@ -284,7 +282,7 @@ public class AlbumService {
         // 0. 校验文件是否有效
         mediaService.validateOwnedImage(request.coverFileId(), userId);
         // 1. 创建一个新的 Album
-        LocalDateTime savedAt = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+        Instant savedAt = TimeUtils.now();
         Album album = saveNewAlbum(request.name(), request.description(), request.coverFileId(), userId, savedAt);
         // 2. 有初始的关联就关联，没有则跳过
         List<UUID> momentIds = request.momentIds().stream().distinct().toList();
@@ -340,32 +338,9 @@ public class AlbumService {
                 .coverUrl(coverUrl)
                 .organizeMode(album.getOrganizeMode())
                 .momentCount(momentCount)
-                .createdAt(album.getCreatedAt().toInstant(ZoneOffset.UTC))
-                .updatedAt(album.getUpdatedAt().toInstant(ZoneOffset.UTC))
+                .createdAt(album.getCreatedAt())
+                .updatedAt(album.getUpdatedAt())
                 .build();
-    }
-
-
-    /**
-     * 把游标时间换算成数据库用的 UTC 毫秒时间。
-     *
-     * <p>不改数据，无副作用。</p>
-     *
-     * @param value 时间点，调用方保证非空
-     * @return UTC 毫秒精度的 LocalDateTime
-     * @throws BusinessException 转换失败或年份超出 1000～9999（数据库存不下）时抛出（400）
-     */
-    private LocalDateTime toCursorTime(Instant value) {
-        // 先验证数据库可表示范围，避免客户端构造极端时间触发数据库异常。
-        try {
-            LocalDateTime time = LocalDateTime.ofInstant(value, ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
-            if (time.getYear() >= 1000 && time.getYear() <= 9999) {
-                return time;
-            }
-        } catch (DateTimeException exception) {
-            throw BusinessException.invalidArgument("游标时间超出可查询范围");
-        }
-        throw BusinessException.invalidArgument("游标时间超出可查询范围");
     }
 
     /**
@@ -405,7 +380,7 @@ public class AlbumService {
      * @param album       时光实体，用到 ID、名称、整理模式、创建和修改时间
      * @param coverUrl    已签名的封面地址，无封面或失效时为 null
      * @param momentCount 该时光的有效关联数
-     * @return 卡片响应，时间转 Instant
+     * @return 卡片响应，时间为 UTC Instant
      */
     private AlbumSummaryResponse convertToSummaryResponse(
             Album album,
@@ -418,8 +393,8 @@ public class AlbumService {
                 .coverUrl(coverUrl)
                 .momentCount(momentCount)
                 .organizeMode(album.getOrganizeMode())
-                .createdAt(album.getCreatedAt().toInstant(ZoneOffset.UTC))
-                .updatedAt(album.getUpdatedAt().toInstant(ZoneOffset.UTC))
+                .createdAt(album.getCreatedAt())
+                .updatedAt(album.getUpdatedAt())
                 .build();
     }
 
@@ -439,7 +414,7 @@ public class AlbumService {
                                String description,
                                UUID coverFileId,
                                UUID userId,
-                               LocalDateTime savedAt) {
+                               Instant savedAt) {
         // 1. 服务端生成时光身份并绑定当前用户，名称等可编辑信息取自已校验请求。
         Album album = new Album();
         album.setId(UuidCreator.getTimeOrderedEpoch());

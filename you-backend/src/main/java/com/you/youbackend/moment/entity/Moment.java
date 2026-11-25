@@ -9,7 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -41,7 +41,7 @@ public class Moment {
     private MomentMood mood;
 
     /** 经历实际发生时间，UTC；可由用户修改，用于瞬间流排序。 */
-    private LocalDateTime memoryTime;
+    private Instant memoryTime;
 
     /** 纬度，可空，范围 -90～90；与经度成对填写，保存七位小数。 */
     private BigDecimal latitude;
@@ -56,11 +56,11 @@ public class Moment {
     private String locationAddress;
 
     /** 创建时间，即瞬间发布时间，UTC，与经历实际发生时间区分。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     /** 最后修改时间，UTC。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     /** 软删除时间，UTC；null 表示有效，由 MyBatis-Plus 全局逻辑删除配置维护。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

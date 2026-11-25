@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -34,11 +34,11 @@ public class MediaFile {
     private Long byteSize;
 
     /** 创建时间，UTC。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     /** 最后修改时间，UTC。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     /** 删除时间，UTC；null 表示有效。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

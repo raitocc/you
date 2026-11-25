@@ -2,7 +2,7 @@ package com.you.youbackend.circle.entity;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Getter;
 import lombok.Setter;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 /** circle 持久化记录，软删除沿用全局配置。 */
 @Getter
@@ -25,9 +25,9 @@ public class Circle {
     /** 系统随机生成的长期邀请码，唯一，可重置。 */
     private String inviteCode;
     /** 创建时间，UTC 毫秒精度。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     /** 修改时间，UTC 毫秒精度。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
     /** 删除时间，null 表示有效。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

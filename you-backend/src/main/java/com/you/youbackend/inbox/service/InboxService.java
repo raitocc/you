@@ -6,6 +6,7 @@ import com.you.youbackend.circle.mapper.CircleMemberMapper;
 import com.you.youbackend.circle.model.CircleSharedContent;
 import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.common.enumeration.SourceType;
+import com.you.youbackend.common.util.TimeUtils;
 import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
 import com.you.youbackend.inbox.entity.UserInbox;
 import com.you.youbackend.inbox.mapper.InboxMapper;
@@ -16,7 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +46,7 @@ public class InboxService {
             UUID gatheringId,
             UUID actorUserId,
             List<UUID> momentIds,
-            LocalDateTime sharedAt
+            Instant sharedAt
     ) {
         if (momentIds == null || momentIds.isEmpty()) {
             log.warn("传入瞬间列表为空");
@@ -55,7 +56,7 @@ public class InboxService {
         // 1.通过 gathering 模块服务获取相关数据
         // 通过同行 ID 获取有效用户 ID 列表
         List<UUID> recipients = gatheringMemberMapper.selectActiveUserIds(gatheringId);
-        LocalDateTime createdAt = LocalDateTime.now();
+        Instant createdAt = TimeUtils.now();
         // 创建 user_inbox 表行数据列表 rows
         List<UserInbox> rows = new ArrayList<>();
 
@@ -94,7 +95,7 @@ public class InboxService {
     public void invalidateGatheringMoments(
             UUID gatheringId,
             List<UUID> momentIds,
-            LocalDateTime removedAt
+            Instant removedAt
     ) {
         if (!momentIds.isEmpty()) {
             inboxMapper.invalidateGatheringMoments(gatheringId, momentIds, removedAt);
@@ -111,7 +112,7 @@ public class InboxService {
     public void deliverCircleContents(
             UUID actorUserId,
             List<CircleSharedContent> contents,
-            LocalDateTime sharedAt
+            Instant sharedAt
     ) {
         // 1.通过 circle 模块服务获取相关数据
         if (contents.isEmpty()) {
@@ -137,7 +138,7 @@ public class InboxService {
                 ));
 
         // 2.构建 user_inbox 记录列表 rows
-        LocalDateTime createdAt = LocalDateTime.now();
+        Instant createdAt = TimeUtils.now();
         List<UserInbox> rows = new ArrayList<>();
 
         for (CircleSharedContent shared : contents) {
@@ -177,7 +178,7 @@ public class InboxService {
     public void invalidateCircleShare(
             UUID circleId,
             UUID shareId,
-            LocalDateTime withdrawnAt
+            Instant withdrawnAt
     ) {
         inboxMapper.invalidateCircleShare(circleId, shareId, withdrawnAt);
     }
@@ -194,7 +195,7 @@ public class InboxService {
             SourceType sourceType,
             UUID sourceId,
             UUID userId,
-            LocalDateTime leftAt
+            Instant leftAt
     ) {
         inboxMapper.invalidateMemberContents(sourceType, sourceId, userId, leftAt);
     }
@@ -209,7 +210,7 @@ public class InboxService {
     public void invalidateSourceContents(
             SourceType sourceType,
             UUID sourceId,
-            LocalDateTime dissolvedAt
+            Instant dissolvedAt
     ) {
         inboxMapper.invalidateSourceContents(sourceType, sourceId, dissolvedAt);
     }
@@ -224,7 +225,7 @@ public class InboxService {
     public void invalidateObjectContents(
             ObjectType objectType,
             UUID objectId,
-            LocalDateTime deletedAt
+            Instant deletedAt
     ) {
         inboxMapper.invalidateObjectContents(objectType, objectId, deletedAt);
     }
@@ -235,7 +236,7 @@ public class InboxService {
     private UserInbox createRow(
             DeliveryContent content,
             UUID recipientId,
-            LocalDateTime createdAt
+            Instant createdAt
     ) {
         return UserInbox.builder()
                 .id(UuidCreator.getTimeOrderedEpoch())

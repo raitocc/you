@@ -41,8 +41,7 @@ import java.util.UUID;
 public class AlbumController {
     private final AlbumService albumService;
 
-    /** 批量添加本人时光中的瞬间，关联和时光修改时间在同一事务中保存。 */
-    @Operation(summary = "批量添加瞬间", operationId = "07_add_album_moments")
+    @Operation(summary = "批量添加瞬间")
     @ApiResponse(responseCode = "200", description = "操作成功，返回最新时光信息")
     @ApiResponse(responseCode = "400", description = "时光 ID 或瞬间参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -58,12 +57,10 @@ public class AlbumController {
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
             UUID userId) {
-        // 从认证上下文取得用户，委托业务层校验权限并完成批量关联维护。
         return Result.ok(albumService.addAlbumMoments(albumId, request, userId));
     }
 
-    /** 批量移出本人时光中的瞬间，关联和时光修改时间在同一事务中保存。 */
-    @Operation(summary = "批量移出瞬间", operationId = "08_remove_album_moments")
+    @Operation(summary = "批量移出瞬间")
     @ApiResponse(responseCode = "200", description = "操作成功，返回最新时光信息")
     @ApiResponse(responseCode = "400", description = "时光 ID 或瞬间参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -81,12 +78,10 @@ public class AlbumController {
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
             UUID userId) {
-        // 从认证上下文取得用户，委托业务层校验权限并完成批量关联维护。
         return Result.ok(albumService.removeAlbumMoments(albumId, request, userId));
     }
 
-    /** 全量修改本人时光展示信息，介绍和封面显式传 null 时清空。 */
-    @Operation(summary = "修改时光信息", operationId = "04_update_album")
+    @Operation(summary = "修改时光信息")
     @ApiResponse(responseCode = "200", description = "修改成功")
     @ApiResponse(responseCode = "400", description = "时光 ID、名称、介绍或封面无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -104,12 +99,10 @@ public class AlbumController {
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
             UUID userId) {
-        // 使用认证上下文校验归属，委托业务层全量保存展示信息。
         return Result.ok(albumService.updateAlbum(albumId, request, userId));
     }
 
-    /** 删除本人时光和有效关联，保留原瞬间，重复删除本人记录返回成功。 */
-    @Operation(summary = "删除时光", operationId = "05_delete_album")
+    @Operation(summary = "删除时光")
     @ApiResponse(responseCode = "200", description = "删除成功，data 为 null")
     @ApiResponse(responseCode = "400", description = "时光 ID 格式无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -123,13 +116,11 @@ public class AlbumController {
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
             UUID userId) {
-        // 归属检查、幂等判断及事务写入统一交给业务层。
         albumService.deleteAlbum(albumId, userId);
         return Result.ok(null);
     }
 
-    /** 浏览私有时光列表，通过 cursor.字段名 提交结构化游标，始终限定当前用户。 */
-    @Operation(summary = "浏览自己的时光列表", operationId = "01_list_albums")
+    @Operation(summary = "浏览自己的时光列表")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "分页参数或游标无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -166,12 +157,10 @@ public class AlbumController {
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
             UUID userId) {
-        // 以认证上下文限定所有者，委托业务层批量查询卡片及下一页位置。
         return Result.ok(albumService.browseAlbums(userId, request));
     }
 
-    /** 按时间正序浏览本人时光中的瞬间，详情结构沿用当前瞬间实现。 */
-    @Operation(summary = "分页浏览时光中的瞬间", operationId = "06_list_album_moments")
+    @Operation(summary = "分页浏览时光中的瞬间")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "时光 ID、分页参数或游标无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -220,14 +209,10 @@ public class AlbumController {
             PageRequest<AlbumMomentCursor> request,
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        // 每次查询都由业务层校验时光归属，再加载有效本人瞬间并包装分页结果。
         return Result.ok(albumService.browseAlbumMoments(albumId, userId, request));
     }
 
-    /**
-     * 手动创建属于当前用户的时光，允许初始瞬间为空。
-     */
-    @Operation(summary = "手动创建时光", operationId = "02_create_album")
+    @Operation(summary = "手动创建时光")
     @ApiResponse(responseCode = "201", description = "创建成功")
     @ApiResponse(responseCode = "400", description = "名称、介绍、封面或瞬间无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -240,12 +225,10 @@ public class AlbumController {
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
             UUID userId) {
-        // 请求已完成字段校验，使用认证上下文中的用户创建时光并包装统一响应。
         return Result.ok(albumService.createAlbum(request, userId));
     }
 
-    /** 查看本人时光信息，瞬间列表由独立的分页接口加载。 */
-    @Operation(summary = "查看时光信息", operationId = "03_get_album")
+    @Operation(summary = "查看时光信息")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "时光 ID 格式无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -255,7 +238,6 @@ public class AlbumController {
     public Result<AlbumDetailedResponse> getAlbum(
             @Parameter(description = "时光 UUID") @PathVariable UUID albumId,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
-        // 将时光归属校验和详情加载交给业务层，统一包装查询结果。
         return Result.ok(albumService.getAlbum(albumId, userId));
     }
 }

@@ -23,7 +23,7 @@ public record UserResponse(
         @Schema(description = "头像文件 ID，未设置时为 null")
         UUID avatarFileId,
 
-        @Schema(description = "受保护的头像读取路径 url")
+        @Schema(description = "头像临时签名 URL；无头像或文件失效时为 null")
         String avatarUrl,
 
         @Schema(description = "注册时间，UTC")

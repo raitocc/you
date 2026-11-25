@@ -46,7 +46,7 @@ public class MomentController {
     /**
      * 浏览本人瞬间
      */
-    @Operation(summary = "浏览自己的瞬间流", operationId = "getMomentYours")
+    @Operation(summary = "浏览自己的瞬间流")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "分页参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
@@ -89,7 +89,7 @@ public class MomentController {
     /**
      * 查看本人发布的瞬间，供阅读和编辑回填。
      */
-    @Operation(summary = "查看瞬间详情", operationId = "getMoment")
+    @Operation(summary = "查看瞬间详情")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "瞬间 ID 格式无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
@@ -114,7 +114,7 @@ public class MomentController {
     /**
      * 全量保存本人瞬间的可编辑内容并返回最新详情。
      */
-    @Operation(summary = "全量修改瞬间", operationId = "updateMoment")
+    @Operation(summary = "全量修改瞬间")
     @ApiResponse(responseCode = "200", description = "修改成功")
     @ApiResponse(responseCode = "400", description = "参数或图片校验失败")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
@@ -143,7 +143,7 @@ public class MomentController {
     /**
      * 删除本人瞬间并解除图片和标签关联。
      */
-    @Operation(summary = "删除瞬间", operationId = "deleteMoment")
+    @Operation(summary = "删除瞬间")
     @ApiResponse(responseCode = "200", description = "删除成功")
     @ApiResponse(responseCode = "400", description = "瞬间 ID 格式无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")
@@ -169,7 +169,7 @@ public class MomentController {
     /**
      * 发布瞬间并返回详情。
      */
-    @Operation(summary = "发布瞬间", operationId = "createMoment")
+    @Operation(summary = "发布瞬间")
     @ApiResponse(responseCode = "201", description = "发布成功")
     @ApiResponse(responseCode = "400", description = "字段或图片校验失败")
     @ApiResponse(responseCode = "401", description = "登录凭证无效或已过期")
@@ -189,7 +189,7 @@ public class MomentController {
     /**
      * 浏览与你有关的动态流
      */
-    @Operation(summary = "浏览与你有关的动态流", operationId = "getMomentRelated")
+    @Operation(summary = "浏览与你有关的动态流")
     @ApiResponse(responseCode = "200", description = "查询成功")
     @ApiResponse(responseCode = "400", description = "分页参数无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或过期")

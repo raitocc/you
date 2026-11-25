@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -29,11 +29,11 @@ public class MomentTag {
     private String tagName;
 
     /** 标签记录首次创建时间，UTC。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     /** 标签记录最后修改时间，UTC。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     /** 标签移除时间，UTC；null 表示有效，重新添加时恢复原记录。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

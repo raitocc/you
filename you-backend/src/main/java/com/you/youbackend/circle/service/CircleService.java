@@ -24,6 +24,7 @@ import com.you.youbackend.common.exception.BusinessException;
 import com.you.youbackend.common.request.PageRequest;
 import com.you.youbackend.common.response.ResultPage;
 import com.you.youbackend.common.util.InviteCodeGenerator;
+import com.you.youbackend.common.util.TimeUtils;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.user.service.UserService;
@@ -35,7 +36,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.*;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -94,7 +94,7 @@ public class CircleService {
         if (request.avatarFileId() != null){
             mediaService.validateOwnedImage(request.avatarFileId(), userId);
         }
-        LocalDateTime now = utcNow();
+        Instant now = TimeUtils.now();
         Circle circle = new Circle();
         circle.setId(request.id());
         circle.setCreatorUserId(userId);
@@ -134,7 +134,7 @@ public class CircleService {
             UUID memberId = member.getUserId();
             // 把每一个 member 转化为 Member 对象，并封装为 list，得到 CircleDetailResponse 的 members 成员
             return new CircleDetailResponse.Member(requirePublicProfile(profiles, memberId),
-                    creatorId.equals(memberId), member.getCreatedAt().toInstant(ZoneOffset.UTC));
+                    creatorId.equals(memberId), member.getCreatedAt());
         }).toList();
         // 构建 CircleDetailResponse 对象
         return CircleDetailResponse.builder()
@@ -145,8 +145,8 @@ public class CircleService {
                 .memberCount(members.size())
                 .isCreator(creatorId.equals(userId))
                 .inviteEnabled(circle.getInviteEnabled())
-                .createdAt(circle.getCreatedAt().toInstant(ZoneOffset.UTC))
-                .updatedAt(circle.getUpdatedAt().toInstant(ZoneOffset.UTC))
+                .createdAt(circle.getCreatedAt())
+                .updatedAt(circle.getUpdatedAt())
                 .avatarFileId(circle.getAvatarFileId())
                 .avatarUrl(loadCircleAvatar(circle))
                 .members(members)
@@ -164,7 +164,7 @@ public class CircleService {
         CircleListCursor next = null;
         if (hasMore) {
             CircleListRow last = page.get(page.size() - 1);
-            next = new CircleListCursor(last.getJoinedAt().toInstant(ZoneOffset.UTC), last.getCircleId());
+            next = new CircleListCursor(last.getJoinedAt(), last.getCircleId());
         }
         // 列表只补齐头像，创建者资料及成员数由详情接口加载。
         return new ResultPage<>(loadListResponses(page), next, hasMore);
@@ -180,7 +180,7 @@ public class CircleService {
         circle.setName(request.name());
         circle.setDescription(request.description());
         circle.setAvatarFileId(request.avatarFileId());
-        circle.setUpdatedAt(utcNow());
+        circle.setUpdatedAt(TimeUtils.now());
         if (circleMapper.updateContent(circle) == 0) throw unavailable();
         log.info("已写入圈子展示信息，circleId={}，userId={}", circleId, userId);
     }
@@ -200,7 +200,7 @@ public class CircleService {
         // 2. 只在开关状态变化时写入，保留原邀请码。
         if (!request.inviteEnabled().equals(circle.getInviteEnabled())) {
             circle.setInviteEnabled(request.inviteEnabled());
-            circle.setUpdatedAt(utcNow());
+            circle.setUpdatedAt(TimeUtils.now());
             circleMapper.updateInviteEnabled(circle);
             log.info("已写入圈子邀请开关，circleId={}，enabled={}", circleId, request.inviteEnabled());
         }
@@ -214,7 +214,7 @@ public class CircleService {
         Circle circle = requireCircleCreator(circleId, userId, "只有圈子创建者可以管理邀请");
         // 2. 生成新的随机邀请码并替换当前码，保留邀请开关。
         circle.setInviteCode(InviteCodeGenerator.generate());
-        circle.setUpdatedAt(utcNow());
+        circle.setUpdatedAt(TimeUtils.now());
         try {
             if (circleMapper.updateInviteCode(circle) == 0) throw unavailable();
         } catch (DuplicateKeyException exception) {
@@ -256,7 +256,7 @@ public class CircleService {
             insertJoiningMember(circleId, userId);
         } else if (membership.getDeletedAt() != null) {
             // 恢复原关系，保留原 ID、创建时间及分享状态。
-            if (circleMemberMapper.restore(membership.getId(), utcNow()) == 1) {
+            if (circleMemberMapper.restore(membership.getId(), TimeUtils.now()) == 1) {
                 log.info("已恢复圈子成员关系，circleId={}，userId={}", circleId, userId);
             } else if (!circleMemberMapper.isActiveMember(circleId, userId)) {
                 throw BusinessException.conflict("RESOURCE_CONFLICT", "圈子成员状态已变化，请重试");
@@ -272,7 +272,7 @@ public class CircleService {
         if (userId.equals(targetId)) throw BusinessException.forbidden("圈子创建者不能移除自己");
 
         // 2. 仅变更有效成员关系；已被移除且仍受限时直接成功。
-        LocalDateTime now = utcNow();
+        Instant now = TimeUtils.now();
         if (circleMemberMapper.endMembership(circleId, targetId, true, now) == 0) {
             CircleMember history = circleMemberMapper.findIncludingDeleted(circleId, targetId);
             if (history != null && history.getDeletedAt() != null && Boolean.TRUE.equals(history.getJoinRestricted())) {
@@ -295,7 +295,7 @@ public class CircleService {
     public void clearJoinRestriction(UUID circleId, UUID targetId, UUID userId) {
         // 只清除已有的加入限制，成员身份和分享状态保持原样。
         requireCircleCreator(circleId, userId, "只有圈子创建者可以解除加入限制");
-        if (circleMemberMapper.clearRestriction(circleId, targetId, utcNow()) > 0) {
+        if (circleMemberMapper.clearRestriction(circleId, targetId, TimeUtils.now()) > 0) {
             log.info("已解除圈子加入限制，circleId={}，userId={}", circleId, targetId);
         }
     }
@@ -311,7 +311,7 @@ public class CircleService {
         // 2. 批量加载用户公开资料，沿用查询顺序组装结果。
         var profiles = userService.getPublicUsers(rows.stream().map(CircleMember::getUserId).toList());
         return rows.stream().map(row -> new CircleJoinRestrictionResponse(
-                requirePublicProfile(profiles, row.getUserId()), row.getDeletedAt().toInstant(ZoneOffset.UTC)
+                requirePublicProfile(profiles, row.getUserId()), row.getDeletedAt()
         )).toList();
     }
 
@@ -325,7 +325,7 @@ public class CircleService {
         }
 
         // 2. 结束成员关系并撤回本人圈内分享，主动退出不设置加入限制。
-        LocalDateTime now = utcNow();
+        Instant now = TimeUtils.now();
         if (circleMemberMapper.endMembership(circleId, userId, false, now) == 0) throw unavailable();
         circleShareMapper.invalidateMemberShares(circleId, userId, now);
 
@@ -340,7 +340,7 @@ public class CircleService {
     public void dissolveCircle(UUID circleId, UUID userId) {
         // 1. 创建者才能解散圈子，解散标记与邀请关闭同时写入。
         requireCircleCreator(circleId, userId, "只有圈子创建者可以解散圈子");
-        LocalDateTime now = utcNow();
+        Instant now = TimeUtils.now();
         if (circleMapper.dissolve(circleId, userId, now) == 0) throw unavailable();
 
         // 2. 在同一事务结束全部有效成员关系及圈内分享，原内容保留。
@@ -370,7 +370,7 @@ public class CircleService {
         // 3. 查出这条内容在目标圈子里的分享，包括已撤回的记录，再按圈子 ID 查找。
         Map<UUID, CircleShare> history = circleShareMapper.selectHistory(request.objectType(), request.objectId(), request.circleIds())
                 .stream().collect(Collectors.toMap(CircleShare::getCircleId, Function.identity()));
-        LocalDateTime now = utcNow();
+        Instant now = TimeUtils.now();
         List<CircleShare> additions = new ArrayList<>();
         List<UUID> restores = new ArrayList<>();
         List<CircleSharedContent> sharedContents = new ArrayList<>();
@@ -422,7 +422,7 @@ public class CircleService {
         CircleShareCursor next = null;
         if (hasMore) {
             CircleShare last = page.get(page.size() - 1);
-            next = new CircleShareCursor(last.getSharedAt().toInstant(ZoneOffset.UTC), last.getId());
+            next = new CircleShareCursor(last.getSharedAt(), last.getId());
         }
         return new ResultPage<>(items, next, hasMore);
     }
@@ -507,7 +507,7 @@ public class CircleService {
         CircleShareMomentCursor next = null;
         if (hasMore) {
             Moment last = page.get(page.size() - 1);
-            next = new CircleShareMomentCursor(last.getMemoryTime().toInstant(ZoneOffset.UTC), last.getId());
+            next = new CircleShareMomentCursor(last.getMemoryTime(), last.getId());
         }
         // 3. 为本页瞬间补齐图片、标签和作者资料。
         return new ResultPage<>(momentService.loadAuthorizedResponses(page), next, hasMore);
@@ -526,7 +526,7 @@ public class CircleService {
         }
         // 2. 已撤回就直接结束，否则只为当前圈子的这条分享写入撤回时间。
         if (share.getDeletedAt() != null) return;
-        LocalDateTime now = utcNow();
+        Instant now = TimeUtils.now();
         circleShareMapper.withdraw(shareId, now);
 
         //发布事件：【撤回一个圈子里的一条分享】
@@ -537,7 +537,7 @@ public class CircleService {
 
     /** 按加入时间和圈子 ID 分批查找有效圈子，补足可见记录后再判断是否有下一页。 */
     private List<CircleListRow> loadCircleListPage(UUID userId, CircleListCursor cursor, int limit) {
-        LocalDateTime time = cursor == null ? null : cursorTime(cursor.joinedAt());
+        Instant time = cursor == null ? null : cursor.joinedAt();
         UUID circleId = cursor == null ? null : cursor.id();
         List<CircleListRow> rows = new ArrayList<>();
         while (rows.size() < limit) {
@@ -567,7 +567,7 @@ public class CircleService {
 
     /** 按分享游标分批筛选仍有效的分享者和原内容。 */
     private List<CircleShare> loadSharePage(UUID circleId, CircleShareCursor cursor, int limit) {
-        LocalDateTime time = cursor == null ? null : cursorTime(cursor.sharedAt());
+        Instant time = cursor == null ? null : cursor.sharedAt();
         UUID id = cursor == null ? null : cursor.id();
         List<CircleShare> rows = new ArrayList<>();
         int batchSize = Math.max(limit, 32);
@@ -669,7 +669,7 @@ public class CircleService {
         // 对每批关联应用相同的数据库游标，合并时只保留最靠前的记录。
         var ids = albumMomentMapper.selectActiveLinks(List.of(albumId)).stream()
                 .map(AlbumMoment::getMomentId).toList();
-        LocalDateTime time = cursor == null ? null : cursorTime(cursor.memoryTime());
+        Instant time = cursor == null ? null : cursor.memoryTime();
         UUID id = cursor == null ? null : cursor.id();
         List<Moment> page = new ArrayList<>();
         for (int start = 0; start < ids.size(); start += MOMENT_BATCH_SIZE) {
@@ -795,7 +795,7 @@ public class CircleService {
     /** 首次加入时新增成员关系，允许并发重复加入成功。 */
     private void insertJoiningMember(UUID circleId, UUID userId) {
         try {
-            insertMembership(circleId, userId, utcNow());
+            insertMembership(circleId, userId, TimeUtils.now());
             log.info("已写入圈子成员关系，circleId={}，userId={}", circleId, userId);
         } catch (DuplicateKeyException conflict) {
             // 唯一键冲突后重新检查；已成为有效成员时按幂等成功处理。
@@ -806,7 +806,7 @@ public class CircleService {
     }
 
     /** 新建有效成员关系，调用方负责事务和状态校验。 */
-    private void insertMembership(UUID circleId, UUID userId, LocalDateTime now) {
+    private void insertMembership(UUID circleId, UUID userId, Instant now) {
         // 为首次加入生成关系 ID，并使用同一 UTC 时间初始化审计字段。
         CircleMember member = new CircleMember();
         member.setId(UuidCreator.getTimeOrderedEpoch());
@@ -815,11 +815,6 @@ public class CircleService {
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
         circleMemberMapper.insert(member);
-    }
-
-    /** 取当前 UTC 时间，保留到毫秒，与数据库 DATETIME(3) 一致。 */
-    private LocalDateTime utcNow() { //TODO 很多地方都用到了，可以考虑单独拿出来放到 common 包里
-        return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
     }
 
     /** 检查要分享的瞬间或时光是否存在并属于当前用户。找不到返回 404，属于他人返回 403。 */
@@ -839,7 +834,7 @@ public class CircleService {
     }
 
     /** 为一个目标圈子创建待写入的分享记录，保存原内容的类型和 ID。 */
-    private CircleShare newShare(CreateCircleSharesRequest request, UUID circleId, UUID userId, LocalDateTime now) {
+    private CircleShare newShare(CreateCircleSharesRequest request, UUID circleId, UUID userId, Instant now) {
         // 每条新分享生成自己的 ID，恢复时仍用原来的 ID。
         CircleShare row = new CircleShare();
         row.setId(UuidCreator.getTimeOrderedEpoch());
@@ -854,7 +849,7 @@ public class CircleService {
     }
 
     /** 批量插入新分享并恢复已撤回的分享。遇到唯一约束冲突或恢复条数不足时返回 409，由外层事务回滚。 */
-    private void persistChanges(List<CircleShare> additions, List<UUID> restores, UUID userId, LocalDateTime now) {
+    private void persistChanges(List<CircleShare> additions, List<UUID> restores, UUID userId, Instant now) {
         // 有待新增或待恢复的记录时才执行对应的 SQL。
         try {
             if (!additions.isEmpty()) circleShareMapper.insertShares(additions);
@@ -922,8 +917,8 @@ public class CircleService {
                 .objectType(row.getObjectType())
                 .objectId(row.getObjectId())
                 .sharer(sharer)
-                .sharedAt(row.getSharedAt().toInstant(ZoneOffset.UTC))
-                .updatedAt(row.getUpdatedAt().toInstant(ZoneOffset.UTC))
+                .sharedAt(row.getSharedAt())
+                .updatedAt(row.getUpdatedAt())
                 .canWithdraw(canWithdraw(row, creatorId, userId))
                 .moment(isMoment ? moment : null)
                 .album(isAlbum ? album : null)
@@ -970,16 +965,6 @@ public class CircleService {
         return BusinessException.notFound("SHARE_NOT_FOUND", "分享不存在或不可访问");
     }
 
-    /** 把游标时间转成数据库查询用的 UTC 毫秒时间。年份超出 1000 到 9999 时返回 400。 */
-    private LocalDateTime cursorTime(Instant value) {
-        // 先检查时间范围，再将游标传给数据库查询。
-        try {
-            LocalDateTime time = LocalDateTime.ofInstant(value, ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
-            if (time.getYear() >= 1000 && time.getYear() <= 9999) return time;
-        } catch (DateTimeException exception) {
-            throw BusinessException.invalidArgument("游标时间超出可查询范围");
-        }
-        throw BusinessException.invalidArgument("游标时间超出可查询范围");
-    }
+    // TODO 游标时间缺范围校验：cursorTime 的 1000～9999 年份校验随换算删除而失效，超范围游标会直打数据库变 500，需补 400 参数校验
 
 }

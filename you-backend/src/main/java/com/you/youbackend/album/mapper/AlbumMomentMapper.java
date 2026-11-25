@@ -14,11 +14,11 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
 /**
@@ -34,7 +34,7 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
      * @param momentIds 非空、已去重的瞬间 ID
      * @param savedAt   本次统一的 UTC 时间，写入 deletedAt 和 updatedAt
      */
-    default void softDeleteByAlbumIdAndMomentIdIn(UUID albumId, List<UUID> momentIds, LocalDateTime savedAt) {
+    default void softDeleteByAlbumIdAndMomentIdIn(UUID albumId, List<UUID> momentIds, Instant savedAt) {
         // 仅更新当前时光中的有效关联，保留原瞬间及其他时光关系。
         update(Wrappers.<AlbumMoment>lambdaUpdate()
                 .eq(AlbumMoment::getAlbumId, albumId)
@@ -48,7 +48,7 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
      * @param albumId   已校验归属的时光 ID
      * @param deletedAt 本次统一的 UTC 毫秒时间
      */
-    default void softDeleteByAlbumId(UUID albumId, LocalDateTime deletedAt) {
+    default void softDeleteByAlbumId(UUID albumId, Instant deletedAt) {
         // MP 过滤已删除关联，保留历史移出时间，不访问原瞬间和媒体表。
         update(Wrappers.<AlbumMoment>lambdaUpdate()
                 .eq(AlbumMoment::getAlbumId, albumId)
@@ -81,7 +81,7 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
             """)
     void insertOrRestoreAssociations(
             @Param("associations") List<AlbumMoment> associations,
-            @Param("savedAt") LocalDateTime savedAt);
+            @Param("savedAt") Instant savedAt);
 
     /**
      * 数本时光的有效关联数（数的是关联，不是瞬间本身）。
@@ -137,8 +137,6 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
         return counts;
     }
 
-    // TODO 业务要保证删除的时候 清理掉关联表中的关联
-
     /**
      * 查时光内排在游标后面的一页瞬间，给时光线分页用。
      * 只看本人瞬间和有效关联；瞬间的软删状态不过滤——业务保证删除瞬间时同步清理关联。
@@ -155,7 +153,7 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
      */
     default List<Moment> selectPageByAlbumIdAndUserIdAfterCursor(
             UUID albumId, UUID userId,
-            LocalDateTime cursorTime, UUID cursorId, int rowCount) {
+            Instant cursorTime, UUID cursorId, int rowCount) {
         var query = new QueryWrapper<Moment>()
                 .eq("am.album_id", albumId)
                 .isNull("am.deleted_at")
@@ -215,7 +213,7 @@ public interface AlbumMomentMapper extends BaseMapper<AlbumMoment> {
                 .in(AlbumMoment::getAlbumId, albumIds));
     }
 
-    default void removeAssociationsByMomentId(UUID momentId, LocalDateTime deletedAt) {
+    default void removeAssociationsByMomentId(UUID momentId, Instant deletedAt) {
         update(Wrappers.<AlbumMoment>lambdaUpdate()
                 .eq(AlbumMoment::getMomentId, momentId)
                 .set(AlbumMoment::getDeletedAt, deletedAt)

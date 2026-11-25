@@ -9,7 +9,7 @@ import com.you.youbackend.inbox.entity.UserInbox;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,7 +28,7 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
      * @param momentIds 瞬间 ID 列表
      * @param removedAt 删除时间
      */
-    default void invalidateGatheringMoments(UUID gatheringId, List<UUID> momentIds, LocalDateTime removedAt) {
+    default void invalidateGatheringMoments(UUID gatheringId, List<UUID> momentIds, Instant removedAt) {
         update(invalidation(removedAt)
                 .eq(UserInbox::getSourceType,SourceType.gathering)
                 .eq(UserInbox::getSourceId,gatheringId)
@@ -42,7 +42,7 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
      * @param shareId circle_share ID
      * @param withdrawnAt 撤回时间
      */
-    default void invalidateCircleShare(UUID circleId, UUID shareId, LocalDateTime withdrawnAt) {
+    default void invalidateCircleShare(UUID circleId, UUID shareId, Instant withdrawnAt) {
         update(invalidation(withdrawnAt)
                 .eq(UserInbox::getSourceType,SourceType.circle)
                 .eq(UserInbox::getSourceId,circleId)
@@ -56,7 +56,7 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
      * @param userId 离开、被移除的成员用户 ID
      * @param leftAt 离开、移除时间
      */
-    default void invalidateMemberContents(SourceType sourceType, UUID sourceId, UUID userId, LocalDateTime leftAt) {
+    default void invalidateMemberContents(SourceType sourceType, UUID sourceId, UUID userId, Instant leftAt) {
         update(invalidation(leftAt)
                 .eq(UserInbox::getSourceType, sourceType)
                 .eq(UserInbox::getSourceId, sourceId)
@@ -72,7 +72,7 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
      * @param sourceId 来源 ID，同行或圈子的 ID
      * @param dissolvedAt 解散时间
      */
-    default void invalidateSourceContents(SourceType sourceType, UUID sourceId, LocalDateTime dissolvedAt) {
+    default void invalidateSourceContents(SourceType sourceType, UUID sourceId, Instant dissolvedAt) {
         update(invalidation(dissolvedAt)
                 .eq(UserInbox::getSourceType, sourceType)
                 .eq(UserInbox::getSourceId, sourceId));
@@ -84,7 +84,7 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
      * @param objectId 内容 ID，瞬间或时光的 ID
      * @param deletedAt 删除时间
      */
-    default void invalidateObjectContents(ObjectType objectType, UUID objectId, LocalDateTime deletedAt) {
+    default void invalidateObjectContents(ObjectType objectType, UUID objectId, Instant deletedAt) {
         update(invalidation(deletedAt)
                 .eq(UserInbox::getObjectType, objectType)
                 .eq(UserInbox::getObjectId, objectId));
@@ -94,7 +94,7 @@ public interface InboxMapper extends BaseMapper<UserInbox> {
      * 辅助方法：将 user_inbox 中的一条记录标记为失效
      * @param time 时间
      */
-    private static LambdaUpdateWrapper<UserInbox> invalidation(LocalDateTime time) {
+    private static LambdaUpdateWrapper<UserInbox> invalidation(Instant time) {
         return Wrappers.<UserInbox>lambdaUpdate()
                 .set(UserInbox::getDeletedAt, time)
                 .set(UserInbox::getUpdatedAt, time);

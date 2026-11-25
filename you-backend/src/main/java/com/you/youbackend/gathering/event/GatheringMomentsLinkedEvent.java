@@ -1,6 +1,6 @@
 package com.you.youbackend.gathering.event;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,7 +16,7 @@ public record GatheringMomentsLinkedEvent(
         UUID gatheringId,
         UUID actorUserId,
         List<UUID> momentIds,
-        LocalDateTime sharedAt
+        Instant sharedAt
 ) {
     public GatheringMomentsLinkedEvent {
         // 保存本次变更的不可变快照，避免调用方后续修改列表

@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -20,7 +20,7 @@ import java.util.UUID;
 @Mapper
 public interface MomentMapper extends BaseMapper<Moment> {
     /** 从一批共享时光关联的瞬间中按游标读取有效记录。 */
-    default List<Moment> selectSharedPage(List<UUID> ids, LocalDateTime time, UUID id, int limit) {
+    default List<Moment> selectSharedPage(List<UUID> ids, Instant time, UUID id, int limit) {
         return selectList(Wrappers.<Moment>lambdaQuery().in(Moment::getId, ids)
                 .and(time != null, boundary -> boundary.gt(Moment::getMemoryTime, time)
                         .or(tie -> tie.eq(Moment::getMemoryTime, time).gt(Moment::getId, id)))
@@ -39,14 +39,14 @@ public interface MomentMapper extends BaseMapper<Moment> {
             WHERE gathering_id = #{gatheringId} AND author_user_id = #{userId}
             """)
     int removeAllOwnedGathering(@Param("gatheringId") UUID gatheringId, @Param("userId") UUID userId,
-                               @Param("updatedAt") LocalDateTime updatedAt);
+                               @Param("updatedAt") Instant updatedAt);
 
     /** 解散时解除该同行全部瞬间关联，包含已删除瞬间，原内容保留。 */
     @Update("""
             UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}
             WHERE gathering_id = #{gatheringId}
             """)
-    int removeAllGathering(@Param("gatheringId") UUID gatheringId, @Param("updatedAt") LocalDateTime updatedAt);
+    int removeAllGathering(@Param("gatheringId") UUID gatheringId, @Param("updatedAt") Instant updatedAt);
 
 
     /**
@@ -57,7 +57,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param rowCount 页大小加一，用于判断下一页
      * @return 仅含 id、authorUserId、title、body、mood、memoryTime 的摘要投影
      */
-    default List<Moment> selectGatheringPage(UUID gatheringId, LocalDateTime cursorTime,
+    default List<Moment> selectGatheringPage(UUID gatheringId, Instant cursorTime,
                                             UUID cursorId, int rowCount) {
         // 1. 限定同行，读取摘要及批量加载作者资料所需字段。
         var query = Wrappers.<Moment>lambdaQuery()
@@ -95,7 +95,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param updatedAt 本次统一 UTC 毫秒时间
      * @return 实际修改行数
      */
-    default int associateGathering(UUID userId, UUID gatheringId, List<UUID> ids, LocalDateTime updatedAt) {
+    default int associateGathering(UUID userId, UUID gatheringId, List<UUID> ids, Instant updatedAt) {
         // 仅更新无关联记录，避免覆盖校验后由另一请求建立的同行关联。
         return update(Wrappers.<Moment>lambdaUpdate()
                 .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids)
@@ -111,7 +111,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param updatedAt 本次统一 UTC 毫秒时间
      * @return 实际修改行数
      */
-    default int removeGathering(UUID userId, UUID gatheringId, List<UUID> ids, LocalDateTime updatedAt) {
+    default int removeGathering(UUID userId, UUID gatheringId, List<UUID> ids, Instant updatedAt) {
         // 操作范围限定当前同行，显式写 null 清空关联，原内容和其他同行关联保持原样。
         return update(Wrappers.<Moment>lambdaUpdate()
                 .eq(Moment::getAuthorUserId, userId).eq(Moment::getGatheringId, gatheringId)
@@ -186,7 +186,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param id        瞬间 ID
      * @param deletedAt 本次删除的 UTC 时间
      */
-    default void softDeleteById(UUID id, LocalDateTime deletedAt) {
+    default void softDeleteById(UUID id, Instant deletedAt) {
         update(Wrappers.<Moment>lambdaUpdate()
                 .eq(Moment::getId, id)
                 .set(Moment::getDeletedAt, deletedAt)
@@ -224,7 +224,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param rowCount   本页大小 + 1，多出的那条只用来判断下一页
      * @return 卡片用的部分实体（ID、作者、标题、正文、心情、发生时间），新到旧排列，最多 rowCount 条
      */
-    default List<Moment> selectPageAfterCursor(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
+    default List<Moment> selectPageAfterCursor(UUID userId, Instant cursorTime, UUID cursorId, int rowCount) {
         var query = Wrappers.<Moment>lambdaQuery()
                 .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody, Moment::getMood, Moment::getMemoryTime)
                 .eq(Moment::getAuthorUserId, userId);

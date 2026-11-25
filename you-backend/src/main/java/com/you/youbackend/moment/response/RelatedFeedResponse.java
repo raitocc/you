@@ -5,7 +5,7 @@ import com.you.youbackend.common.enumeration.ObjectType;
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Schema(description = "信箱的一条分享记录")
@@ -20,7 +20,7 @@ public record RelatedFeedResponse(
          * 信箱分享时间：【user_inbox 的 share_at 】
          */
         @Schema(description = "信箱分享时间：【user_inbox 的 share_at 】",format = "datetime")
-        LocalDateTime sharedAt,
+        Instant sharedAt,
 
         /**
          * 信箱一条分享记录的类型：【瞬间、时光】

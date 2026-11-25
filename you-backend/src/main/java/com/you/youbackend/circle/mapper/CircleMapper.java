@@ -3,7 +3,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.you.youbackend.circle.entity.Circle;
 import org.apache.ibatis.annotations.Mapper;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 /** 圈子读写，沿用全局逻辑删除。 */
 @Mapper
@@ -39,7 +39,7 @@ public interface CircleMapper extends BaseMapper<Circle> {
     }
 
     /** 标记圈子已解散，同时关闭邀请。 */
-    default int dissolve(UUID circleId, UUID creatorId, LocalDateTime now) {
+    default int dissolve(UUID circleId, UUID creatorId, Instant now) {
         return update(Wrappers.<Circle>lambdaUpdate()
                 .eq(Circle::getId, circleId)
                 .eq(Circle::getCreatorUserId, creatorId)

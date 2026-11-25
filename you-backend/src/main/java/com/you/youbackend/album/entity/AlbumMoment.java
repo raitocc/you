@@ -7,7 +7,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /** 时光与瞬间的关联，同一时光内的瞬间由唯一索引约束。 */
@@ -23,9 +23,9 @@ public class AlbumMoment {
     /** 瞬间 ID。 */
     private UUID momentId;
     /** 创建时间，UTC。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     /** 最后修改时间，UTC。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
     /** 移出时间，UTC；null 表示关联有效。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.exceptions.PersistenceException;
 import org.apache.ibatis.executor.BatchExecutorException;
 import org.springframework.jdbc.support.SQLErrorCodeSQLExceptionTranslator;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.*;
 
 /** 圈子分享读写，按方法用途显式限定撤回状态。 */
@@ -44,7 +44,7 @@ public interface CircleShareMapper extends BaseMapper<CircleShare> {
     }
 
     /** 恢复仍处于撤回状态的分享，并更新分享者和时间。 */
-    default int restoreShares(List<UUID> ids, UUID userId, LocalDateTime now) {
+    default int restoreShares(List<UUID> ids, UUID userId, Instant now) {
         return update(Wrappers.<CircleShare>lambdaUpdate().in(CircleShare::getId, ids)
                 .isNotNull(CircleShare::getWithdrawnAt).set(CircleShare::getWithdrawnAt, null)
                 .set(CircleShare::getSharerUserId, userId).set(CircleShare::getSharedAt, now)
@@ -52,12 +52,12 @@ public interface CircleShareMapper extends BaseMapper<CircleShare> {
     }
 
     /** 只撤回当前仍有效的分享。 */
-    default int withdraw(UUID id, LocalDateTime now) {
+    default int withdraw(UUID id, Instant now) {
         return update(withdrawal(now).eq(CircleShare::getId, id));
     }
 
     /** 读取未撤回的瞬间或时光分享候选，按时间和 ID 倒序。 */
-    default List<CircleShare> selectPageCandidates(UUID circleId, LocalDateTime time, UUID id, int limit) {
+    default List<CircleShare> selectPageCandidates(UUID circleId, Instant time, UUID id, int limit) {
         return selectList(Wrappers.<CircleShare>lambdaQuery().eq(CircleShare::getCircleId, circleId)
                 .isNull(CircleShare::getWithdrawnAt)
                 .in(CircleShare::getObjectType, ObjectType.moment, ObjectType.album)
@@ -69,7 +69,7 @@ public interface CircleShareMapper extends BaseMapper<CircleShare> {
     /**
      * 撤回指定成员在这个圈子里的全部有效分享。
      */
-    default int invalidateMemberShares(UUID circleId, UUID userId, LocalDateTime now) {
+    default int invalidateMemberShares(UUID circleId, UUID userId, Instant now) {
         return update(withdrawal(now)
                 .eq(CircleShare::getCircleId, circleId)
                 .eq(CircleShare::getSharerUserId, userId));
@@ -77,11 +77,11 @@ public interface CircleShareMapper extends BaseMapper<CircleShare> {
     /**
      * 撤回这个圈子里的全部有效分享。
      */
-    default int invalidateCircleShares(UUID circleId, LocalDateTime now) {
+    default int invalidateCircleShares(UUID circleId, Instant now) {
         return update(withdrawal(now).eq(CircleShare::getCircleId, circleId));
     }
 
-    private static LambdaUpdateWrapper<CircleShare> withdrawal(LocalDateTime now) {
+    private static LambdaUpdateWrapper<CircleShare> withdrawal(Instant now) {
         return Wrappers.<CircleShare>lambdaUpdate()
                 .isNull(CircleShare::getWithdrawnAt)
                 .set(CircleShare::getWithdrawnAt, now)

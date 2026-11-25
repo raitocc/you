@@ -9,8 +9,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.util.Assert;
 
+import java.time.Instant;
 import java.util.*;
-import java.time.LocalDateTime;
 
 /**
  * 访问瞬间与图片的关联记录。
@@ -23,7 +23,7 @@ public interface MomentImageMapper extends BaseMapper<MomentImage> {
      * @param momentId  瞬间 ID
      * @param deletedAt 本次解除关联的 UTC 时间
      */
-    default void removeAssociationsByMomentId(UUID momentId, LocalDateTime deletedAt) {
+    default void removeAssociationsByMomentId(UUID momentId, Instant deletedAt) {
         update(Wrappers.<MomentImage>lambdaUpdate()
                 .eq(MomentImage::getMomentId, momentId)
                 .set(MomentImage::getDeletedAt, deletedAt)
@@ -54,7 +54,7 @@ public interface MomentImageMapper extends BaseMapper<MomentImage> {
     /**
      * 更新有效关联的展示顺序及修改时间。
      */
-    default void updateOrder(UUID id, int sortOrder, LocalDateTime updatedAt) {
+    default void updateOrder(UUID id, int sortOrder, Instant updatedAt) {
         update(Wrappers.<MomentImage>lambdaUpdate().eq(MomentImage::getId, id)
                 .set(MomentImage::getSortOrder, sortOrder).set(MomentImage::getUpdatedAt, updatedAt));
     }
@@ -62,7 +62,7 @@ public interface MomentImageMapper extends BaseMapper<MomentImage> {
     /**
      * 软删除一条有效图片关联，保留原媒体文件。
      */
-    default void softDeleteById(UUID id, LocalDateTime deletedAt) {
+    default void softDeleteById(UUID id, Instant deletedAt) {
         update(Wrappers.<MomentImage>lambdaUpdate().eq(MomentImage::getId, id)
                 .set(MomentImage::getDeletedAt, deletedAt).set(MomentImage::getUpdatedAt, deletedAt));
     }

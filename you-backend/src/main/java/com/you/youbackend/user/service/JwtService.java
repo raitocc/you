@@ -18,7 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * JWT 访问令牌签发。
+ * JWT 访问令牌的签发和解析，签名密钥取自配置。
  */
 @Service
 public class JwtService {
@@ -28,7 +28,9 @@ public class JwtService {
     private final SecretKey signingKey;
 
     /**
-     * 根据配置的密钥初始化 JWT 签名密钥。
+     * 用配置的密钥串初始化 HMAC 签名密钥。密钥长度不足时启动即失败。
+     *
+     * @param secret 配置项 jwt.secret 的原始字符串
      */
     public JwtService(@Value("${jwt.secret}") String secret) {
         this.signingKey = Keys.hmacShaKeyFor(
@@ -36,11 +38,13 @@ public class JwtService {
     }
 
     /**
-     * 为已通过身份验证的用户签发访问令牌。
+     * 给已通过身份验证的用户签一个访问令牌。
+     *
+     * <p>纯计算，不查库、无副作用。令牌含 userId（subject）、jti 和过期时间。</p>
      *
      * @param userId    用户 ID
-     * @param expiresAt 过期时间
-     * @return JWT 字符串
+     * @param expiresAt 过期时间，UTC，调用方决定有效期长短
+     * @return 签好名的 JWT 字符串
      */
     public String createAccessToken(UUID userId, Instant expiresAt) {
         return Jwts.builder()
@@ -54,38 +58,17 @@ public class JwtService {
     }
 
     /**
-     * 验证访问令牌并读取用户身份。
+     * 验签并解析访问令牌，取出用户 ID、令牌编号和过期时间。
      *
-     * @param token 不含 Bearer 前缀的 JWT 字符串
-     * @return 用户 ID
-     */
-    public UUID parseUserId(String token) {
-        try {
-            Claims claims = Jwts.parser()
-                    .verifyWith(signingKey)
-                    .requireIssuer(ISSUER)
-                    .build()
-                    .parseSignedClaims(token)
-                    .getPayload();
-
-            if (claims.getSubject() == null || claims.getExpiration() == null) {
-                throw new JwtException("令牌缺少用户身份或过期时间");
-            }
-
-            return UUID.fromString(claims.getSubject());
-        } catch (JwtException | IllegalArgumentException exception) {
-            throw BusinessException.unauthorized("登录凭证无效或已过期，请重新登录", exception);
-        }
-    }
-
-    /**
-     * 验证访问令牌，读取用户身份、令牌编号及过期时间。
+     * <p>纯计算，不查库、无副作用。签名不符、过期、缺必要字段都算无效。</p>
      *
-     * @param token 不含 Bearer 前缀的 JWT 字符串
+     * @param token 不含 Bearer 前缀的 JWT 字符串，调用方保证非空
      * @return 已验证的令牌信息
+     * @throws BusinessException 令牌无效或已过期（401）
      */
-    public AccessTokenClaims parseToken(String token) {
+    public AccessTokenClaims parseAccessToken(String token) {
         try {
+            // 1. 验签并解析，签名不符、过期、发行方不对都会抛 JwtException
             Claims claims = Jwts.parser()
                     .verifyWith(signingKey)
                     .requireIssuer(ISSUER)
@@ -93,6 +76,7 @@ public class JwtService {
                     .parseSignedClaims(token)
                     .getPayload();
 
+            // 2. 必要字段缺失也算无效令牌
             if (claims.getSubject() == null
                     || !StringUtils.hasText(claims.getId())
                     || claims.getExpiration() == null) {
@@ -100,12 +84,14 @@ public class JwtService {
                 throw new JwtException("令牌缺少必要字段");
             }
 
+            // 3. 拼成业务侧好用的令牌信息；subject 转不成 UUID 也按无效处理
             return new AccessTokenClaims(
                     UUID.fromString(claims.getSubject()),
                     claims.getId(),
                     claims.getExpiration().toInstant()
             );
         } catch (JwtException | IllegalArgumentException exception) {
+            // 验签失败、字段缺失、UUID 非法统一转 401，具体原因不外露
             throw BusinessException.unauthorized("登录凭证无效或已过期，请重新登录", exception);
         }
     }

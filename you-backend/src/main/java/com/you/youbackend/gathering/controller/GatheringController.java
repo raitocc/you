@@ -67,7 +67,7 @@ public class GatheringController {
     private final MomentService momentService;
 
     /** 主动退出同行，重复操作成功，具体校验与事务由业务层处理。 */
-    @Operation(summary = "主动退出同行", operationId = "15_leave_gathering")
+    @Operation(summary = "主动退出同行")
     @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
     @ApiResponse(responseCode = "400", description = "同行 ID 无效，或创建者尝试退出")
     @ApiResponse(responseCode = "401", description = "登录凭证无效")
@@ -83,7 +83,7 @@ public class GatheringController {
     }
 
     /** 结束同行，重复操作成功，具体校验与事务由业务层处理。 */
-    @Operation(summary = "结束同行", operationId = "16_end_gathering")
+    @Operation(summary = "结束同行")
     @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
     @ApiResponse(responseCode = "400", description = "同行 ID 无效")
     @ApiResponse(responseCode = "401", description = "登录凭证无效")
@@ -99,7 +99,7 @@ public class GatheringController {
     }
 
     /** 解散同行，重复操作成功，具体校验与事务由业务层处理。 */
-    @Operation(summary = "解散同行", operationId = "17_dissolve_gathering")
+    @Operation(summary = "解散同行")
     @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
     @ApiResponse(responseCode = "400", description = "同行 ID 无效")
     @ApiResponse(responseCode = "401", description = "登录凭证无效")
@@ -115,7 +115,7 @@ public class GatheringController {
     }
 
     /** 同行成员浏览共同经历时间线，按发生时间及 ID 正序。 */
-    @Operation(summary = "浏览同行中的瞬间", operationId = "13_list_gathering_moments")
+    @Operation(summary = "浏览同行中的瞬间")
     @ApiResponse(responseCode = "200", description = "查询成功，返回包含作者的瞬间摘要页")
     @ApiResponse(responseCode = "400", description = "同行 ID、分页参数或游标无效")
     @ApiResponse(responseCode = "401", description = "登录凭证无效")
@@ -139,7 +139,7 @@ public class GatheringController {
     }
 
     /** 通过指定同行读取共享瞬间，检查有效成员资格与当前关联。 */
-    @Operation(summary = "查看同行共享瞬间详情", operationId = "14_get_gathering_moment")
+    @Operation(summary = "查看同行共享瞬间详情")
     @ApiResponse(responseCode = "200", description = "查询成功，返回包含作者的完整详情")
     @ApiResponse(responseCode = "400", description = "同行或瞬间 ID 无效")
     @ApiResponse(responseCode = "401", description = "登录凭证无效")
@@ -155,7 +155,7 @@ public class GatheringController {
     }
 
     /** 批量关联本人瞬间，已完成的重复操作返回成功。 */
-    @Operation(summary = "批量关联同行瞬间", operationId = "11_add_gathering_moments")
+    @Operation(summary = "批量关联同行瞬间")
     @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
     @ApiResponse(responseCode = "400", description = "参数无效、瞬间不存在、已删除或非本人，或同行已结束")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -173,7 +173,7 @@ public class GatheringController {
     }
 
     /** 批量取消关联本人瞬间，已完成的重复操作返回成功。 */
-    @Operation(summary = "批量取消关联同行瞬间", operationId = "12_remove_gathering_moments")
+    @Operation(summary = "批量取消关联同行瞬间")
     @ApiResponse(responseCode = "200", description = "操作成功，data 为 null")
     @ApiResponse(responseCode = "400", description = "参数无效、瞬间不存在、已删除或非本人")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -190,7 +190,7 @@ public class GatheringController {
     }
 
     /** 浏览自己的同行，使用 GET 查询参数绑定业务游标。 */
-    @Operation(summary = "浏览自己的同行", operationId = "07_list_gatherings")
+    @Operation(summary = "浏览自己的同行")
     @ApiResponse(responseCode = "200", description = "查询成功，返回游标分页结果；用户公开资料查不到时为 null")
     @ApiResponse(responseCode = "400", description = "分页参数、游标或同行 ID 无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -211,7 +211,7 @@ public class GatheringController {
     }
 
     /** 浏览同行成员，使用 GET 查询参数绑定业务游标。 */
-    @Operation(summary = "浏览同行成员", operationId = "10_list_gathering_members")
+    @Operation(summary = "浏览同行成员")
     @ApiResponse(responseCode = "200", description = "查询成功，返回游标分页结果；用户公开资料查不到时为 null")
     @ApiResponse(responseCode = "400", description = "分页参数、游标或同行 ID 无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -235,7 +235,7 @@ public class GatheringController {
     }
 
     /** 有效成员查看同行基本信息，成员与瞬间通过各自分页接口加载。 */
-    @Operation(summary = "查看同行信息", operationId = "08_get_gathering")
+    @Operation(summary = "查看同行信息")
     @ApiResponse(responseCode = "200", description = "查询成功，返回完整同行信息")
     @ApiResponse(responseCode = "400", description = "同行 ID 无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -250,7 +250,7 @@ public class GatheringController {
     }
 
     /** 创建者全量保存名称与介绍，介绍必须提交，null 表示清空。 */
-    @Operation(summary = "全量修改同行信息", operationId = "09_update_gathering")
+    @Operation(summary = "全量修改同行信息")
     @ApiResponse(responseCode = "200", description = "修改成功，返回最新同行信息")
     @ApiResponse(responseCode = "400", description = "同行 ID、名称或介绍无效，或缺少必传字段")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
@@ -266,7 +266,7 @@ public class GatheringController {
     }
 
     /** 创建者为创建后 10 分钟内的同行开启面对面入口。 */
-    @Operation(summary = "开启面对面短码加入", operationId = "04_open_face_to_face",
+    @Operation(summary = "开启面对面短码加入",
             description = "创建者提交四位数字短码及发起位置。每个同行只允许成功开启一次，短码永久保存，邀请在同行创建后 10 分钟截止。")
     @ApiResponse(responseCode = "200", description = "返回首次登记的短码与截止时间")
     @ApiResponse(responseCode = "400", description = "短码或坐标无效、邀请关闭或创建窗口已结束")
@@ -284,7 +284,7 @@ public class GatheringController {
     }
 
     /** 查找附近同码的有效同行，零匹配返回空列表，多个匹配全部展示。 */
-    @Operation(summary = "查找附近面对面同行", operationId = "05_preview_face_to_face",
+    @Operation(summary = "查找附近面对面同行",
             description = "按四位短码和当前位置查找 100 米内尚未过期、开放邀请的同行，按距离从近到远返回候选列表。")
     @ApiResponse(responseCode = "200", description = "返回候选列表，零匹配为 []")
     @ApiResponse(responseCode = "400", description = "短码或坐标无效")
@@ -298,7 +298,7 @@ public class GatheringController {
     }
 
     /** 用户选择目标后，凭同行 ID 和短码确认加入。 */
-    @Operation(summary = "通过面对面短码确认加入", operationId = "06_join_face_to_face",
+    @Operation(summary = "通过面对面短码确认加入",
             description = "提交同行 ID 和短码，按数据库记录校验短码、创建后 10 分钟有效期及邀请开关，再建立或恢复成员关系。")
     @ApiResponse(responseCode = "200", description = "加入成功或已是有效成员，返回同行信息")
     @ApiResponse(responseCode = "400", description = "同行 ID 或短码无效")
@@ -313,7 +313,7 @@ public class GatheringController {
     }
 
     /** 根据长期邀请码展示加入目标，返回当前成员标记，供前端选择进入或确认加入。 */
-    @Operation(summary = "查看邀请码加入预览", operationId = "02_preview_gathering_join",
+    @Operation(summary = "查看邀请码加入预览",
             description = "扫码和手动输入共用长期邀请码。返回可加入同行的基本信息，预览阶段只读取数据。")
     @ApiResponse(responseCode = "200", description = "查询成功，返回加入预览")
     @ApiResponse(responseCode = "400", description = "邀请码为空白或超过 16 字符")
@@ -328,7 +328,7 @@ public class GatheringController {
     }
 
     /** 用户确认后建立或恢复成员关系，重复加入返回当前同行信息。 */
-    @Operation(summary = "通过邀请码确认加入", operationId = "03_join_gathering",
+    @Operation(summary = "通过邀请码确认加入",
             description = "按提交时状态重新校验邀请码。恢复原成员关系时保留 ID 与创建时间，原瞬间关联保持原样。")
     @ApiResponse(responseCode = "200", description = "加入成功或已是有效成员，返回同行信息")
     @ApiResponse(responseCode = "400", description = "邀请码为空白或超过 16 字符")
@@ -343,7 +343,7 @@ public class GatheringController {
     }
 
     /** 创建同行并将本人加入为初始成员，返回同行信息及长期邀请码。 */
-    @Operation(summary = "创建同行", operationId = "01_create_gathering",
+    @Operation(summary = "创建同行",
             description = "创建进行中的同行，邀请默认开启。同行与创建者成员关系在同一事务内保存，允许暂时没有瞬间。")
     @ApiResponse(responseCode = "200", description = "创建成功，返回同行信息")
     @ApiResponse(responseCode = "400", description = "名称或介绍无效")

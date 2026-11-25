@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -32,11 +32,11 @@ public class MomentImage {
     private int sortOrder;
 
     /** 关联首次创建时间，UTC。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     /** 关联最后修改时间，UTC。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     /** 关联移除时间，UTC；null 表示有效，重新添加时恢复原关联。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

@@ -1,7 +1,7 @@
 package com.you.youbackend.gathering.event;
 
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -15,7 +15,7 @@ import java.util.UUID;
 public record GatheringMomentsUnlinkedEvent(
         UUID gatheringId,
         List<UUID> momentIds,
-        LocalDateTime removedAt
+        Instant removedAt
 ) {
     public GatheringMomentsUnlinkedEvent {
         // 保存实际解除关联的结果，避免调用方后续修改列表。

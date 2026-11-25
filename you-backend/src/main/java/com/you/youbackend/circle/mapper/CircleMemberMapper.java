@@ -7,7 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -28,7 +28,7 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
             SET deleted_at = NULL, updated_at = #{now}
             WHERE id = #{id} AND deleted_at IS NOT NULL AND join_restricted = FALSE
             """)
-    int restore(@Param("id") UUID id, @Param("now") LocalDateTime now);
+    int restore(@Param("id") UUID id, @Param("now") Instant now);
 
     /** 按移除时间和用户 ID 倒序读取受限成员。 */
     @Select("""
@@ -46,7 +46,7 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
             WHERE circle_id = #{circleId} AND user_id = #{userId} AND join_restricted = TRUE
             """)
     int clearRestriction(@Param("circleId") UUID circleId, @Param("userId") UUID userId,
-                         @Param("now") LocalDateTime now);
+                         @Param("now") Instant now);
 
     /** 判断指定用户是否为圈子当前成员。 */
     default boolean isActiveMember(UUID circleId, UUID userId) {
@@ -56,7 +56,7 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
     }
 
     /** 按加入时间和圈子 ID 倒序读取候选记录。 */
-    default List<CircleMember> selectPageCandidates(UUID userId, LocalDateTime joinedAt, UUID circleId, int limit) {
+    default List<CircleMember> selectPageCandidates(UUID userId, Instant joinedAt, UUID circleId, int limit) {
         return selectList(Wrappers.<CircleMember>lambdaQuery().eq(CircleMember::getUserId, userId)
                 .and(joinedAt != null, q -> q.lt(CircleMember::getCreatedAt, joinedAt)
                         .or(tie -> tie.eq(CircleMember::getCreatedAt, joinedAt).lt(CircleMember::getCircleId, circleId)))
@@ -102,7 +102,7 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
     }
 
     /** 结束指定用户的有效成员关系，并按离开原因设置加入限制。 */
-    default int endMembership(UUID circleId, UUID userId, boolean restricted, LocalDateTime now) {
+    default int endMembership(UUID circleId, UUID userId, boolean restricted, Instant now) {
         // MP 自动过滤已结束的关系，重复操作不会覆盖原离开时间。
         return update(Wrappers.<CircleMember>lambdaUpdate()
                 .eq(CircleMember::getCircleId, circleId).eq(CircleMember::getUserId, userId)
@@ -111,7 +111,7 @@ public interface CircleMemberMapper extends BaseMapper<CircleMember> {
     }
 
     /** 结束解散圈子中的全部有效成员关系。 */
-    default int invalidateMemberships(UUID circleId, LocalDateTime now) {
+    default int invalidateMemberships(UUID circleId, Instant now) {
         return update(Wrappers.<CircleMember>lambdaUpdate()
                 .eq(CircleMember::getCircleId, circleId)
                 .set(CircleMember::getDeletedAt, now)

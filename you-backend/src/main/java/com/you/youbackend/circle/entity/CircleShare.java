@@ -3,7 +3,7 @@ import com.baomidou.mybatisplus.annotation.*;
 import com.you.youbackend.common.enumeration.ObjectType;
 import lombok.Getter;
 import lombok.Setter;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 /** 一条圈子分享记录，保存分享人、目标圈子和原内容的 ID。 */
 @Getter
@@ -22,20 +22,20 @@ public class CircleShare {
     /** 分享者 ID。 */
     private UUID sharerUserId;
     /** 最近一次新建或恢复分享的时间，使用 UTC。 */
-    private LocalDateTime sharedAt;
+    private Instant sharedAt;
     /** 第一次分享的时间，使用 UTC。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     /** 分享记录最后更新的时间，使用 UTC。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
     /** 撤回或失效的时间，使用 UTC。null 表示这条记录尚未标记撤回或失效。 */
     @TableField("deleted_at")
-    private LocalDateTime withdrawnAt;
+    private Instant withdrawnAt;
 
-    public LocalDateTime getDeletedAt() {
+    public Instant getDeletedAt() {
         return withdrawnAt;
     }
 
-    public void setDeletedAt(LocalDateTime deletedAt) {
+    public void setDeletedAt(Instant deletedAt) {
         this.withdrawnAt = deletedAt;
     }
 }

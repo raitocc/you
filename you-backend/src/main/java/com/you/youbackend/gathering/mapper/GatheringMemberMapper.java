@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -27,7 +28,7 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
     GatheringMember selectIncludingDeleted(@Param("gatheringId") UUID gatheringId, @Param("userId") UUID userId);
 
     /** 软删除指定成员关系，保留原 ID 与创建时间，供重新加入恢复。 */
-    default void leaveGathering(UUID memberId, LocalDateTime deletedAt) {
+    default void leaveGathering(UUID memberId, Instant deletedAt) {
         // 只修改该成员，删除时间与修改时间统一。
         update(Wrappers.<GatheringMember>lambdaUpdate().eq(GatheringMember::getId, memberId)
                 .set(GatheringMember::getDeletedAt, deletedAt).set(GatheringMember::getUpdatedAt, deletedAt));
