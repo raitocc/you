@@ -14,7 +14,11 @@ import java.util.UUID;
 @Schema(description = "同行创建时间、ID 倒序游标")
 public record GatheringListCursor(
         @NotNull(message = "请提供游标创建时间")
-        @Schema(description = "上一页末项创建时间，UTC", format = "date-time") Instant createdAt,
-        @NotNull(message = "请提供游标 ID") @UUIDv7(checkTimestamp = false)
-        @Schema(description = "上一页末项同行 ID", format = "uuid") UUID id
+        @Schema(description = "上一页末项创建时间，UTC", format = "date-time")
+        Instant createdAt,
+
+        @NotNull(message = "请提供游标 ID")
+        @UUIDv7(checkTimestamp = false)
+        @Schema(description = "上一页末项同行 ID", format = "uuid")
+        UUID id
 ) {}

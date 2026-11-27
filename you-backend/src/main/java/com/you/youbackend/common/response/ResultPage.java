@@ -48,4 +48,16 @@ public record ResultPage<T, C>(
         return new ResultPage<>(items, nextCursor, hasMore);
     }
 
+    public static <T, C> ResultPage<T, C> toResultPage(
+            List<T> items,
+            boolean hasMore,
+            C cursor) {
+
+        C nextCursor = hasMore
+                ? cursor
+                : null;
+
+        return new ResultPage<>(items, nextCursor, hasMore);
+    }
+
 }

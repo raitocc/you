@@ -936,15 +936,14 @@ public class CircleService {
         if (ids.isEmpty()) return Map.of();
         List<Album> rows = albumMapper.selectByIds(ids);
         Map<UUID, Long> counts = countSharedAlbumMoments(rows);
-        Map<UUID, String> keys = mediaService.findImageKeys(rows.stream().map(Album::getCoverFileId).filter(Objects::nonNull).distinct().toList());
-        // 2. 生成封面的临时访问地址。封面不可用时填 null，没有瞬间时填 0。
+        Map<UUID, String> coverUrls = mediaService.getReadUrls(rows.stream().map(Album::getCoverFileId).filter(Objects::nonNull).distinct().toList());
+        // 2. 封面不可用时填 null，没有瞬间时填 0。
         return rows.stream().collect(Collectors.toMap(Album::getId, album -> {
-            String key = album.getCoverFileId() == null ? null : keys.get(album.getCoverFileId());
             return CircleSharedAlbumResponse.builder()
                     .id(album.getId())
                     .name(album.getName())
                     .description(album.getDescription())
-                    .coverUrl(key == null ? null : mediaService.createReadUrl(key))
+                    .coverUrl(album.getCoverFileId() == null ? null : coverUrls.get(album.getCoverFileId()))
                     .momentCount(counts.getOrDefault(album.getId(), 0L))
                     .build();
         }));

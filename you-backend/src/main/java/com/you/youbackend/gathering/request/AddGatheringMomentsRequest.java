@@ -15,5 +15,7 @@ import java.util.UUID;
 public record AddGatheringMomentsRequest(
         @Schema(description = "本人瞬间 ID，至少一项，重复 ID 合并", requiredMode = Schema.RequiredMode.REQUIRED)
         @NotEmpty(message = "请至少选择一个瞬间")
-        List<@NotNull(message = "瞬间 ID 不能为空") @UUIDv7(checkTimestamp = false) UUID> momentIds
+        List<
+                @NotNull(message = "瞬间 ID 不能为空")
+                @UUIDv7(checkTimestamp = false) UUID> momentIds
 ) {}

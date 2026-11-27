@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -18,13 +19,13 @@ public class GatheringMember {
     @TableId(type = IdType.INPUT)
     private UUID id;
     /** 创建时间，UTC 毫秒精度。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     /** 最后修改时间，UTC 毫秒精度。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
     /** 同行 ID，关联 gathering.id。 */
     private UUID gatheringId;
     /** 成员 ID，关联 app_user.id。 */
     private UUID userId;
     /** 离开或移除时间，UTC；null 表示有效成员。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

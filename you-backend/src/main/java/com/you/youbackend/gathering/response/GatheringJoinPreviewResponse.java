@@ -2,6 +2,7 @@ package com.you.youbackend.gathering.response;
 
 import com.you.youbackend.user.response.PublicUserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 
 import java.util.UUID;
 
@@ -14,6 +15,7 @@ import java.util.UUID;
  * @param isMember 当前用户是否为有效成员，为 true 时可以直接进入同行
  */
 @Schema(description = "同行加入预览")
+@Builder
 public record GatheringJoinPreviewResponse(
         @Schema(description = "目标同行 UUIDv7", format = "uuid")
         UUID id,

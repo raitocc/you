@@ -20,7 +20,7 @@ import com.you.youbackend.gathering.request.UpdateGatheringRequest;
 import com.you.youbackend.gathering.response.FaceToFaceCandidateResponse;
 import com.you.youbackend.gathering.response.FaceToFaceOpenResponse;
 import com.you.youbackend.gathering.response.GatheringJoinPreviewResponse;
-import com.you.youbackend.gathering.response.GatheringResponse;
+import com.you.youbackend.gathering.response.GatheringDetailedResponse;
 import com.you.youbackend.gathering.response.GatheringSummaryResponse;
 import com.you.youbackend.gathering.service.GatheringFaceToFaceService;
 import com.you.youbackend.gathering.service.GatheringService;
@@ -164,9 +164,17 @@ public class GatheringController {
     @ApiResponse(responseCode = "409", description = "瞬间已关联其他同行，或关联状态在写入前变化；整批回滚")
     @PostMapping(value = "/{gatheringId}/moments", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Result<Void> addMoments(
-            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
-            @Valid @RequestBody AddGatheringMomentsRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+            @Parameter(description = "同行 UUIDv7")
+            @PathVariable
+            @UUIDv7(checkTimestamp = false)
+            UUID gatheringId,
+
+            @Valid
+            @RequestBody
+            AddGatheringMomentsRequest request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 统一身份和参数交给业务层，整批业务校验通过后维护关联。
         gatheringService.addMoments(gatheringId, request, userId);
         return Result.ok(null);
@@ -181,9 +189,16 @@ public class GatheringController {
     @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
     @PostMapping(value = "/{gatheringId}/moments/remove", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Result<Void> removeMoments(
-            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
-            @Valid @RequestBody RemoveGatheringMomentsRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+            @Parameter(description = "同行 UUIDv7")
+            @PathVariable
+            @UUIDv7(checkTimestamp = false) UUID gatheringId,
+
+            @Valid
+            @RequestBody
+            RemoveGatheringMomentsRequest request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 统一身份和参数交给业务层，整批业务校验通过后维护关联。
         gatheringService.removeMoments(gatheringId, request, userId);
         return Result.ok(null);
@@ -195,17 +210,38 @@ public class GatheringController {
     @ApiResponse(responseCode = "400", description = "分页参数、游标或同行 ID 无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
     @Parameters({
-            @Parameter(name = "limit", in = ParameterIn.QUERY, description = "每页数量，默认 20，范围 1～100",
-                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
-            @Parameter(name = "cursor.createdAt", in = ParameterIn.QUERY, description = "上一页末项同行创建时间，首屏省略",
-                    schema = @Schema(type = "string", format = "date-time")),
-            @Parameter(name = "cursor.id", in = ParameterIn.QUERY, description = "与游标时间成组提交的同行 ID",
-                    schema = @Schema(type = "string", format = "uuid"))
+            @Parameter(
+                    name = "limit",
+                    in = ParameterIn.QUERY,
+                    description = "每页数量，默认 20，范围 1～100",
+                    schema = @Schema(
+                            type = "integer",
+                            defaultValue = "20",
+                            minimum = "1",
+                            maximum = "100")),
+            @Parameter(
+                    name = "cursor.createdAt",
+                    in = ParameterIn.QUERY,
+                    description = "上一页末项同行创建时间，首屏省略",
+                    schema = @Schema(
+                            type = "string",
+                            format = "date-time")),
+            @Parameter(
+                    name = "cursor.id",
+                    in = ParameterIn.QUERY,
+                    description = "与游标时间成组提交的同行 ID",
+                    schema = @Schema(
+                            type = "string",
+                            format = "uuid"))
     })
     @GetMapping
     public Result<ResultPage<GatheringSummaryResponse, GatheringListCursor>> browseGatherings(
-            @Parameter(hidden = true) @PageQuery PageRequest<GatheringListCursor> request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+            @Parameter(hidden = true)
+            @PageQuery
+            PageRequest<GatheringListCursor> request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 查询范围及访问权限由业务层确定，游标绑定和基础校验沿用统一机制。
         return Result.ok(gatheringService.browseGatherings(request, userId));
     }
@@ -218,18 +254,41 @@ public class GatheringController {
     @ApiResponse(responseCode = "403", description = "当前用户不是有效成员")
     @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
     @Parameters({
-            @Parameter(name = "limit", in = ParameterIn.QUERY, description = "每页数量，默认 20，范围 1～100",
-                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
-            @Parameter(name = "cursor.createdAt", in = ParameterIn.QUERY, description = "上一页末项成员关系创建时间，首屏省略",
-                    schema = @Schema(type = "string", format = "date-time")),
-            @Parameter(name = "cursor.userId", in = ParameterIn.QUERY, description = "与游标时间成组提交的用户 ID",
-                    schema = @Schema(type = "string", format = "uuid"))
+            @Parameter(
+                    name = "limit",
+                    in = ParameterIn.QUERY,
+                    description = "每页数量，默认 20，范围 1～100",
+                    schema = @Schema(
+                            type = "integer",
+                            defaultValue = "20",
+                            minimum = "1",
+                            maximum = "100")),
+            @Parameter(
+                    name = "cursor.createdAt",
+                    in = ParameterIn.QUERY,
+                    description = "上一页末项成员关系创建时间，首屏省略",
+                    schema = @Schema(
+                            type = "string",
+                            format = "date-time")),
+            @Parameter(
+                    name = "cursor.userId",
+                    in = ParameterIn.QUERY,
+                    description = "与游标时间成组提交的用户 ID",
+                    schema = @Schema(
+                            type = "string",
+                            format = "uuid"))
     })
     @GetMapping("/{gatheringId}/members")
     public Result<ResultPage<PublicUserResponse, GatheringMemberCursor>> browseMembers(
-            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
-            @Parameter(hidden = true) @PageQuery PageRequest<GatheringMemberCursor> request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+            @Parameter(description = "同行 UUIDv7")
+            @PathVariable
+            @UUIDv7(checkTimestamp = false)
+            UUID gatheringId,
+
+            @Parameter(hidden = true)
+            @PageQuery PageRequest<GatheringMemberCursor> request,
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 查询范围及访问权限由业务层确定，游标绑定和基础校验沿用统一机制。
         return Result.ok(gatheringService.browseMembers(gatheringId, request, userId));
     }
@@ -242,11 +301,16 @@ public class GatheringController {
     @ApiResponse(responseCode = "403", description = "当前用户不是有效成员")
     @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
     @GetMapping("/{gatheringId}")
-    public Result<GatheringResponse> getGathering(
-            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    public Result<GatheringDetailedResponse> getGathering(
+            @Parameter(description = "同行 UUIDv7")
+            @PathVariable
+            @UUIDv7(checkTimestamp = false)
+            UUID gatheringId,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 由业务层确认有效成员资格并加载详情。
-        return Result.ok(gatheringService.getGathering(gatheringId, userId));
+        return Result.ok(gatheringService.getGatheringInfo(gatheringId, userId));
     }
 
     /** 创建者全量保存名称与介绍，介绍必须提交，null 表示清空。 */
@@ -257,10 +321,18 @@ public class GatheringController {
     @ApiResponse(responseCode = "403", description = "当前用户不是创建者")
     @ApiResponse(responseCode = "404", description = "同行不存在或已解散")
     @PutMapping(value = "/{gatheringId}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Result<GatheringResponse> updateGathering(
-            @Parameter(description = "同行 UUIDv7") @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
-            @Valid @RequestBody UpdateGatheringRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    public Result<GatheringDetailedResponse> updateGathering(
+            @Parameter(description = "同行 UUIDv7")
+            @PathVariable
+            @UUIDv7(checkTimestamp = false)
+            UUID gatheringId,
+
+            @Valid
+            @RequestBody
+            UpdateGatheringRequest request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 业务层校验创建者权限，只更新基本信息并保留其他设置。
         return Result.ok(gatheringService.updateGathering(gatheringId, request, userId));
     }
@@ -278,7 +350,7 @@ public class GatheringController {
     public Result<FaceToFaceOpenResponse> openFaceToFace(
             @PathVariable @UUIDv7(checkTimestamp = false) UUID gatheringId,
             @Valid @RequestBody OpenFaceToFaceRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) { // TODO 这个还没改
         // 业务层首次登记数据库短码，并将发起位置写入 GEO。
         return Result.ok(faceToFaceService.open(gatheringId, request, userId));
     }
@@ -290,7 +362,7 @@ public class GatheringController {
     @ApiResponse(responseCode = "400", description = "短码或坐标无效")
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
     @GetMapping("/face-to-face/join-preview")
-    public Result<List<FaceToFaceCandidateResponse>> previewFaceToFace(
+    public Result<List<FaceToFaceCandidateResponse>> previewFaceToFace( // TODO 这个还没改
             @Valid @ModelAttribute @ParameterObject FaceToFacePreviewRequest request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         // 查询阶段只返回附近候选，成员关系在确认加入时建立。
@@ -305,7 +377,7 @@ public class GatheringController {
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
     @ApiResponse(responseCode = "404", description = "邀请过期、短码不匹配或目标同行不可加入")
     @PostMapping(value = "/face-to-face/join", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Result<GatheringResponse> joinFaceToFace(
+    public Result<GatheringDetailedResponse> joinFaceToFace( // TODO 这个还没改
             @Valid @RequestBody JoinFaceToFaceRequest request,
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
         // 按用户选中的同行确认加入，复用现有成员维护规则。
@@ -321,8 +393,13 @@ public class GatheringController {
     @ApiResponse(responseCode = "404", description = "邀请码无效、邀请关闭或同行已解散")
     @GetMapping("/join-preview")
     public Result<GatheringJoinPreviewResponse> previewJoin(
-            @Valid @ModelAttribute @ParameterObject GatheringJoinPreviewRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+            @Valid
+            @ModelAttribute
+            @ParameterObject
+            GatheringJoinPreviewRequest request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 将查询参数和认证用户交给业务层，只加载加入预览。
         return Result.ok(gatheringService.previewJoin(request, userId));
     }
@@ -335,9 +412,13 @@ public class GatheringController {
     @ApiResponse(responseCode = "401", description = "登录凭证缺失、无效或已失效")
     @ApiResponse(responseCode = "404", description = "邀请码无效、邀请关闭或同行已解散")
     @PostMapping(value = "/join", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Result<GatheringResponse> joinGathering(
-            @Valid @RequestBody JoinGatheringRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    public Result<GatheringDetailedResponse> joinGathering(
+            @Valid
+            @RequestBody
+            JoinGatheringRequest request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 成员资格与事务由业务层统一维护，接口返回最新同行信息。
         return Result.ok(gatheringService.joinGathering(request, userId));
     }
@@ -350,9 +431,13 @@ public class GatheringController {
     @ApiResponse(responseCode = "401", description = "登录凭证无效，或账号不存在、已注销")
     @ApiResponse(responseCode = "409", description = "邀请码生成冲突，请重新创建")
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Result<GatheringResponse> createGathering(
-            @Valid @RequestBody CreateGatheringRequest request,
-            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID) UUID userId) {
+    public Result<GatheringDetailedResponse> createGathering(
+            @Valid
+            @RequestBody
+            CreateGatheringRequest request,
+
+            @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
+            UUID userId) {
         // 使用认证用户创建同行，业务层统一维护初始成员和事务。
         return Result.ok(gatheringService.createGathering(request, userId));
     }

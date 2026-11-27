@@ -53,17 +53,12 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
      * @param rowCount 页大小加一，用于判断下一页
      * @return 有序完整同行实体
      */
-    default List<Gathering> selectPage(UUID userId, LocalDateTime cursorTime, UUID cursorId, int rowCount) {
-        // 1. 过滤已解散同行，成员子查询限定本人仍有有效成员关系。
+    default List<Gathering> selectPageAfterCursorByUserId(UUID userId, Instant cursorTime, UUID cursorId, int rowCount) {
+        // 1. 查询本人仍在参与且尚未解散的同行。
         var query = new QueryWrapper<Gathering>()
-                .isNull("g.deleted_at")
-                .exists("""
-                        SELECT 1
-                        FROM gathering_member m
-                        WHERE m.gathering_id = g.id
-                          AND m.user_id = {0}
-                          AND m.deleted_at IS NULL
-                        """, userId);
+                .eq("m.user_id", userId)
+                .isNull("m.deleted_at")
+                .isNull("g.deleted_at");
         // 2. 有游标时读取更早时间，或相同时间下更小的 ID；首屏不加边界。
         if (cursorTime != null) {
             query.and(boundary -> boundary.lt("g.created_at", cursorTime)
@@ -71,23 +66,24 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
         }
         // 3. 统一排序，交给固定 SQL 多取一条判断下一页。
         query.orderByDesc("g.created_at", "g.id");
-        return selectPageRows(query, rowCount);
+        return selectPageAfterCursorByUserId(query, rowCount);
     }
 
     /**
-     * 执行同行列表查询，筛选与排序由 selectPageAfterCursor 统一构造。
-     * @param query 后端构造的带表别名条件，含有效成员 EXISTS、软删除过滤及排序
+     * 根据成员关系查询同行，筛选与排序由 selectPageAfterCursorByUserId 构造。
+     * @param query 成员筛选、软删除过滤、游标及排序条件
      * @param rowCount 已校验页大小加一
      * @return 有序完整同行实体
      */
     @Select("""
             SELECT g.id, g.created_at, g.updated_at, g.creator_user_id, g.name, g.description,
                    g.status, g.invite_enabled, g.invite_code, g.face_code, g.deleted_at
-            FROM gathering g
+            FROM gathering_member m
+            JOIN gathering g ON g.id = m.gathering_id
             ${ew.customSqlSegment}
             LIMIT #{rowCount}
             """)
-    List<Gathering> selectPageRows(@Param(Constants.WRAPPER) Wrapper<Gathering> query,
+    List<Gathering> selectPageAfterCursorByUserId(@Param(Constants.WRAPPER) Wrapper<Gathering> query,
                                    @Param("rowCount") int rowCount);
 
     /**
@@ -95,7 +91,7 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
      * @param gathering 已校验创建者权限并填充最终字段的有效同行
      * @return 更新行数
      */
-    default int updateContent(Gathering gathering) {
+    default int updateContentById(Gathering gathering) {
         // 只覆盖本次全量编辑范围，保留状态、邀请设置及创建信息。
         return update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, gathering.getId())
                 .set(Gathering::getName, gathering.getName())

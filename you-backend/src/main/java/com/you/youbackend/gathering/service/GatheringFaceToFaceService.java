@@ -67,7 +67,7 @@ public class GatheringFaceToFaceService {
         redisService.saveLocation(
                 gatheringId,
                 request.faceCode(),
-                gathering.getCreatedAt().toInstant(ZoneOffset.UTC),
+                gathering.getCreatedAt(),
                 new Point(request.longitude(), request.latitude()));
         // 3. 返回业务截止时间，日志描述当前事务内已完成的写入。
         FaceToFaceOpenResponse response = toOpenResponse(gathering, request.faceCode());
@@ -127,7 +127,7 @@ public class GatheringFaceToFaceService {
         if (!Boolean.TRUE.equals(gathering.getInviteEnabled())) {
             throw BusinessException.badRequest("GATHERING_INVITATION_DISABLED", "同行邀请已关闭");
         }
-        if (!gathering.getCreatedAt().toInstant(ZoneOffset.UTC).plus(FaceToFaceRules.WINDOW).isAfter(now)) {
+        if (!gathering.getCreatedAt().plus(FaceToFaceRules.WINDOW).isAfter(now)) {
             log.debug("开启面对面邀请失败，gatheringId={}，userId={}，reason=创建窗口已结束", gatheringId, userId);
             throw BusinessException.badRequest("FACE_TO_FACE_WINDOW_EXPIRED", "面对面加入窗口已结束");
         }
@@ -210,7 +210,7 @@ public class GatheringFaceToFaceService {
             Gathering gathering, PublicUserResponse creator, double distanceMeters, boolean isMember) {
         // 将同行摘要与本次附近查询的信息组合，截止时间取同行创建后 10 分钟。
         return new FaceToFaceCandidateResponse(toSummaryResponse(gathering, creator), distanceMeters,
-                gathering.getCreatedAt().toInstant(ZoneOffset.UTC).plus(FaceToFaceRules.WINDOW), isMember);
+                gathering.getCreatedAt().plus(FaceToFaceRules.WINDOW), isMember);
     }
 
     /**
@@ -239,6 +239,6 @@ public class GatheringFaceToFaceService {
     private FaceToFaceOpenResponse toOpenResponse(Gathering gathering, String faceCode) {
         // 截止时间依据创建时间，GEO 集合的清理时间单独计算。
         return new FaceToFaceOpenResponse(gathering.getId(), faceCode,
-                gathering.getCreatedAt().toInstant(ZoneOffset.UTC).plus(FaceToFaceRules.WINDOW));
+                gathering.getCreatedAt().plus(FaceToFaceRules.WINDOW));
     }
 }

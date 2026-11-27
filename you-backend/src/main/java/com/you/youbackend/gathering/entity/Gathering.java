@@ -7,6 +7,7 @@ import com.you.youbackend.gathering.model.GatheringStatus;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -19,9 +20,9 @@ public class Gathering {
     @TableId(type = IdType.INPUT)
     private UUID id;
     /** 创建时间，UTC 毫秒精度。 */
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     /** 最后修改时间，UTC 毫秒精度。 */
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
     /** 创建者 ID，关联 app_user.id，同时具有有效成员关系。 */
     private UUID creatorUserId;
     /** 名称，去首尾空白后 1～128 个 Unicode 码点，允许重名。 */
@@ -37,5 +38,5 @@ public class Gathering {
     /** 首次开启的四位面对面短码；null 表示从未开启，开启后永久保留。 */
     private String faceCode;
     /** 解散时间，UTC；null 表示有效。 */
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 }

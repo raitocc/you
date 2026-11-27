@@ -24,7 +24,7 @@ public class MediaFile {
     /** 上传者 ID。 */
     private UUID ownerUserId;
 
-    /** 对象存储中的完整键，例如 images/文件UUID。 */
+    /** 对象存储中的完整键，例如 images/{userId}/{fileId}。 */
     private String storageKey;
 
     /** 媒体类型，例如 image/jpeg。 */
@@ -33,10 +33,10 @@ public class MediaFile {
     /** 文件字节数。 */
     private Long byteSize;
 
-    /** 创建时间，UTC。 */
+    /** 创建时间，UTC 毫秒精度。 */
     private Instant createdAt;
 
-    /** 最后修改时间，UTC。 */
+    /** 最后修改时间，UTC 毫秒精度。 */
     private Instant updatedAt;
 
     /** 删除时间，UTC；null 表示有效。 */

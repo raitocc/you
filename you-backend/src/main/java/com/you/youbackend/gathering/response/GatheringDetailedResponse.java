@@ -3,6 +3,7 @@ package com.you.youbackend.gathering.response;
 import com.you.youbackend.user.response.PublicUserResponse;
 import com.you.youbackend.gathering.model.GatheringStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -21,7 +22,8 @@ import java.util.UUID;
  * @param updatedAt 最后修改时间，UTC
  */
 @Schema(description = "同行信息")
-public record GatheringResponse(
+@Builder
+public record GatheringDetailedResponse(
         @Schema(description = "同行状态：ONGOING 进行中，ENDED 已结束")
         GatheringStatus status,
 

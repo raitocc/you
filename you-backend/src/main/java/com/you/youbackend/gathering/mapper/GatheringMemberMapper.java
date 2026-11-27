@@ -10,9 +10,10 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -43,8 +44,8 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
      * @param rowCount 页大小加一，用于判断下一页
      * @return 完整成员关系，用户资料由 Service 批量加载
      */
-    default List<GatheringMember> selectPage(UUID gatheringId, LocalDateTime cursorTime,
-                                            UUID cursorUserId, int rowCount) {
+    default List<GatheringMember> selectPageAfterCursorById(UUID gatheringId, Instant cursorTime,
+                                                            UUID cursorUserId, int rowCount) {
         // 1. 限定同行，沿用全局逻辑删除过滤有效成员关系。
         var query = Wrappers.<GatheringMember>lambdaQuery()
                 .eq(GatheringMember::getGatheringId, gatheringId);
@@ -72,8 +73,24 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
             GROUP BY gathering_id
             </script>
             """)
-    List<GatheringCount> countByGatherings(
+    List<GatheringCount> selectMemberCountsByGatheringIds(
             @Param("ids") Collection<UUID> ids);
+
+    /** 批量统计有效成员，每个传入的同行 ID 都有计数，无有效成员时为 0。 */
+    default Map<UUID, Long> countByGatheringIds(Collection<UUID> gatheringIds) {
+        if (gatheringIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, Long> counts = new HashMap<>();
+        for (UUID gatheringId : gatheringIds) {
+            counts.put(gatheringId, 0L);
+        }
+        for (GatheringCount row : selectMemberCountsByGatheringIds(gatheringIds)) {
+            counts.put(row.getGatheringId(), row.getCount());
+        }
+        return counts;
+    }
 
     /**
      * 批量判断当前用户在候选同行中的有效成员资格。
@@ -96,7 +113,7 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
      * @param userId 当前用户 ID
      * @return 是否存在未软删除的成员关系
      */
-    default boolean isActiveMember(UUID gatheringId, UUID userId) {
+    default boolean existsByGatheringIdAndUserId(UUID gatheringId, UUID userId) {
         // 只判断当前关系，已退出或移除记录由全局逻辑删除条件过滤。
         return selectCount(Wrappers.<GatheringMember>lambdaQuery()
                 .eq(GatheringMember::getGatheringId, gatheringId)
@@ -116,7 +133,7 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
      * @param gatheringId 已确认有效的同行 ID
      * @return 未软删除的成员关系数量，包含创建者
      */
-    default long countActiveMembers(UUID gatheringId) {
+    default long CountByGatheringId(UUID gatheringId) {
         // 统计使用与成员访问一致的逻辑删除规则。
         return selectCount(Wrappers.<GatheringMember>lambdaQuery()
                 .eq(GatheringMember::getGatheringId, gatheringId));
@@ -136,5 +153,5 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
                 updated_at = IF(deleted_at IS NULL, updated_at, #{member.updatedAt}),
                 deleted_at = NULL
             """)
-    void joinOrRestore(@Param("member") GatheringMember member);
+    void insertOrRestore(@Param("member") GatheringMember member);
 }

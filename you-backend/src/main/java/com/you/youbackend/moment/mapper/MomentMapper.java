@@ -11,7 +11,9 @@ import org.apache.ibatis.annotations.Update;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -80,11 +82,12 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param ids 非空且已去重的瞬间 ID
      * @return 仅含 id、authorUserId、gatheringId 的投影实体，仅用于关联校验
      */
-    default List<Moment> selectOwnedForGathering(UUID userId, List<UUID> ids) {
+    default List<Moment> selectByUserIdAndIds(UUID userId, List<UUID> ids) {
         // 限定作者并沿用逻辑删除过滤，缺少的候选由业务层统一判为无效。
         return selectList(Wrappers.<Moment>lambdaQuery()
                 .select(Moment::getId, Moment::getAuthorUserId, Moment::getGatheringId)
-                .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids));
+                .eq(Moment::getAuthorUserId, userId)
+                .in(Moment::getId, ids));
     }
 
     /**
@@ -95,7 +98,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param updatedAt 本次统一 UTC 毫秒时间
      * @return 实际修改行数
      */
-    default int associateGathering(UUID userId, UUID gatheringId, List<UUID> ids, Instant updatedAt) {
+    default int addToGatheringByUserIdAndGatheringId(UUID userId, UUID gatheringId, List<UUID> ids, Instant updatedAt) {
         // 仅更新无关联记录，避免覆盖校验后由另一请求建立的同行关联。
         return update(Wrappers.<Moment>lambdaUpdate()
                 .eq(Moment::getAuthorUserId, userId).in(Moment::getId, ids)
@@ -111,7 +114,7 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param updatedAt 本次统一 UTC 毫秒时间
      * @return 实际修改行数
      */
-    default int removeGathering(UUID userId, UUID gatheringId, List<UUID> ids, Instant updatedAt) {
+    default int removeFromGatheringByUserIdAndGatheringId(UUID userId, UUID gatheringId, List<UUID> ids, Instant updatedAt) {
         // 操作范围限定当前同行，显式写 null 清空关联，原内容和其他同行关联保持原样。
         return update(Wrappers.<Moment>lambdaUpdate()
                 .eq(Moment::getAuthorUserId, userId).eq(Moment::getGatheringId, gatheringId)
@@ -132,8 +135,24 @@ public interface MomentMapper extends BaseMapper<Moment> {
             GROUP BY gathering_id
             </script>
             """)
-    List<GatheringCount> countByGatherings(
+    List<GatheringCount> selectMomentCountsByGatheringIds(
             @Param("ids") Collection<UUID> ids);
+
+    /** 批量统计有效瞬间，每个传入的同行 ID 都有计数，无有效瞬间时为 0。 */
+    default Map<UUID, Long> countByGatheringIds(Collection<UUID> gatheringIds) {
+        if (gatheringIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, Long> counts = new HashMap<>();
+        for (UUID gatheringId : gatheringIds) {
+            counts.put(gatheringId, 0L);
+        }
+        for (GatheringCount row : selectMomentCountsByGatheringIds(gatheringIds)) {
+            counts.put(row.getGatheringId(), row.getCount());
+        }
+        return counts;
+    }
 
     /**
      * 统计当前仍关联到同行的有效瞬间，供同行信息展示使用。
@@ -144,7 +163,8 @@ public interface MomentMapper extends BaseMapper<Moment> {
             SELECT COUNT(*) FROM moment
             WHERE gathering_id = #{gatheringId} AND deleted_at IS NULL
             """)
-    long countByGathering(@Param("gatheringId") UUID gatheringId);
+    long countByGatheringId(@Param("gatheringId") UUID gatheringId);
+    // TODO 这里应该用 Wrapper 的！
 
     /**
      * 批量读取本人未删除瞬间的 ID，用于关联创建前校验；只投影 ID，不返回不完整实体。
