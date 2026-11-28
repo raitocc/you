@@ -28,6 +28,6 @@ public class Circle {
     private Instant createdAt;
     /** 修改时间，UTC 毫秒精度。 */
     private Instant updatedAt;
-    /** 删除时间，null 表示有效。 */
+    /** 解散时间，UTC；null 表示有效。 */
     private Instant deletedAt;
 }

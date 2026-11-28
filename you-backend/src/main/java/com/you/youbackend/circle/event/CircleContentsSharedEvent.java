@@ -1,7 +1,6 @@
 package com.you.youbackend.circle.event;
 
 import com.you.youbackend.circle.model.CircleSharedContent;
-import com.you.youbackend.circle.request.CreateCircleSharesRequest;
 
 import java.time.Instant;
 import java.util.List;
@@ -9,21 +8,18 @@ import java.util.UUID;
 
 /**
  * 事件：一条瞬间或时光分享到一个或多个圈子
- * 发布入口：
- * @see com.you.youbackend.circle.service.CircleService#shareToCircles(CreateCircleSharesRequest, UUID)
+ * 发布入口：CircleService.shareToCircles()
+ * @param actorUserId 分享者的用户 ID
+ * @param contents 本次实际变更的分享记录列表（新增或恢复）
+ * @param sharedAt 分享时间
  */
 public record CircleContentsSharedEvent(
-        // 分享者的用户 ID
         UUID actorUserId,
-
-        // 分享记录列表
         List<CircleSharedContent> contents,
-
-        // 分享时间
         Instant sharedAt
 ) {
     public CircleContentsSharedEvent {
-        // 保存此次业务变更的不可变快照。
+        // 保存本次变更的不可变快照，避免调用方后续修改列表。
         contents = List.copyOf(contents);
     }
 }

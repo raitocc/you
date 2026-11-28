@@ -31,10 +31,12 @@ public class CircleShare {
     @TableField("deleted_at")
     private Instant withdrawnAt;
 
+    /** 桥接全局逻辑删除：MP 按 deletedAt 属性注入过滤，业务名 withdrawnAt 通过这对方法接上。 */
     public Instant getDeletedAt() {
         return withdrawnAt;
     }
 
+    /** 桥接全局逻辑删除，见 getter 说明。 */
     public void setDeletedAt(Instant deletedAt) {
         this.withdrawnAt = deletedAt;
     }

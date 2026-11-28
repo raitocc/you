@@ -4,6 +4,10 @@ import lombok.Getter;
 import lombok.Setter;
 import java.time.Instant;
 import java.util.UUID;
+/**
+ * 圈子成员关系。退出或被移除只软删不清行，未被限制加入的可恢复同一条关系（保留原 ID 与创建时间）；
+ * 被移除的成员带 joinRestricted 标记，限制再次加入。
+ */
 @Getter
 @Setter
 @TableName("circle_member")
@@ -21,6 +25,6 @@ public class CircleMember {
     private Instant updatedAt;
     /** 是否限制再次加入，新增关系由数据库默认为 false。 */
     private Boolean joinRestricted;
-    /** 删除时间，null 表示有效。 */
+    /** 离开或移除时间，UTC；null 表示有效成员。 */
     private Instant deletedAt;
 }

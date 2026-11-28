@@ -5,7 +5,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import org.hibernate.validator.constraints.CodePointLength;
 import java.util.UUID;
-/** 圈子请求；名称去首尾空白，介绍最多 5000 Unicode 码点，头像省略或 null 使用默认头像。 */
+/**
+ * 全量修改圈子展示信息的请求。
+ * @param name 名称，去首尾空白后 1～128 个 Unicode 码点
+ * @param description 介绍，必须提交，null 清空，最多 5000 个 Unicode 码点
+ * @param avatarFileId 本人有效图片 ID，null 清空自定义头像（展示时回落默认头像）
+ */
 public record UpdateCircleRequest(
     @NotBlank @CodePointLength(max = 128)
     @Schema(description = "名称，去首尾空白后 1～128 Unicode 码点") String name,

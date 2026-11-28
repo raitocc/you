@@ -6,6 +6,13 @@ import jakarta.validation.constraints.*;
 import org.hibernate.validator.constraints.CodePointLength;
 import java.util.UUID;
 
+/**
+ * 创建圈子的请求，身份与邀请码由服务端确定。
+ * @param id 客户端预生成的 UUIDv7，重试保持不变以天然防重复
+ * @param name 名称，去首尾空白后 1～128 个 Unicode 码点，允许重名
+ * @param description 介绍，最多 5000 个 Unicode 码点；省略或 null 表示未设置
+ * @param avatarFileId 本人有效图片 ID，省略或 null 表示不设置自定义头像
+ */
 public record CreateCircleRequest(
     @NotNull
     @UUIDv7
