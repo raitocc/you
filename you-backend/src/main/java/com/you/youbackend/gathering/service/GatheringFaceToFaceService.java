@@ -1,6 +1,8 @@
 package com.you.youbackend.gathering.service;
 
 import com.you.youbackend.common.exception.BusinessException;
+import com.you.youbackend.common.util.TextUtils;
+import com.you.youbackend.common.util.TimeUtils;
 import com.you.youbackend.gathering.entity.Gathering;
 import com.you.youbackend.gathering.mapper.GatheringMapper;
 import com.you.youbackend.gathering.mapper.GatheringMemberMapper;
@@ -20,9 +22,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -47,6 +46,7 @@ public class GatheringFaceToFaceService {
     private final GatheringMapper gatheringMapper;
     private final GatheringMemberMapper gatheringMemberMapper;
     private final UserService userService;
+    private final GatheringAccessService gatheringAccessService;
 
     /**
      * 创建者首次开启面对面邀请，保存永久短码和临时位置。
@@ -56,12 +56,14 @@ public class GatheringFaceToFaceService {
      * @param request 已校验的四位短码与发起位置
      * @param userId 认证用户 ID，须为同行创建者
      * @return 同行 ID、首次短码与固定截止时间
+     * @throws BusinessException 同行不存在或已解散返回 404，非创建者返回 403，
+     *                          重复开启返回 409，邀请关闭或创建窗口已结束返回 400
      */
     @Transactional
     public FaceToFaceOpenResponse open(UUID gatheringId, OpenFaceToFaceRequest request, UUID userId) {
         // 1. 确认创建者、邀请开关、一次开启限制及创建时间窗口。
-        Instant now = Instant.now();
-        Gathering gathering = requireOpenableGathering(gatheringId, userId, now);
+        Instant now = TimeUtils.now();
+        Gathering gathering = getOpenableGathering(gatheringId, userId, now);
         // 2. 数据库条件更新保证首次登记，随后写入发起位置；异常时数据库写入回滚。
         saveFaceCode(gatheringId, request.faceCode(), now);
         redisService.saveLocation(
@@ -86,7 +88,7 @@ public class GatheringFaceToFaceService {
      */
     public List<FaceToFaceCandidateResponse> preview(FaceToFacePreviewRequest request, UUID userId) {
         // 1. GEO 只提供位置候选，实际邀请有效性由数据库决定。
-        Instant now = Instant.now();
+        Instant now = TimeUtils.now();
         List<FaceToFaceMatch> matches = redisService.findNearby(
                 request.faceCode(), request.latitude(), request.longitude(), now);
         if (matches.isEmpty()) {
@@ -108,16 +110,9 @@ public class GatheringFaceToFaceService {
      * @param now 本次开启时间
      * @return 已确认可以首次开启的同行
      */
-    private Gathering requireOpenableGathering(UUID gatheringId, UUID userId, Instant now) {
-        // 1. 查询有效同行，开启权限由创建者身份决定。
-        Gathering gathering = gatheringMapper.selectById(gatheringId);
-        if (gathering == null) {
-            throw BusinessException.notFound("GATHERING_NOT_FOUND", "同行不存在或已解散");
-        }
-        if (!gathering.getCreatorUserId().equals(userId)) {
-            log.warn("开启面对面邀请被拒绝，gatheringId={}，userId={}，reason=当前用户非创建者", gatheringId, userId);
-            throw BusinessException.forbidden("只有创建者可以开启面对面加入");
-        }
+    private Gathering getOpenableGathering(UUID gatheringId, UUID userId, Instant now) {
+        // 1. 开启权限由创建者身份决定，同行有效性一并校验。
+        Gathering gathering = gatheringAccessService.getCreatorGathering(gatheringId, userId);
         // 2. 首次短码永久保留，已开启的同行后续始终按重复开启处理。
         if (gathering.getFaceCode() != null) {
             log.debug("重复开启面对面邀请，gatheringId={}，userId={}", gatheringId, userId);
@@ -142,8 +137,7 @@ public class GatheringFaceToFaceService {
      */
     private void saveFaceCode(UUID gatheringId, String faceCode, Instant now) {
         // face_code IS NULL 保证只成功登记一次，更新失败时结束当前请求。
-        LocalDateTime savedAt = LocalDateTime.ofInstant(now, ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
-        if (gatheringMapper.setFaceCodeIfAbsent(gatheringId, faceCode, savedAt) == 0) {
+        if (gatheringMapper.setFaceCodeIfAbsent(gatheringId, faceCode, now) == 0) {
             log.debug("首次短码登记冲突，gatheringId={}", gatheringId);
             throw BusinessException.conflict("FACE_TO_FACE_ALREADY_OPENED", "该同行已开启过面对面邀请");
         }
@@ -159,7 +153,7 @@ public class GatheringFaceToFaceService {
     private List<Gathering> findValidGatherings(List<FaceToFaceMatch> matches, String faceCode, Instant now) {
         // 按 ID 批量查询，并由数据库统一筛选短码、邀请开关和有效期；软删除沿用全局配置。
         List<UUID> ids = matches.stream().map(FaceToFaceMatch::gatheringId).toList();
-        LocalDateTime createdAfter = LocalDateTime.ofInstant(now.minus(FaceToFaceRules.WINDOW), ZoneOffset.UTC);
+        Instant createdAfter = now.minus(FaceToFaceRules.WINDOW);
         return gatheringMapper.selectFaceToFaceCandidates(ids, faceCode, createdAfter);
     }
 
@@ -183,7 +177,7 @@ public class GatheringFaceToFaceService {
         Map<UUID, PublicUserResponse> creators = userService.getPublicUsers(creatorIds);
         List<UUID> gatheringIds = gatherings.stream().map(Gathering::getId).toList();
         Set<UUID> joinedIds = gatheringMemberMapper.selectActiveGatheringIds(gatheringIds, userId);
-        // 3. 直接遍历有效同行组装响应；创建者资料缺失时沿用隐藏该候选的现有行为。
+        // 3. 逐个组装候选：补摘要、距离、截止时间和成员标记；创建者资料缺失的候选直接隐藏
         List<FaceToFaceCandidateResponse> candidates = new ArrayList<>();
         for (Gathering gathering : gatherings) {
             PublicUserResponse creator = creators.get(gathering.getCreatorUserId());
@@ -221,12 +215,7 @@ public class GatheringFaceToFaceService {
      */
     private FaceToFaceSummaryResponse toSummaryResponse(Gathering gathering, PublicUserResponse creator) {
         // 按码点截取介绍，确保 emoji 等补充字符保持完整；未填写介绍时保留 null。
-        String description = gathering.getDescription();
-        if (description != null) {
-            int end = description.offsetByCodePoints(0,
-                    Math.min(SUMMARY_DESCRIPTION_LENGTH, description.codePointCount(0, description.length())));
-            description = description.substring(0, end);
-        }
+        String description = TextUtils.truncateByCodePoints(gathering.getDescription(), SUMMARY_DESCRIPTION_LENGTH);
         return new FaceToFaceSummaryResponse(gathering.getId(), gathering.getName(), description, creator);
     }
 

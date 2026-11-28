@@ -13,7 +13,6 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -21,7 +20,10 @@ import java.util.UUID;
 /** 同行主表读写，复用全局 UUID 映射与软删除配置。 */
 @Mapper
 public interface GatheringMapper extends BaseMapper<Gathering> {
-    /** 查询包含已解散记录的同行，用于校验创建者和识别重复解散。 */
+    /**
+     * 按 ID 查同行，含已解散的记录（自定义 SQL，绕过 MP 的逻辑删除过滤）。
+     * 当前解散不幂等、无调用方；若后续恢复重复解散幂等判断，用它识别重复请求。
+     */
     @Select("""
             SELECT id, created_at, updated_at, creator_user_id, name, description,
                    status, invite_enabled, invite_code, face_code, deleted_at
@@ -29,19 +31,30 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
             """)
     Gathering selectIncludingDeleted(@Param("id") UUID id);
 
-    /** 将有效同行结束，同时关闭邀请；已有成员和内容保留。 */
-    default void endGathering(UUID id, LocalDateTime updatedAt) {
+    /**
+     * 将有效同行结束，同时关闭邀请；已有成员和内容保留。
+     * @param id 有效同行 ID
+     * @param updatedAt 本次结束时间，UTC，写入 updatedAt
+     */
+    default void endGatheringByGatheringId(UUID id, Instant updatedAt) {
         // 同一条更新保存结束状态和邀请开关。
-        update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, id)
+        update(Wrappers.<Gathering>lambdaUpdate()
+                .eq(Gathering::getId, id)
                 .set(Gathering::getStatus, GatheringStatus.ENDED)
-                .set(Gathering::getInviteEnabled, false).set(Gathering::getUpdatedAt, updatedAt));
+                .set(Gathering::getInviteEnabled, false)
+                .set(Gathering::getUpdatedAt, updatedAt));
     }
 
-    /** 软删除同行，解散时间同时作为修改时间；重复请求由业务层识别。 */
-    default void dissolveGathering(UUID id, Instant deletedAt) {
+    /**
+     * 软删除同行（解散），解散时间同时作为修改时间；仅更新有效同行，重复解散由业务层报 404。
+     * @param id 有效同行 ID
+     * @param deletedAt 本次解散时间，UTC，同时写入 deletedAt 和 updatedAt
+     */
+    default void deleteByGatheringId(UUID id, Instant deletedAt) {
         // 沿用全局逻辑删除过滤，仅更新有效同行。
         update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, id)
-                .set(Gathering::getDeletedAt, deletedAt).set(Gathering::getUpdatedAt, deletedAt));
+                .set(Gathering::getDeletedAt, deletedAt)
+                .set(Gathering::getUpdatedAt, deletedAt));
     }
 
 
@@ -66,11 +79,12 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
         }
         // 3. 统一排序，交给固定 SQL 多取一条判断下一页。
         query.orderByDesc("g.created_at", "g.id");
-        return selectPageAfterCursorByUserId(query, rowCount);
+        return selectPageRows(query, rowCount);
     }
 
     /**
-     * 根据成员关系查询同行，筛选与排序由 selectPageAfterCursorByUserId 构造。
+     * 执行成员 JOIN 同行的分页查询，返回完整同行实体。
+     * 条件、游标边界与排序由调用方在包装器中给出（表前缀 m./g.），LIMIT 按 rowCount 截断行数。
      * @param query 成员筛选、软删除过滤、游标及排序条件
      * @param rowCount 已校验页大小加一
      * @return 有序完整同行实体
@@ -83,7 +97,7 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
             ${ew.customSqlSegment}
             LIMIT #{rowCount}
             """)
-    List<Gathering> selectPageAfterCursorByUserId(@Param(Constants.WRAPPER) Wrapper<Gathering> query,
+    List<Gathering> selectPageRows(@Param(Constants.WRAPPER) Wrapper<Gathering> query,
                                    @Param("rowCount") int rowCount);
 
     /**
@@ -92,7 +106,7 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
      * @return 更新行数
      */
     default int updateContentById(Gathering gathering) {
-        // 只覆盖本次全量编辑范围，保留状态、邀请设置及创建信息。
+        // 只更新名称、介绍和修改时间；状态、邀请开关、邀请码、短码、创建者与创建时间保持不变。
         return update(Wrappers.<Gathering>lambdaUpdate().eq(Gathering::getId, gathering.getId())
                 .set(Gathering::getName, gathering.getName())
                 .set(Gathering::getDescription, gathering.getDescription())
@@ -111,7 +125,7 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
             WHERE id = #{gatheringId} AND face_code IS NULL AND deleted_at IS NULL
             """)
     int setFaceCodeIfAbsent(@Param("gatheringId") UUID gatheringId, @Param("faceCode") String faceCode,
-                           @Param("updatedAt") LocalDateTime updatedAt);
+                           @Param("updatedAt") Instant updatedAt);
 
     /**
      * 从 GEO 候选中筛出仍有效的面对面邀请。
@@ -121,7 +135,7 @@ public interface GatheringMapper extends BaseMapper<Gathering> {
      * @return 邀请开启、短码一致且未过期的完整同行，软删除由全局配置过滤
      */
     default List<Gathering> selectFaceToFaceCandidates(
-            Collection<UUID> ids, String faceCode, LocalDateTime createdAfter) {
+            Collection<UUID> ids, String faceCode, Instant createdAfter) {
         // 位置来自 GEO，实际短码与有效期统一按数据库记录判断。
         return selectList(Wrappers.<Gathering>lambdaQuery().in(Gathering::getId, ids)
                 .eq(Gathering::getFaceCode, faceCode)

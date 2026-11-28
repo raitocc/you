@@ -21,18 +21,20 @@ import java.util.stream.Collectors;
 /** 同行成员表读写，复用全局 UUID 映射与软删除配置。 */
 @Mapper
 public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
-    /** 查询本人关系，包含已退出记录；用于区分重复退出和从未加入。 */
-    @Select("""
-            SELECT id, gathering_id, user_id, created_at, updated_at, deleted_at
-            FROM gathering_member WHERE gathering_id = #{gatheringId} AND user_id = #{userId}
-            """)
-    GatheringMember selectIncludingDeleted(@Param("gatheringId") UUID gatheringId, @Param("userId") UUID userId);
 
-    /** 软删除指定成员关系，保留原 ID 与创建时间，供重新加入恢复。 */
-    default void leaveGathering(UUID memberId, Instant deletedAt) {
+    /**
+     * 软删除指定成员关系，保留原 ID 与创建时间，供重新加入恢复。
+     * @param gatheringId 同行 ID
+     * @param userId 成员用户 ID
+     * @param deletedAt 退出时间，UTC，同时写入 deletedAt 和 updatedAt
+     */
+    default void deleteByGatheringIdAndUserId(UUID gatheringId, UUID userId, Instant deletedAt) {
         // 只修改该成员，删除时间与修改时间统一。
-        update(Wrappers.<GatheringMember>lambdaUpdate().eq(GatheringMember::getId, memberId)
-                .set(GatheringMember::getDeletedAt, deletedAt).set(GatheringMember::getUpdatedAt, deletedAt));
+        update(Wrappers.<GatheringMember>lambdaUpdate()
+                .eq(GatheringMember::getGatheringId, gatheringId)
+                .eq(GatheringMember::getUserId, userId)
+                .set(GatheringMember::getDeletedAt, deletedAt)
+                .set(GatheringMember::getUpdatedAt, deletedAt));
     }
 
 
@@ -55,7 +57,7 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
                     .or(sameTime -> sameTime.eq(GatheringMember::getCreatedAt, cursorTime)
                             .gt(GatheringMember::getUserId, cursorUserId)));
         }
-        // 3. 统一排序并多读取一条，重新加入仍保持原关系创建时间。
+        // 3. 统一排序并多读取一条判断下一页；排序键是关系创建时间，重新加入不刷新它，翻页边界保持稳定。
         return selectList(query.orderByAsc(GatheringMember::getCreatedAt, GatheringMember::getUserId)
                 .last("LIMIT " + rowCount));
     }
@@ -120,7 +122,7 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
                 .eq(GatheringMember::getUserId, userId)) > 0;
     }
 
-    /** 通过 gatheringId 查询 gathering_member 表，获取该 gatheringId 同行下的有效成员用户 userId 列表 */
+    /** 读取同行全部有效成员的用户 ID，供解散通知等批量场景使用；已退出或移除的成员不返回。 */
     default List<UUID> selectActiveUserIds(UUID gatheringId) {
         return selectList(Wrappers.<GatheringMember>lambdaQuery()
                 .select(GatheringMember::getUserId)
@@ -133,8 +135,8 @@ public interface GatheringMemberMapper extends BaseMapper<GatheringMember> {
      * @param gatheringId 已确认有效的同行 ID
      * @return 未软删除的成员关系数量，包含创建者
      */
-    default long CountByGatheringId(UUID gatheringId) {
-        // 统计使用与成员访问一致的逻辑删除规则。
+    default long countByGatheringId(UUID gatheringId) {
+        // 统计该同行的成员关系行；已退出或移除的不计入（软删自动过滤）
         return selectCount(Wrappers.<GatheringMember>lambdaQuery()
                 .eq(GatheringMember::getGatheringId, gatheringId));
     }

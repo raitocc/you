@@ -108,7 +108,7 @@ public class MomentController {
 
             @RequestAttribute(JwtAuthFilter.CURRENT_USER_ID)
             UUID userId) {
-        return Result.ok(momentService.getMoment(momentId, userId));
+        return Result.ok(momentService.getMomentDetail(momentId, userId));
     }
 
     /**

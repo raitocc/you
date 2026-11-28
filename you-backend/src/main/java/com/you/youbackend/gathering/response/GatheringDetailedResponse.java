@@ -15,8 +15,8 @@ import java.util.UUID;
  * @param name 名称，去首尾空白后 1～128 个 Unicode 码点
  * @param description 介绍；未设置为 null
  * @param creator 创建者公开资料
- * @param memberCount 有效成员数量，创建时为 1
- * @param momentCount 有效关联瞬间数量，创建时为 0
+ * @param memberCount 有效成员数量
+ * @param momentCount 有效关联瞬间数量
  * @param inviteCode 系统生成的长期邀请码
  * @param createdAt 创建时间，UTC
  * @param updatedAt 最后修改时间，UTC

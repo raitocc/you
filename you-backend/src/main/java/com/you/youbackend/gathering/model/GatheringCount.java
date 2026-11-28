@@ -10,6 +10,6 @@ import java.util.UUID;
 public class GatheringCount {
     /** 被统计的同行 ID。 */
     private UUID gatheringId;
-    /** 当前有效记录数。 */
+    /** 未软删的记录数。 */
     private long count;
 }

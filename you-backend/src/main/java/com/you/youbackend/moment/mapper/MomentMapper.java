@@ -40,15 +40,15 @@ public interface MomentMapper extends BaseMapper<Moment> {
             UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}
             WHERE gathering_id = #{gatheringId} AND author_user_id = #{userId}
             """)
-    int removeAllOwnedGathering(@Param("gatheringId") UUID gatheringId, @Param("userId") UUID userId,
-                               @Param("updatedAt") Instant updatedAt);
+    int removeGatheringIdByGatheringIdAndUserId(@Param("gatheringId") UUID gatheringId, @Param("userId") UUID userId,
+                                                @Param("updatedAt") Instant updatedAt);
 
     /** 解散时解除该同行全部瞬间关联，包含已删除瞬间，原内容保留。 */
     @Update("""
             UPDATE moment SET gathering_id = NULL, updated_at = #{updatedAt}
             WHERE gathering_id = #{gatheringId}
             """)
-    int removeAllGathering(@Param("gatheringId") UUID gatheringId, @Param("updatedAt") Instant updatedAt);
+    int removeGatheringIdByGatheringId(@Param("gatheringId") UUID gatheringId, @Param("updatedAt") Instant updatedAt);
 
 
     /**
@@ -59,8 +59,8 @@ public interface MomentMapper extends BaseMapper<Moment> {
      * @param rowCount 页大小加一，用于判断下一页
      * @return 仅含 id、authorUserId、title、body、mood、memoryTime 的摘要投影
      */
-    default List<Moment> selectGatheringPage(UUID gatheringId, Instant cursorTime,
-                                            UUID cursorId, int rowCount) {
+    default List<Moment> selectPageAfterCursorByGatheringId(UUID gatheringId, Instant cursorTime,
+                                                            UUID cursorId, int rowCount) {
         // 1. 限定同行，读取摘要及批量加载作者资料所需字段。
         var query = Wrappers.<Moment>lambdaQuery()
                 .select(Moment::getId, Moment::getAuthorUserId, Moment::getTitle, Moment::getBody,
@@ -178,12 +178,6 @@ public interface MomentMapper extends BaseMapper<Moment> {
                 .select(Moment::getId)
                 .eq(Moment::getAuthorUserId, userId)
                 .in(Moment::getId, ids)).stream().map(Moment::getId).toList();
-    }
-
-    default long countByAuthorUserIdAndIds(UUID userId, List<UUID> ids) {
-        return selectCount(Wrappers.<Moment>lambdaQuery()
-                .eq(Moment::getAuthorUserId, userId)
-                .in(Moment::getId, ids));
     }
 
     /**

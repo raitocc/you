@@ -93,7 +93,7 @@ public class RelatedFeedService {
                 ? List.of() : albumMapper.selectByIds(albumIds);
         // 通过瞬间服务，把 Moment 对象组装为 MomentSummaryResponse 对象，建立 Map(瞬间 ID：瞬间概要) 的映射
         Map<UUID, MomentSummaryResponse> momentSummaries =
-                momentService.loadSummaries(moments).stream()
+                momentService.convertToSummaryResponse(moments).stream()
                         .collect(Collectors.toMap(
                                 MomentSummaryResponse::id, Function.identity() // 表示对象本身
                         ));

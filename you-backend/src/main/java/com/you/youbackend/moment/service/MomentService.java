@@ -9,7 +9,7 @@ import com.you.youbackend.common.util.TextUtils;
 import com.you.youbackend.common.util.TimeUtils;
 import com.you.youbackend.gathering.event.GatheringMomentsLinkedEvent;
 import com.you.youbackend.gathering.model.GatheringMomentCursor;
-import com.you.youbackend.gathering.service.GatheringService;
+import com.you.youbackend.gathering.service.GatheringAccessService;
 import com.you.youbackend.media.service.MediaService;
 import com.you.youbackend.moment.entity.Moment;
 import com.you.youbackend.moment.entity.MomentImage;
@@ -54,11 +54,10 @@ public class MomentService {
     private final MomentImageMapper momentImageMapper;
     private final MomentTagMapper momentTagMapper;
     private final MediaService mediaService;
-    private final GatheringService gatheringService;
+    private final GatheringAccessService gatheringAccessService;
     private final UserService userService;
     private final ApplicationEventPublisher events;
     private final AlbumMomentMapper albumMomentMapper;
-
 
 
     /**
@@ -121,7 +120,7 @@ public class MomentService {
         validateMomentContent(request.body(), imageFileIds);
         // 2. 验证同行权限
         if (request.gatheringId() != null) {
-            gatheringService.validateCanAddMoment(request.gatheringId(), userId);
+            gatheringAccessService.validateCanAddMoment(request.gatheringId(), userId);
         }
         // 3. 验证并标准化标签内容
         List<String> tags = validateTags(request.tags());
@@ -203,7 +202,7 @@ public class MomentService {
      * @throws BusinessException 瞬间不存在或非本人时抛出（404/403）
      */
     @Transactional(readOnly = true)
-    public MomentDetailedResponse getMoment(UUID momentId, UUID userId) {
+    public MomentDetailedResponse getMomentDetail(UUID momentId, UUID userId) {
         // 1. 获取已鉴权的 moment
         Moment moment = getOwnedMoment(momentId, userId);
         // 2. 转换为响应对象
@@ -239,7 +238,7 @@ public class MomentService {
         // 4.3 删除tag关联
         momentTagMapper.removeAssociationsByMomentId(momentId, deletedAt);
         // 4.4 清理albummoment关联
-        albumMomentMapper.removeAssociationsByMomentId(momentId,deletedAt);
+        albumMomentMapper.removeAssociationsByMomentId(momentId, deletedAt);
 
         // 5. 发布事件：【一个瞬间已删除】
         events.publishEvent(new MomentDeletedEvent(
@@ -249,8 +248,6 @@ public class MomentService {
 
         log.info("已删除瞬间，momentId={}，userId={}", momentId, userId);
     }
-
-
 
 
     /**
@@ -382,7 +379,14 @@ public class MomentService {
     }
 
 
-
+    private Moment getMoment(UUID momentId) {
+        Moment moment = momentMapper.selectById(momentId);
+        if (moment == null) {
+            log.debug("瞬间查询未命中");
+            throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在");
+        }
+        return moment;
+    }
 
     /**
      * 按 ID 查瞬间，并确认是不是当前用户自己的（默认不查已删除的）。
@@ -404,8 +408,8 @@ public class MomentService {
      * <p>流程：按开关查库拿瞬间 → 没查到记 debug 日志并抛未找到异常 → 作者不是当前用户记 warn 日志并抛无权限异常 → 返回瞬间。
      * 只读查询，无副作用。</p>
      *
-     * @param momentId      瞬间 ID
-     * @param ownerUserId   当前用户 ID
+     * @param momentId       瞬间 ID
+     * @param ownerUserId    当前用户 ID
      * @param includeDeleted 是否包含已逻辑删除的瞬间（{@code true} 包含，给删除流程识别重复删除用；{@code false} 只查正常状态）
      * @return 校验通过的瞬间实体
      * @throws BusinessException 瞬间不存在（{@code MOMENT_NOT_FOUND}）或非本人所有时抛出
@@ -428,7 +432,9 @@ public class MomentService {
         return moment;
     }
 
-    /** 批量读取本人有效瞬间的 ID、作者和同行归属，任一瞬间无效则整批报错。 */
+    /**
+     * 批量读取本人有效瞬间的 ID、作者和同行归属，任一瞬间无效则整批报错。
+     */
     public List<Moment> getOwnedMoments(List<UUID> momentIds, UUID ownerUserId) {
         Assert.notEmpty(momentIds, "至少传入一个 momentId");
 
@@ -447,17 +453,14 @@ public class MomentService {
      * <p>流程：列表非空检查 → 数出列表里属于本人且未删除的条数 → 和列表长度比对，对不上整体报错，不指认具体哪个 ID。
      * 只读查询，无副作用。</p>
      *
-     * @param momentIds   要检查的瞬间 ID 列表（调用方需提前去重；重复 ID 会被多算，导致误判失败）
+     * @param momentIds   要检查的瞬间 ID 列表（重复 ID 内部去重）
      * @param ownerUserId 当前用户 ID
      * @throws IllegalArgumentException momentIds 为 null 或空时抛出
      * @throws BusinessException        有瞬间不存在、已删除或不属于本人时抛出（{@code INVALID_ARGUMENT}）
      */
     public void validateOwnedMoments(List<UUID> momentIds, UUID ownerUserId) {
-        Assert.notEmpty(momentIds,"至少传入一个 momentId");
-        long validCount = momentMapper.countByAuthorUserIdAndIds(ownerUserId, momentIds);
-        if (validCount != momentIds.size()) {
-            throw BusinessException.invalidArgument("部分瞬间不存在、已删除或无权限");
-        }
+        // 同一份校验复用 getOwnedMoments，调用方只要放行、不需要实体时丢弃返回值。
+        getOwnedMoments(momentIds, ownerUserId);
     }
 
     /**
@@ -755,23 +758,6 @@ public class MomentService {
     }
 
 
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-    // ----------------------------------------------------
-
     /**
      * 浏览有效同行成员可读的瞬间时间线，按发生时间和 ID 正序。
      *
@@ -783,21 +769,29 @@ public class MomentService {
     @Transactional(readOnly = true)
     public ResultPage<MomentSummaryResponse, GatheringMomentCursor> browseGatheringMoments(
             UUID gatheringId, PageRequest<GatheringMomentCursor> request, UUID userId) {
-        // 1. 同行及成员资格先校验，已结束和关闭邀请不影响已有成员读取。
-        gatheringService.getMemberGathering(gatheringId, userId);
-        List<Moment> rows = queryGatheringMoments(gatheringId, request);
-        // 2. 多查一条判断下一页，仅对实际返回的本页批量补齐图片和作者。
+        // 1. 鉴权，用户必须在改同行里
+        gatheringAccessService.getMemberGathering(gatheringId, userId);
+        // 2. 分页查询
+        GatheringMomentCursor cursor = request.cursor();
+        Instant cursorTime = cursor == null ? null : cursor.memoryTime();
+        UUID cursorId = cursor == null ? null : cursor.id();
+        List<Moment> rows = momentMapper.selectPageAfterCursorByGatheringId(gatheringId, cursorTime, cursorId, request.limit() + 1);
+        if (rows.isEmpty()){
+            log.debug("浏览同行瞬间，gatheringId={}，userId={}，count={}，hasMore={}", gatheringId, userId, 0, false);
+            return ResultPage.empty();
+        }
+        // 3. 构造响应
         boolean hasMore = rows.size() > request.limit();
         List<Moment> page = rows.subList(0, Math.min(rows.size(), request.limit()));
-        List<MomentSummaryResponse> items = loadSummaries(page);
-        GatheringMomentCursor nextCursor = null;
-        if (hasMore) {
-            Moment last = page.get(page.size() - 1);
-            nextCursor = new GatheringMomentCursor(last.getMemoryTime(), last.getId());
-        }
-        log.debug("浏览同行瞬间，gatheringId={}，userId={}，count={}，hasMore={}", gatheringId, userId, items.size(), hasMore);
-        return new ResultPage<>(items, nextCursor, hasMore);
+        List<MomentSummaryResponse> momentSummaryResponses = convertToSummaryResponse(page);
+        log.debug("浏览同行瞬间，gatheringId={}，userId={}，count={}，hasMore={}", gatheringId, userId, momentSummaryResponses.size(), hasMore);
+        return ResultPage.toResultPage(
+                momentSummaryResponses,
+                hasMore,
+                last->new GatheringMomentCursor(last.memoryTime(),last.id()));
     }
+
+
 
     /**
      * 经同行入口读取共享详情，成员资格和当前关联均须有效。
@@ -809,18 +803,36 @@ public class MomentService {
      */
     @Transactional(readOnly = true)
     public MomentDetailedResponse getGatheringMoment(UUID gatheringId, UUID momentId, UUID userId) {
-        // 1. 校验同行成员资格，再确认瞬间仍在当前同行。
-        gatheringService.getMemberGathering(gatheringId, userId);
-        Moment moment = momentMapper.selectById(momentId);
-        if (moment == null || !gatheringId.equals(moment.getGatheringId())) {
+        // 1. 鉴权，用户必须在同行里
+        gatheringAccessService.getMemberGathering(gatheringId, userId);
+        Moment moment = getMoment(momentId);
+        // 2. 鉴权，moment必须也在同行里
+        if (!gatheringId.equals(moment.getGatheringId())) {
             throw BusinessException.notFound("MOMENT_NOT_FOUND", "瞬间不存在、已删除或已移出当前同行");
         }
-        // 2. 访问资格通过后，统一加载关联图片、标签及公开作者资料。
-        MomentDetailedResponse response = loadAuthorizedResponses(List.of(moment)).get(0);
+        // 3. 构造响应
+        MomentDetailedResponse response = convertToDetailedResponse(moment);
         log.debug("查看同行瞬间，gatheringId={}，momentId={}，userId={}", gatheringId, momentId, userId);
         return response;
     }
 
+
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
+    // ----------------------------------------------------
 
     /**
      * 为已通过访问检查的瞬间批量加载图片、标签和作者资料，返回完整详情。调用方负责检查权限。
@@ -860,7 +872,7 @@ public class MomentService {
         GatheringMomentCursor cursor = request.cursor();
         Instant cursorTime = cursor == null ? null : cursor.memoryTime();
         UUID cursorId = cursor == null ? null : cursor.id();
-        return momentMapper.selectGatheringPage(gatheringId, cursorTime, cursorId, request.limit() + 1);
+        return momentMapper.selectPageAfterCursorByGatheringId(gatheringId, cursorTime, cursorId, request.limit() + 1);
     }
 
     /**

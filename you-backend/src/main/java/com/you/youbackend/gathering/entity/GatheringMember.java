@@ -7,10 +7,12 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.UUID;
 
-/** 同行成员关系，同一同行与用户由数据库唯一索引约束。 */
+/**
+ * 同行成员关系。同一同行与用户由数据库唯一索引约束，退出或移除只软删不清行，
+ * 重新加入恢复同一条关系（保留原 ID 与创建时间）。
+ */
 @Getter
 @Setter
 @TableName("gathering_member")

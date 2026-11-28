@@ -14,7 +14,11 @@ import java.util.UUID;
 @Schema(description = "同行瞬间游标，按发生时间、ID 正序")
 public record GatheringMomentCursor(
         @NotNull(message = "请提供游标发生时间")
-        @Schema(description = "上一页末项发生时间，UTC", format = "date-time") Instant memoryTime,
-        @NotNull(message = "请提供游标瞬间 ID") @UUIDv7(checkTimestamp = false)
-        @Schema(description = "上一页末项瞬间 UUIDv7", format = "uuid") UUID id
+        @Schema(description = "上一页末项发生时间，UTC", format = "date-time")
+        Instant memoryTime,
+
+        @NotNull(message = "请提供游标瞬间 ID")
+        @UUIDv7(checkTimestamp = false)
+        @Schema(description = "上一页末项瞬间 UUIDv7", format = "uuid")
+        UUID id
 ) {}
